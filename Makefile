@@ -1,3 +1,17 @@
+# Copyright (c) 2025, Oak Ridge National Laboratory.  All rights reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 .PHONY: all
 
 all: python_conda_install clean pytorch
@@ -12,19 +26,18 @@ local:
 	echo "build over local machine"
 	pip install -r requirements.txt
 
-# first check if each exists...
 docker:
 	echo "installing docker" && cd scripts && ./install_docker.sh
 
 lxc:
-	echo "install and setup linux containers"
+	echo "installing linux containers lxc" && cd scripts && ./install_lxc.sh
 
 singularity:
-	echo "set up containerization with singularity"
+	echo "setting up containerization with singularity" && cd scripts && ./install_singularity.sh
 
 shifter:
 	echo "no support for shifter yet..."
 
 pytorch:
-	# use argument "USE_MPI" to build pytorch from source with MPI support
-	echo "build pytorch from source." && cd scripts && ./install_pytorch_from_source.sh "NO_MPI"
+	# use argument "USE_MPI" to build pytorch from source with MPI support. currently not using it
+	echo "building pytorch from source..." && cd scripts && ./install_pytorch_from_source.sh "NO_MPI"
