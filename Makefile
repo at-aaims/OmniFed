@@ -14,7 +14,7 @@
 
 .PHONY: all
 
-all: python_conda_install clean pytorch
+all: python_conda_install clean local
 
 python_conda_install:
 	cd scripts && chmod a+x *.sh && ./install_python_conda.sh
@@ -37,6 +37,9 @@ singularity:
 
 shifter:
 	echo "no support for shifter yet..."
+
+mqtt:
+	echo "installing mqtt server..." && cd scripts && ./install_mqtt.sh
 
 pytorch:
 	# use argument "USE_MPI" to build pytorch from source with MPI support. currently not using it

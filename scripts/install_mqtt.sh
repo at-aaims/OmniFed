@@ -22,31 +22,42 @@ else
     exit 1
 fi
 
-install_lxc() {
+install_mqtt() {
     case "$OS" in
-        ubuntu)
+        ubuntu|debian)
             sudo apt update
-            sudo apt install -y lxc lxc-utils lxc-templates
+            sudo apt install -y mosquitto mosquitto-clients
             ;;
         centos|rhel)
             sudo yum install -y epel-release
-            sudo yum install -y lxc lxc-libs lxc-templates
+            sudo yum install -y mosquitto mosquitto-clients
             ;;
         fedora)
-            sudo dnf install -y lxc lxc-libs lxc-templates
+            sudo dnf install -y mosquitto mosquitto-clients
             ;;
         arch)
-            sudo pacman -S lxc lxc-templates
+            sudo pacman -S mosquitto
             ;;
         *)
             echo "Unsupported OS: $OS"
             exit 1
             ;;
     esac
-    echo "installed lxc successfully."
+    echo "installed MQTT successfully."
 }
 
-install_lxc
-sudo systemctl enable lxc
-sudo systemctl start lxc
-lxc-info --version
+install_mqtt
+
+##start and enable mosquitto
+#sudo systemctl enable --now mosquitto
+#sudo systemctl start mosquitto
+#systemctl status mosquitto
+
+##test publish/subscribe on MQTT topic
+#mosquitto_sub -h localhost -t "test/topic" &
+#mosquitto_pub -h localhost -t "test/topic" -m "Hello MQTT"
+
+##edit the following file to enable remote connections by adding listener 1883, allow_anonymous true
+#sudo nano /etc/mosquitto/mosquitto.conf
+##restart the service
+#sudo systemctl restart mosquitto

@@ -40,6 +40,10 @@ install_singularity_dependencies() {
         arch)
             sudo pacman -S --needed go squashfs-tools cryptsetup
             ;;
+        *)
+            echo "Unsupported OS: $OS"
+            exit 1
+            ;;
     esac
     echo "installed all dependencies.."
 }
