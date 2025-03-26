@@ -9,7 +9,6 @@ else
     exit 1
 fi
 
-# Function to install Python 3.9
 install_python() {
     case "$OS" in
         ubuntu|debian)
@@ -37,7 +36,6 @@ install_python() {
     echo "Python 3.9 installed successfully."
 }
 
-# Function to install Miniconda
 install_conda() {
     wget https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh -O miniconda.sh
     bash miniconda.sh -b -p $HOME/miniconda

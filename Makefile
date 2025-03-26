@@ -10,10 +10,11 @@ clean:
 
 local:
 	echo "build over local machine"
+	pip install -r requirements.txt
 
 # first check if each exists...
 docker:
-	echo "install docker and applicable images (if any)..."
+	echo "installing docker" && cd scripts && ./install_docker.sh
 
 lxc:
 	echo "install and setup linux containers"
@@ -25,7 +26,5 @@ shifter:
 	echo "no support for shifter yet..."
 
 pytorch:
-	# build pytorch from source
-	# check if building locally or over containers. if using container, check if appropriate image exists
-	# checkpoint a specific version with the repo before building...
-	echo "add support to build pytorch over rocm/cuda/cpu." && cd scripts && ./install_pytorch_from_source.sh
+	# use argument "USE_MPI" to build pytorch from source with MPI support
+	echo "build pytorch from source." && cd scripts && ./install_pytorch_from_source.sh "NO_MPI"
