@@ -39,13 +39,13 @@ def aggregate_updates(ch, method, properties, body, total_clients):
 class MessageQueueCommunicator(Communicator):
 
     def __init__(self, id=0, total_clients=1, rabbitmq_url='amqp://localhost', queue_name='flora'):
+        super().__init__(protocol_type="msg_queue")
         self.id = id
         self.total_clients = total_clients
         self.connection = pika.BlockingConnection(pika.URLParameters(rabbitmq_url))
         self.channel = self.connection.channel()
         self.queue_name = queue_name
         self.channel.queue_declare(queue=self.queue_name)
-        super().__init__(protocol_type="msg_queue")
 
     def aggregate(self, msg, communicate_params=True):
         # worker with id 0 aggregates updates from all other workers
@@ -68,6 +68,8 @@ class MessageQueueCommunicator(Communicator):
                 model_update = msg
 
             self.channel.basic_publish(exchange='', routing_key=self.queue_name, body=pickle.dumps(model_update))
+
+            # TODO: implement pulling averaged model
 
 
     def close(self):
