@@ -12,5 +12,29 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# contains fn calls and implementation of different communication mechanisms like MPI, gRPC and MQTT.
+# contains fn calls and implementation of different communication mechanisms like MPI, gRPC and MQTT, WebSocket??
 # also implements different compressors to reduce communication volume/cost
+
+from abc import ABC, abstractmethod
+
+class Communicator(ABC):
+    def __init__(self, protocol_type):
+        self.protocol_type = protocol_type
+
+    def broadcast(self, **kwargs):
+        raise NotImplemented("implement broadcast")
+
+    def send(self, **kwargs):
+        raise NotImplemented("implement send")
+
+    def receive(self, **kwargs):
+        raise NotImplemented("implement receive")
+
+    def aggregate(self, **kwargs):
+        raise NotImplemented("implement aggregate")
+
+    def allgather(self, **kwargs):
+        raise NotImplemented("implement allgather")
+
+    def close(self, **kwargs):
+        raise NotImplemented("implement close")

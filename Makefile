@@ -24,7 +24,7 @@ clean:
 
 local:
 	echo "build over local machine"
-	pip install -r requirements.txt
+	cd scripts && ./install_mpi.sh && pip install -r requirements.txt
 
 docker:
 	echo "installing docker" && cd scripts && ./install_docker.sh
