@@ -76,3 +76,58 @@ class UnsplitData(object):
 
     def use(self, partition_ix):
         return Partition(self.data, self.partitions[partition_ix])
+
+
+class partioneDataset(torch.utils.data.Dataset):
+    def __init__(self, data):
+        """
+        Initialize the dataset with a list.
+
+        Args:
+            data (list): A list of tuples (image, label).
+        """
+        self.data = data
+
+    def __len__(self):
+        """Return the total number of samples in the dataset."""
+        return len(self.data)
+
+    def __getitem__(self, idx):
+        """
+        Retrieve a sample by index.
+
+        Args:
+            idx (int): Index of the sample to retrieve.
+
+        Returns:
+            tuple: A tuple containing the data (e.g., image) and the label.
+        """
+        image, label = self.data[idx]
+        return torch.tensor(image, dtype=torch.float32), torch.tensor(label, dtype=torch.long)
+
+
+def split_into_chunks(dataset, client_id=0, total_clients=1):
+    """
+    :param dataset: A torchvision dataset
+    :param total_clients: total number of clients/world-size
+    :return: unique data subset for each client
+    """
+    num_samples = len(dataset)
+    chunk_size = num_samples // total_clients
+    indices = np.arange(num_samples)
+    np.random.shuffle(indices)
+
+    partitions = []
+    start_index = client_id * chunk_size
+    if client_id == total_clients - 1:
+        chunk_indices = indices[start_index:]
+    else:
+        chunk_indices = indices[start_index:start_index + chunk_size]
+
+    # Create a subset for the current chunk
+    chunk_dataset = torch.utils.data.Subset(dataset, chunk_indices)
+    partitions.append(chunk_dataset)
+    partitioned_dataset = partioneDataset(data=partitions)
+    del partitions
+
+    return partitioned_dataset
