@@ -18,10 +18,21 @@ import torch
 from src.flora.communicator import Communicator
 import torch.distributed as dist
 
+# TODO: not taking returned data from sent/recv fn calls...fix that!
+
 class TorchMPICommunicator(Communicator):
 
     def __init__(self, id, total_clients, init_method='tcp', master_addr='127.0.0.1', master_port='27890',
                  backend='gloo', sharedfile='sharedfile'):
+        """
+        :param id: client or server id ranging from 0 to (total_clients - 1)
+        :param total_clients: total number of clients/world-size
+        :param init_method: initialization method for clients: either tcp or sharedfile
+        :param master_addr: address of master node or aggregation server
+        :param master_port: port to bind to master node
+        :param backend: communication backend to use: either 'mpi', 'gloo' or 'nccl'
+        :param sharedfile: name of the shared file used by clients
+        """
         super().__init__(protocol_type='torch_mpi')
         self.world_size = total_clients
         self.backend = backend
@@ -38,6 +49,11 @@ class TorchMPICommunicator(Communicator):
                                     world_size=self.world_size)
 
     def broadcast(self, msg, id=0):
+        """
+        :param msg: message to broadcast
+        :param id: node id which initiates the broadcast
+        :return: returns the broadcasted message
+        """
         if isinstance(msg, torch.nn.Module):
             for _, param in msg.named_parameters():
                 if not param.requires_grad: continue
@@ -48,6 +64,11 @@ class TorchMPICommunicator(Communicator):
         return msg
 
     def aggregate(self, msg, communicate_params=True):
+        """
+        :param msg: message to aggregate
+        :param communicate_params: collect model parameters if True, else aggregate model gradients
+        :return: aggregated message
+        """
         if isinstance(msg, torch.nn.Module):
             for _, param in msg.named_parameters():
                 if not param.requires_grad: continue
@@ -61,6 +82,12 @@ class TorchMPICommunicator(Communicator):
         return msg
 
     def send(self, msg, id=0, communicate_params=True):
+        """
+        :param msg: message to send
+        :param id: client or server id ranging from 0 to (total_clients - 1)
+        :param communicate_params: collect model parameters if True, else aggregate model gradients
+        :return: the sending message
+        """
         if isinstance(msg, torch.nn.Module):
             for _, param in msg.named_parameters():
                 if not param.requires_grad: continue
@@ -74,6 +101,12 @@ class TorchMPICommunicator(Communicator):
         return msg
 
     def recv(self, msg, id=0, communicate_params=True):
+        """
+        :param msg: message to receive
+        :param id: client or server id ranging from 0 to (total_clients - 1)
+        :param communicate_params: collect model parameters if True, else aggregate model gradients
+        :return: the receiving message
+        """
         if isinstance(msg, torch.nn.Module):
             for _, param in msg.named_parameters():
                 if not param.requires_grad: continue

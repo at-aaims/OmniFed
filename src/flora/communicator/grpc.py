@@ -86,7 +86,7 @@ class GrpcCommunicator(Communicator):
             else:
                 parameters = torch.cat([p.grad.view(-1) for p in msg.parameters()])
         else:
-            raise TypeError("aggregate only supports torch.nn.Module type")
+            raise TypeError("aggregate fn only supports torch.nn.Module type")
 
         with grpc.insecure_channel(str(self.host) + ':' + str(self.port)) as channel:
 
@@ -98,3 +98,6 @@ class GrpcCommunicator(Communicator):
             response = stub.SendModelUpdate(update)
             # Return the averaged parameters
             return response.averaged_parameters
+
+    def close(self):
+        self.server.stop(0)

@@ -17,30 +17,30 @@
 all: python_conda_install clean local
 
 python_conda_install:
-	cd scripts && chmod a+x *.sh && ./install_python_conda.sh
+	cd installation_scripts && chmod a+x *.sh && ./install_python_conda.sh
 
 clean:
 	rm -rf ./logs && mkdir ./logs
 
 local:
 	echo "build over local machine"
-	cd scripts && ./install_mpi.sh && pip install -r requirements.txt
+	cd installation_scripts && ./install_mpi.sh && pip install -r requirements.txt
 
 docker:
-	echo "installing docker" && cd scripts && ./install_docker.sh
+	echo "installing docker" && cd installation_scripts && ./install_docker.sh
 
 lxc:
-	echo "installing linux containers lxc" && cd scripts && ./install_lxc.sh
+	echo "installing linux containers lxc" && cd installation_scripts && ./install_lxc.sh
 
 singularity:
-	echo "setting up containerization with singularity" && cd scripts && ./install_singularity.sh
+	echo "setting up containerization with singularity" && cd installation_scripts && ./install_singularity.sh
 
 shifter:
 	echo "no support for shifter yet..."
 
 mqtt:
-	echo "installing mqtt server..." && cd scripts && ./install_mqtt.sh
+	echo "installing mqtt server..." && cd installation_scripts && ./install_mqtt.sh
 
 pytorch:
-	# use argument "USE_MPI" to build pytorch from source with MPI support. currently not using it
-	echo "building pytorch from source..." && cd scripts && ./install_pytorch_from_source.sh "NO_MPI"
+	# use argument "USE_MPI" to build pytorch from source with MPI support. currently not using it (default is Gloo)
+	echo "building pytorch from source..." && cd installation_scripts && ./install_pytorch_from_source.sh "NO_MPI"

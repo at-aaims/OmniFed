@@ -22,6 +22,8 @@ else
     exit 1
 fi
 
+# TODO: replace MQTT with RabbitMQ
+
 install_mqtt() {
     case "$OS" in
         ubuntu|debian)

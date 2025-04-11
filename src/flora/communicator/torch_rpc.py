@@ -18,8 +18,6 @@ import torch
 import torch.distributed.rpc as rpc
 
 from src.flora.communicator import Communicator
-from src.flora.communicator.msg_queue import aggregate_updates
-
 
 class RpcServer(object):
     def __init__(self, model, aggregate_sum=True, total_clients=1):
@@ -49,7 +47,7 @@ class RpcServer(object):
             return self.aggregated_update
 
 
-class TorchRpmCommunicator(Communicator):
+class TorchRpcCommunicator(Communicator):
     
     def __init__(self, id=0, total_clients=1, master_addr='127.0.0.1', master_port=27890):
         super().__init__(protocol_type='torch_rpc')
@@ -70,22 +68,25 @@ class TorchRpmCommunicator(Communicator):
             rpc.init_rpc(f'worker-{self.id}', rank=self.id, world_size=self.total_clients, rpc_backend_options=opts)
 
 
-    def aggregate(self, model, communicate_params=True):
-        if communicate_params:
-            updates = [param.data.detach() for param in model.parameters()]
+    def aggregate(self, msg, communicate_params=True):
+        if isinstance(msg, torch.nn.Module):
+            # communicate either model parameters or gradients
+            if communicate_params:
+                updates = [param.data.detach() for param in msg.parameters()]
+            else:
+                updates = [param.grad.detach() for param in msg.parameters()]
+
+            if self.id == 0:
+                msg = rpc.rpc_sync(self.central_server, RpcServer.server_model, args=(self.id,))
+
+            else:
+                aggregated_update = rpc.rpc_sync(self.central_server, RpcServer.collect_updates, args=(updates,))
+                for param, update in zip(msg.parameters(), aggregated_update):
+                    if communicate_params:
+                        param.data.copy_(update)
+                    else:
+                        param.grad.data.copy_(update)
+
+            return msg
         else:
-            updates = [param.grad.detach() for param in model.parameters()]
-
-        if self.id == 0:
-            model = rpc.rpc_sync(self.central_server, RpcServer.server_model, args=(self.id,))
-
-        else:
-            aggregated_update = rpc.rpc_sync(self.central_server, RpcServer.collect_updates, args=(updates,))
-            for param, update in zip(model.parameters(), aggregated_update):
-                if communicate_params:
-                    param.data.copy_(update)
-                else:
-                    param.grad.data.copy_(update)
-
-
-        return model
+            raise TypeError("aggregate fn only supports torch.nn.Module type")

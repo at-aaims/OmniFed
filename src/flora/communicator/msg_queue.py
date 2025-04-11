@@ -20,6 +20,8 @@ from functools import partial
 
 from src.flora.communicator import Communicator
 
+# TODO: implement broadcast operation after aggregating all updates (currently model not distributed back)
+
 def aggregate_updates(ch, method, properties, body, total_clients):
     global recvd_clients, aggregate_update
     model_update = pickle.loads(body)
@@ -38,11 +40,11 @@ def aggregate_updates(ch, method, properties, body, total_clients):
 
 class MessageQueueCommunicator(Communicator):
 
-    def __init__(self, id=0, total_clients=1, rabbitmq_url='amqp://localhost', queue_name='flora'):
+    def __init__(self, id=0, total_clients=1, host='127.0.0.1', queue_name='flora'):
         super().__init__(protocol_type="msg_queue")
         self.id = id
         self.total_clients = total_clients
-        self.connection = pika.BlockingConnection(pika.URLParameters(rabbitmq_url))
+        self.connection = pika.BlockingConnection(pika.URLParameters('amqp://' + host))
         self.channel = self.connection.channel()
         self.queue_name = queue_name
         self.channel.queue_declare(queue=self.queue_name)
@@ -69,7 +71,7 @@ class MessageQueueCommunicator(Communicator):
 
             self.channel.basic_publish(exchange='', routing_key=self.queue_name, body=pickle.dumps(model_update))
 
-            # TODO: implement pulling averaged model
+            # TODO: implement subscribe for clients on the aggregated model
 
 
     def close(self):
