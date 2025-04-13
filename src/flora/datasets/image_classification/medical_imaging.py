@@ -15,7 +15,6 @@
 import os
 
 import torch
-import torchvision
 import torchvision.transforms as transforms
 import pandas as pd
 from PIL import Image
