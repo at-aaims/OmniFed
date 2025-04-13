@@ -116,9 +116,9 @@ def pascalvocData(client_id=0, total_clients=1, datadir='~/', partition_dataset=
     :param is_test: process test/validation set dataloader or send None value
     :return: train and test dataloaders
     """
-    set_seed(seed=client_id)
+    set_seed(seed=total_clients)
     g = torch.Generator()
-    g.manual_seed(client_id)
+    g.manual_seed(total_clients)
 
     transform = transforms.Compose([transforms.Resize((224, 224)), transforms.ToTensor(),
                                     transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])])

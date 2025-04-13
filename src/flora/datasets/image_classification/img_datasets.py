@@ -34,9 +34,9 @@ def food101Data(client_id=0, total_clients=1, datadir='~/', partition_dataset=Tr
     :param is_test: process test/validation set dataloader or send None value
     :return: train and test dataloaders
     """
-    set_seed(seed=client_id)
+    set_seed(seed=total_clients)
     g = torch.Generator()
-    g.manual_seed(client_id)
+    g.manual_seed(total_clients)
 
     transform = transforms.Compose([transforms.RandomResizedCrop(224), transforms.RandomHorizontalFlip(),
                                     transforms.ToTensor(), transforms.Normalize(mean=[0.485, 0.456, 0.406],
@@ -79,9 +79,9 @@ def places365Data(client_id=0, total_clients=1, datadir='~/', partition_dataset=
     :param is_test: process test/validation set dataloader or send None value
     :return: train and test dataloaders
     """
-    set_seed(seed=client_id)
+    set_seed(seed=total_clients)
     g = torch.Generator()
-    g.manual_seed(client_id)
+    g.manual_seed(total_clients)
 
     transform = transforms.Compose([transforms.RandomResizedCrop(224), transforms.RandomHorizontalFlip(),
                                     transforms.ToTensor(), transforms.Normalize(mean=[0.485, 0.456, 0.406],
@@ -123,9 +123,9 @@ def emnistData(client_id=0, total_clients=1, datadir='~/', partition_dataset=Tru
     :param is_test: process test/validation set dataloader or send None value
     :return: train and test dataloaders
     """
-    set_seed(seed=client_id)
+    set_seed(seed=total_clients)
     g = torch.Generator()
-    g.manual_seed(client_id)
+    g.manual_seed(total_clients)
 
     transform = transforms.Compose([transforms.ToTensor(), transforms.Normalize(mean=(0.5,), std=(0.5,))])
     training_set = torchvision.datasets.EMNIST(root=datadir, split='letters', train=True, download=True,
@@ -167,9 +167,9 @@ def fmnistData(client_id=0, total_clients=1, datadir='~/', partition_dataset=Tru
     :param is_test: process test/validation set dataloader or send None value
     :return: train and test dataloaders
     """
-    set_seed(seed=client_id)
+    set_seed(seed=total_clients)
     g = torch.Generator()
-    g.manual_seed(client_id)
+    g.manual_seed(total_clients)
 
     transform = transforms.Compose([transforms.ToTensor(), transforms.Normalize(mean=(0.5,), std=(0.5,))])
     training_set = torchvision.datasets.FashionMNIST(root=datadir, train=True, download=True, transform=transform)

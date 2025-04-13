@@ -102,9 +102,9 @@ def caltech256Data(client_id=0, total_clients=1, datadir='~/', partition_dataset
         caltechDataSplit(datadir=datadir, seed=client_id, dataset_name='Caltech256')
         os.chdir(curr_dir)
 
-    set_seed(seed=client_id)
+    set_seed(seed=total_clients)
     g = torch.Generator()
-    g.manual_seed(seed=client_id)
+    g.manual_seed(seed=total_clients)
     size = (224, 256)
     normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
     transform = transforms.Compose([transforms.Resize(size=size[1]), transforms.CenterCrop(size=size[0]),
@@ -167,9 +167,9 @@ def caltech101Data(client_id=0, total_clients=1, datadir='~/', partition_dataset
         caltechDataSplit(datadir=datadir, seed=client_id, dataset_name='Caltech101')
         os.chdir(curr_dir)
 
-    set_seed(seed=client_id)
+    set_seed(seed=total_clients)
     g = torch.Generator()
-    g.manual_seed(client_id)
+    g.manual_seed(total_clients)
     size = (224, 256)
     normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
     transform = transforms.Compose([transforms.Resize(size=size[1]), transforms.CenterCrop(size=size[0]),

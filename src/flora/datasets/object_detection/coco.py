@@ -60,9 +60,9 @@ def coco2017Dataset(client_id=0, total_clients=1, datadir='~/', partition_datase
     :param is_test: process test/validation set dataloader or send None value
     :return: train and test dataloaders
     """
-    set_seed(seed=client_id)
+    set_seed(seed=total_clients)
     g = torch.Generator()
-    g.manual_seed(client_id)
+    g.manual_seed(total_clients)
     if 'coco2017'.lower() not in datadir.lower():
         print(f'Going to download COCO 2017 dataset from Kaggle. This may take a while...')
         coco2017_install_pth = kagglehub.dataset_download("awsaf49/coco-2017-dataset")

@@ -35,9 +35,9 @@ def imdbReviewsDataset(client_id=0, total_clients=1, datadir='~/', partition_dat
     :param is_test: process test/validation set dataloader or send None value
     :return: train and test dataloaders
     """
-    set_seed(seed=client_id)
+    set_seed(seed=total_clients)
     g = torch.Generator()
-    g.manual_seed(client_id)
+    g.manual_seed(total_clients)
 
     # Tokenization and lowercasing
     TEXT = torchtext.data.Field(tokenize='spacy', lower=True)

@@ -33,9 +33,9 @@ def cifar10Data(client_id=0, total_clients=1, datadir='~/', partition_dataset=Tr
     :param is_test: process test/validation set dataloader or send None value
     :return: train and test dataloaders
     """
-    set_seed(seed=client_id)
+    set_seed(seed=total_clients)
     g = torch.Generator()
-    g.manual_seed(client_id)
+    g.manual_seed(total_clients)
 
     normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
     transform = transforms.Compose([transforms.ToTensor(), transforms.RandomHorizontalFlip(),
@@ -77,9 +77,9 @@ def cifar100Data(client_id=0, total_clients=1, datadir='~/', partition_dataset=T
     :param is_test: process test/validation set dataloader or send None value
     :return: train and test dataloaders
     """
-    set_seed(seed=client_id)
+    set_seed(seed=total_clients)
     g = torch.Generator()
-    g.manual_seed(client_id)
+    g.manual_seed(total_clients)
 
     normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
     transform = transforms.Compose([transforms.ToTensor(), transforms.RandomHorizontalFlip(),
