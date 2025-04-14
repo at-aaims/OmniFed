@@ -52,16 +52,20 @@ class Compression(ABC):
         self.average = average
         self.is_tensor_size_same = is_tensor_size_same
 
-    @abstractmethod
-    def compress(self, tensor, name):
+    def compress(self, tensor, **kwargs):
         """Compresses a tensor and returns it with the context needed to decompress it."""
-        raise NotImplemented("compress was not implemented.")
+        raise NotImplemented("compress not implemented.")
 
-    @abstractmethod
-    def decompress(self, tensors, ctx):
+    def decompress(self, **kwargs):
         """Decompress the tensor with the given context."""
-        raise NotImplemented("decompress was not implemented.")
+        raise NotImplemented("decompress not implemented.")
 
-    def aggregate(self, tensors):
-        """Aggregate a list of tensors."""
-        return sum(tensors)
+    # def aggregate(self, tensors):
+    #     """Aggregate a list of tensors."""
+    #     return sum(tensors)
+
+    def loss_scaling(self, loss):
+        raise NotImplemented("loss_scaling not implemented.")
+
+    def gradient_unscaling(self, **kwargs):
+        raise NotImplemented("gradient_unscaling not implemented.")
