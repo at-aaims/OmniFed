@@ -86,8 +86,8 @@ class LibriSpeechWrapped(torch.utils.data.Dataset):
         return len(self.dataset)
 
 
-def libriSpeechDataset(client_id=0, total_clients=1, datadir='~/', partition_dataset=True, train_bsz=32, test_bsz=32,
-                       is_test=True, orig_sample_rate=16000, target_sample_rate=16000):
+def libriSpeechData(client_id=0, total_clients=1, datadir='~/', partition_dataset=True, train_bsz=32, test_bsz=32,
+                    is_test=True, orig_sample_rate=16000, target_sample_rate=16000, get_training_dataset=False):
     """
     :param client_id: id/rank of client or server
     :param total_clients: total number of clients/world-size
@@ -99,6 +99,7 @@ def libriSpeechDataset(client_id=0, total_clients=1, datadir='~/', partition_dat
     :param is_test: process test/validation set dataloader or send None value
     :param orig_sample_rate: original sample frequency
     :param target_sample_rate: target sample frequency after transformation
+    :param get_training_dataset: whether to get training dataset or train/test dataloader
     :return: train and test dataloaders
     """
     torchaudio.set_audio_backend("ffmpeg")
@@ -114,26 +115,29 @@ def libriSpeechDataset(client_id=0, total_clients=1, datadir='~/', partition_dat
     if partition_dataset:
         training_set = get_data_chunk(dataset=training_set, client_id=client_id, total_clients=total_clients)
 
-    train_loader = torch.utils.data.DataLoader(training_set, batch_size=train_bsz, shuffle=True,
-                                               collate_fn=librispeech_collate_fn)
-    del training_set
-
-    if is_test:
-        test_set = LIBRISPEECH(datadir, url='test-clean', download=True)
-        test_set = LibriSpeechWrapped(test_set, transform=transform)
-        test_loader = torch.utils.data.DataLoader(test_set, batch_size=test_bsz, shuffle=False,
-                                                  collate_fn=librispeech_collate_fn)
-        del test_set
+    if get_training_dataset:
+        return training_set
     else:
-        test_loader = None
+        train_loader = torch.utils.data.DataLoader(training_set, batch_size=train_bsz, shuffle=True,
+                                                   collate_fn=librispeech_collate_fn)
+        del training_set
 
-    for i, (waveforms, lengths, transcripts) in enumerate(train_loader):
-        print("Waveforms shape:", waveforms.shape)
-        print("Lengths:", lengths)
-        print("Transcripts:", transcripts)
-        break
+        if is_test:
+            test_set = LIBRISPEECH(datadir, url='test-clean', download=True)
+            test_set = LibriSpeechWrapped(test_set, transform=transform)
+            test_loader = torch.utils.data.DataLoader(test_set, batch_size=test_bsz, shuffle=False,
+                                                      collate_fn=librispeech_collate_fn)
+            del test_set
+        else:
+            test_loader = None
 
-    return train_loader, test_loader
+        for i, (waveforms, lengths, transcripts) in enumerate(train_loader):
+            print("Waveforms shape:", waveforms.shape)
+            print("Lengths:", lengths)
+            print("Transcripts:", transcripts)
+            break
+
+        return train_loader, test_loader
 
 
 def commonVoice_collate_fn(batch):
@@ -150,8 +154,8 @@ def commonVoice_collate_fn(batch):
     return waveforms, sample_rates, transcripts
 
 
-def commonVoiceDataset(client_id=0, total_clients=1, datadir='~/', partition_dataset=True, train_bsz=32, test_bsz=32,
-                       is_test=True, version='cv-corpus-13.0-delta-2023-03-09'):
+def commonVoiceData(client_id=0, total_clients=1, datadir='~/', partition_dataset=True, train_bsz=32, test_bsz=32,
+                    is_test=True, version='cv-corpus-13.0-delta-2023-03-09', get_training_dataset=False):
     """
     :param client_id: id/rank of client or server
     :param total_clients: total number of clients/world-size
@@ -163,6 +167,7 @@ def commonVoiceDataset(client_id=0, total_clients=1, datadir='~/', partition_dat
     :param is_test: process test/validation set dataloader or send None value
     :param version: version of CommonVoice dataset downloaded from https://commonvoice.mozilla.org/en/datasets. The
     default version of dataset downloaded is "cv-corpus-13.0-delta-2023-03-09"
+    :param get_training_dataset: whether to get training dataset or train/test dataloader
     :return: train and test dataloaders
     """
     set_seed(seed=total_clients)
@@ -173,22 +178,25 @@ def commonVoiceDataset(client_id=0, total_clients=1, datadir='~/', partition_dat
     if partition_dataset:
         training_set = get_data_chunk(dataset=training_set, client_id=client_id, total_clients=total_clients)
 
-    train_loader = torch.utils.data.DataLoader(training_set, batch_size=train_bsz, shuffle=True, num_workers=4,
-                                               collate_fn=commonVoice_collate_fn)
-    del training_set
-
-    if is_test:
-        test_set = torchaudio.datasets.COMMONVOICE(root=datadir, tsv='test.tsv')
-        test_loader = torch.utils.data.DataLoader(test_set, batch_size=test_bsz, shuffle=False,
-                                                  collate_fn=commonVoice_collate_fn)
+    if get_training_dataset:
+        return training_set
     else:
-        test_loader = None
+        train_loader = torch.utils.data.DataLoader(training_set, batch_size=train_bsz, shuffle=True, num_workers=4,
+                                                   collate_fn=commonVoice_collate_fn)
+        del training_set
 
-    for waveforms, sample_rates, transcripts in train_loader:
-        print(waveforms[0].shape)
-        print(sample_rates[0])
-        print(transcripts[0])
-        print('inside here...')
-        break
+        if is_test:
+            test_set = torchaudio.datasets.COMMONVOICE(root=datadir, tsv='test.tsv')
+            test_loader = torch.utils.data.DataLoader(test_set, batch_size=test_bsz, shuffle=False,
+                                                      collate_fn=commonVoice_collate_fn)
+        else:
+            test_loader = None
 
-    return train_loader, test_loader
+        for waveforms, sample_rates, transcripts in train_loader:
+            print(waveforms[0].shape)
+            print(sample_rates[0])
+            print(transcripts[0])
+            print('inside here...')
+            break
+
+        return train_loader, test_loader

@@ -22,8 +22,8 @@ from src.flora.datasets.image_classification import set_seed
 # TODO: fix C++ ABI mismatch between torch==2.6.0 and torchtext==0.18.0 (version mismatch between torchtext 0.17.1 also)
 
 
-def imdbReviewsDataset(client_id=0, total_clients=1, datadir='~/', partition_dataset=True, train_bsz=32, test_bsz=32,
-                 is_test=True):
+def imdbReviewsData(client_id=0, total_clients=1, datadir='~/', partition_dataset=True, train_bsz=32, test_bsz=32,
+                    is_test=True, get_training_dataset=False):
     """
     :param client_id: id/rank of client or server
     :param total_clients: total number of clients/world-size
@@ -33,6 +33,7 @@ def imdbReviewsDataset(client_id=0, total_clients=1, datadir='~/', partition_dat
     :param train_bsz: training batch size
     :param test_bsz: test batch size
     :param is_test: process test/validation set dataloader or send None value
+    :param get_training_dataset: whether to get training dataset or train/test dataloader
     :return: train and test dataloaders
     """
     set_seed(seed=total_clients)
@@ -52,9 +53,6 @@ def imdbReviewsDataset(client_id=0, total_clients=1, datadir='~/', partition_dat
     LABEL.build_vocab(train_data)
 
     if partition_dataset:
-        # prepare to split train data into unique chunks
-        # indices = list(range(len(train_data)))
-
         num_samples = len(train_data)
         chunk_size = num_samples // total_clients
         indices = np.arange(num_samples)
@@ -68,34 +66,31 @@ def imdbReviewsDataset(client_id=0, total_clients=1, datadir='~/', partition_dat
             chunk_indices = indices[start_index:start_index + chunk_size]
 
         # Create a subset for the current chunk
-        chunk_dataset = torch.utils.data.Subset(train_data, chunk_indices)
-        # train_iterator, test_iterator = torchtext.data.BucketIterator.splits((chunk_dataset, test_data),
-        #                                                                      batch_size=train_bsz)
-        train_loader = torch.utils.data.DataLoader(chunk_dataset, batch_size=train_bsz, shuffle=True,
-                                                   worker_init_fn=set_seed(client_id), generator=g, num_workers=4)
+        train_data = torch.utils.data.Subset(train_data, chunk_indices)
 
+    if get_training_dataset:
+        return train_data
     else:
-        # train_iterator, test_iterator = torchtext.data.BucketIterator.splits((train_data, test_data), batch_size=train_bsz)
         train_loader = torch.utils.data.DataLoader(train_data, batch_size=train_bsz, shuffle=True,
                                                    worker_init_fn=set_seed(client_id), generator=g, num_workers=4)
+        del train_data
 
+        if is_test:
+            test_loader = torch.utils.data.DataLoader(test_data, batch_size=test_bsz, shuffle=True, generator=g,
+                                                      num_workers=4)
+        else:
+            test_loader = None
 
-    if is_test:
-        test_loader = torch.utils.data.DataLoader(test_data, batch_size=test_bsz, shuffle=True, generator=g,
-                                                  num_workers=4)
-    else:
-        test_loader = None
+        # iterate over the training dataset
+        # for batch in train_loader:
+        #     text, text_lengths = batch.text
+        #     labels = batch.label
+        #     print(text.shape)  # Shape of the text data
+        #     print(labels.shape)  # Shape of the labels
+        #     print(text_lengths.shape)  # Lengths of the text sequences
+        #     break
 
-    # iterate over the training dataset
-    # for batch in train_loader:
-    #     text, text_lengths = batch.text
-    #     labels = batch.label
-    #     print(text.shape)  # Shape of the text data
-    #     print(labels.shape)  # Shape of the labels
-    #     print(text_lengths.shape)  # Lengths of the text sequences
-    #     break
-
-    return train_loader, test_loader
+        return train_loader, test_loader
 
 
 

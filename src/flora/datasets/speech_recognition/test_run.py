@@ -1,4 +1,4 @@
-from src.flora.datasets.speech_recognition import libriSpeechDataset, commonVoiceDataset
+from src.flora.datasets.speech_recognition import libriSpeechData, commonVoiceData
 
 import torchaudio
 
@@ -11,4 +11,4 @@ if __name__ == '__main__':
 
     datadir='/Users/ssq/Desktop/datasets/en'
     # libriSpeechDataset(datadir=datadir)
-    commonVoiceDataset(datadir=datadir)
+    commonVoiceData(datadir=datadir)

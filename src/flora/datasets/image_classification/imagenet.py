@@ -73,13 +73,14 @@ def processImageNet(datadir='~/'):
 
 
 def imagenetData(client_id=0, total_clients=1, datadir='~/', partition_dataset=True, train_bsz=32, test_bsz=32,
-                 is_test=True):
+                 is_test=True, get_training_dataset=False):
     """
     :param client_id: id/rank of client/server
     :param datadir: where to download/read the data
     :param train_bsz: training batch size
     :param test_bsz: test batch size
     :param is_test: process test/validation set dataloader or send None value
+    :param get_training_dataset: whether to get training dataset or train/test dataloader
     :return: train and test dataloaders
     """
     # if processed imagenet directory does not exist, we assume the ImageNet data is downloaded and untar
@@ -97,18 +98,19 @@ def imagenetData(client_id=0, total_clients=1, datadir='~/', partition_dataset=T
     # TODO: split data into unique chunks across clients
     if partition_dataset:
         training_set = split_into_chunks(dataset=training_set, client_id=client_id, total_clients=total_clients)
-        train_loader = torch.utils.data.DataLoader(training_set, batch_size=train_bsz, shuffle=True,
-                                                   worker_init_fn=set_seed(client_id), generator=g, num_workers=4)
+
+    if get_training_dataset:
+        return training_set
     else:
         train_loader = torch.utils.data.DataLoader(training_set, batch_size=train_bsz, shuffle=True,
                                                    worker_init_fn=set_seed(client_id), generator=g, num_workers=4)
-    del training_set
+        del training_set
 
-    if is_test:
-        val_set = ImageFolder(os.path.join(datadir, 'val'), transform=transform)
-        val_loader = torch.utils.data.DataLoader(val_set, batch_size=test_bsz, shuffle=False, num_workers=4)
-        del val_set
-    else:
-        val_loader = None
+        if is_test:
+            val_set = ImageFolder(os.path.join(datadir, 'val'), transform=transform)
+            val_loader = torch.utils.data.DataLoader(val_set, batch_size=test_bsz, shuffle=False, num_workers=4)
+            del val_set
+        else:
+            val_loader = None
 
-    return train_loader, val_loader
+        return train_loader, val_loader

@@ -47,7 +47,7 @@ def extract_classes_from_annotation_regex(name_str, voc_classes):
     return unique_matches
 
 
-class PascalVOCDataset(torch.utils.data.Dataset):
+class PascalVOCDatasetObject(torch.utils.data.Dataset):
     def __init__(self, root, image_set="train", transform=None):
         """
         root: The path to the root directory of Pascal VOC, for example: /path/to/VOC2012_train_val
@@ -104,7 +104,7 @@ class PascalVOCDataset(torch.utils.data.Dataset):
 
 
 def pascalvocData(client_id=0, total_clients=1, datadir='~/', partition_dataset=True, train_bsz=32, test_bsz=32,
-                  is_test=True):
+                  is_test=True, get_training_dataset=False):
     """
     :param client_id: id/rank of client/server
     :param total_clients: total number of clients/world-size
@@ -114,6 +114,7 @@ def pascalvocData(client_id=0, total_clients=1, datadir='~/', partition_dataset=
     :param train_bsz: training batch size
     :param test_bsz: test batch size
     :param is_test: process test/validation set dataloader or send None value
+    :param get_training_dataset: whether to get training dataset or train/test dataloader
     :return: train and test dataloaders
     """
     set_seed(seed=total_clients)
@@ -123,7 +124,7 @@ def pascalvocData(client_id=0, total_clients=1, datadir='~/', partition_dataset=
     transform = transforms.Compose([transforms.Resize((224, 224)), transforms.ToTensor(),
                                     transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])])
 
-    training_set = PascalVOCDataset(root=datadir, image_set="train", transform=transform)
+    training_set = PascalVOCDatasetObject(root=datadir, image_set="train", transform=transform)
     # TODO: check if data is evenly partitioned among clients and 'SplitData' works correctly
     if partition_dataset:
         training_set = SplitData(data=training_set, total_clients=total_clients)
@@ -132,15 +133,18 @@ def pascalvocData(client_id=0, total_clients=1, datadir='~/', partition_dataset=
         training_set = UnsplitData(data=training_set, client_id=client_id)
         training_set = training_set.use(0)
 
-    train_loader = torch.utils.data.DataLoader(training_set, batch_size=train_bsz, shuffle=True,
-                                               worker_init_fn=set_seed(client_id), generator=g, num_workers=4)
-
-    if is_test:
-        test_set = PascalVOCDataset(root=datadir, image_set="val", transform=transform)
-        test_loader = torch.utils.data.DataLoader(test_set, batch_size=test_bsz, shuffle=True, generator=g,
-                                                  num_workers=4)
-        del test_set
+    if get_training_dataset:
+        return training_set
     else:
-        test_loader = None
+        train_loader = torch.utils.data.DataLoader(training_set, batch_size=train_bsz, shuffle=True,
+                                                   worker_init_fn=set_seed(client_id), generator=g, num_workers=4)
 
-    return train_loader, test_loader
+        if is_test:
+            test_set = PascalVOCDatasetObject(root=datadir, image_set="val", transform=transform)
+            test_loader = torch.utils.data.DataLoader(test_set, batch_size=test_bsz, shuffle=True, generator=g,
+                                                      num_workers=4)
+            del test_set
+        else:
+            test_loader = None
+
+        return train_loader, test_loader

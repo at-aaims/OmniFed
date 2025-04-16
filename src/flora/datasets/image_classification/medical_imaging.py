@@ -23,7 +23,7 @@ from src.flora.datasets.image_classification import set_seed
 
 # TODO: partition ISIC-Archive data into training and test sets
 
-class ISICDataset(torch.utils.data.Dataset):
+class ISICData(torch.utils.data.Dataset):
     def __init__(self, csv_file, root_dir, transform=None):
         self.data_frame = pd.read_csv(csv_file)
         self.root_dir = root_dir
@@ -50,8 +50,8 @@ class ISICDataset(torch.utils.data.Dataset):
         return image, label
 
 
-def isicArchiveDataset(client_id=0, total_clients=1, datadir='~/', partition_dataset=True, train_bsz=1, test_bsz=32,
-                       is_test=True, csv_filename='challenge-2019-training_metadata_2025-04-13.csv'):
+def isicArchiveData(client_id=0, total_clients=1, datadir='~/', partition_dataset=True, train_bsz=1, test_bsz=32,
+                    is_test=True, csv_filename='challenge-2019-training_metadata_2025-04-13.csv', get_training_dataset=False):
     """
     :param client_id: id/rank of client or server
     :param total_clients: total number of clients/world-size
@@ -62,6 +62,7 @@ def isicArchiveDataset(client_id=0, total_clients=1, datadir='~/', partition_dat
     :param test_bsz: test batch size
     :param is_test: process test/validation set dataloader or send None value
     :param csv_filename: name of csv file containing metadata like image id and corresponding label
+    :param get_training_dataset: whether to get training dataset or train/test dataloader
     :return: train and test dataloaders
     """
     set_seed(seed=total_clients)
@@ -73,11 +74,14 @@ def isicArchiveDataset(client_id=0, total_clients=1, datadir='~/', partition_dat
                                     transforms.ToTensor(), transforms.Normalize(mean=[0.485, 0.456, 0.406],
                                                                                 std=[0.229, 0.224, 0.225])])
 
-    training_set = ISICDataset(csv_file=csv_file_pth, root_dir=os.path.join(datadir, 'ISIC-images'), transform=transform)
-    train_loader = torch.utils.data.DataLoader(training_set, batch_size=train_bsz, shuffle=True,
-                                               worker_init_fn=set_seed(client_id), generator=g, num_workers=4)
+    training_set = ISICData(csv_file=csv_file_pth, root_dir=os.path.join(datadir, 'ISIC-images'), transform=transform)
+    if get_training_dataset:
+        return training_set
+    else:
+        train_loader = torch.utils.data.DataLoader(training_set, batch_size=train_bsz, shuffle=True,
+                                                   worker_init_fn=set_seed(client_id), generator=g, num_workers=4)
 
-    return train_loader
+        return train_loader
 
 # if __name__ == '__main__':
 #     print("Torch version:", torch.__version__)

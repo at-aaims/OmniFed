@@ -20,9 +20,9 @@
 
 import torch
 
-from src.flora.datasets.nlp import imdbReviewsDataset
+from src.flora.datasets.nlp import imdbReviewsData
 
 if __name__ == '__main__':
     print(torch.__file__)
     pth='/Users/ssq/Desktop/datasets/'
-    _, _ = imdbReviewsDataset(datadir=pth, partition_dataset=False)
+    _, _ = imdbReviewsData(datadir=pth, partition_dataset=False)
