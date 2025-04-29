@@ -23,25 +23,24 @@ from src.flora.communicator import Communicator
 # TODO: implement simple aggregation on the specific data-type being called
 
 class RpcServer(object):
-    def __init__(self, model, summation=True, total_clients=1):
+    def __init__(self, model, compute_mean=True, total_clients=1):
         """
         :param model: model to communicate
-        :param summation: whether to sum the updates or average them
+        :param compute_mean: whether to sum the updates or average them. calculate mean if True
         :param total_clients: total number of clients/ world-size (including the server)
         """
         self.model_update = [torch.zeros_like(param) for param in model.parameters()]
         self.aggregated_update = None
         self.total_clients = total_clients
         self.client_count = 0
-        self.summation = summation
+        self.compute_mean = compute_mean
 
     def collect_updates(self, updates):
         self.model_update += updates
         self.client_count += 1
         if self.client_count == self.total_clients:
             self.client_count = 0
-            if not self.summation:
-                self.model_update /= self.total_clients
+            self.model_update /= self.total_clients if self.compute_mean else 1
 
             self.aggregated_update = self.model_update
             self.model_update = [torch.zeros_like(param) for param in self.model_update]

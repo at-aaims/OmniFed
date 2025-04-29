@@ -63,7 +63,7 @@ class TorchMPICommunicator(Communicator):
 
         return msg
 
-    def aggregate(self, msg, communicate_params=True):
+    def aggregate(self, msg, communicate_params=True, compute_mean=True):
         """
         :param msg: message to aggregate
         :param communicate_params: collect model parameters if True, else aggregate model gradients
@@ -74,10 +74,13 @@ class TorchMPICommunicator(Communicator):
                 if not param.requires_grad: continue
                 if communicate_params:
                     dist.all_reduce(tensor=param.data, op=dist.ReduceOp.SUM)
+                    param.data /= self.world_size if compute_mean else 1
                 else:
                     dist.all_reduce(tensor=param.grad, op=dist.ReduceOp.SUM)
+                    param.grad /= self.world_size if compute_mean else 1
         else:
             dist.all_reduce(tensor=msg, op=dist.ReduceOp.SUM)
+            msg.data /= self.world_size if compute_mean else 1
 
         return msg
 

@@ -26,12 +26,13 @@ class FederatedAveragingServer(BaseServer):
                  id: int, total_clients: int):
         super().__init__(model, data, communicator, id, total_clients)
 
-    def aggregate_updates(self):
-        self.model = self.communicator.aggregate_updates(msg=self.model, communicate_params=True)
-
-    def initialize_model(self):
+    def broadcast_model(self):
         # model broadcasted from central server with id 0
         self.model = self.communicator.broadcast(msg=self.model, id=self.id)
+
+    def aggregate_updates(self):
+        self.model = self.communicator.aggregate(msg=self.model, communicate_params=True)
+
 
 
 class FederatedAveragingClient(BaseClient):
@@ -53,7 +54,7 @@ class FederatedAveragingClient(BaseClient):
         self.device = torch.device("cuda:" + str(dev_id) if torch.cuda.is_available() else "cpu")
         self.model.to(self.device)
 
-    def initialize_model(self):
+    def broadcast_model(self):
         # model broadcasted from central server with id 0
         self.model = self.communicator.broadcast(msg=self.model, id=self.id)
 

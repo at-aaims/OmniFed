@@ -34,8 +34,8 @@ class BaseServer():
         self.id = id
         self.total_clients = total_clients
 
-    def initialize_model(self):
-        raise NotImplementedError("initialize_model not implemented!")
+    def broadcast_model(self):
+        raise NotImplementedError("broadcast_model not implemented!")
 
     def receive_updates(self, src_id):
         raise NotImplementedError("receive_updates not implemented!")
@@ -66,8 +66,8 @@ class BaseClient():
         self.id = id
         self.total_clients = total_clients
 
-    def initialize_model(self):
-        raise NotImplementedError("initialize_model not implemented!")
+    def broadcast_model(self):
+        raise NotImplementedError("broadcast_model not implemented!")
 
     def receive_updates(self, src_id):
         raise NotImplementedError("receive_updates not implemented!")
