@@ -46,7 +46,7 @@ class ResidualUpdates(ResidualMemory):
         self.residuals[name] = residual
 
 
-class Compression(ABC):
+class Compression():
     """Interface for compressing and decompressing a given tensor."""
     def __init__(self, average=True, is_tensor_size_same=True):
         self.average = average

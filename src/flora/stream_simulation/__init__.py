@@ -34,6 +34,7 @@ from src.flora.datasets.image_classification.img_datasets import food101Data, pl
 # from src.flora.datasets.object_detection.pascal_voc import pascalvocData
 # from src.flora.datasets.speech_recognition import libriSpeechData, commonVoiceData
 
+# INSTRUCTIONS:
 # install kafka by downloading and unpacking kafka_2.13-3.1.0.tgz
 # first download compatible jdk (tested on openjdk@11.0)
 # start zookeeper (built-into kafka): bin/zookeeper-server-start.sh config/zookeeper.properties

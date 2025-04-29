@@ -19,20 +19,28 @@ import torch.distributed.rpc as rpc
 
 from src.flora.communicator import Communicator
 
+# TODO: implement broadcast operation in torch.rpc
+# TODO: implement simple aggregation on the specific data-type being called
+
 class RpcServer(object):
-    def __init__(self, model, aggregate_sum=True, total_clients=1):
+    def __init__(self, model, summation=True, total_clients=1):
+        """
+        :param model: model to communicate
+        :param summation: whether to sum the updates or average them
+        :param total_clients: total number of clients/ world-size (including the server)
+        """
         self.model_update = [torch.zeros_like(param) for param in model.parameters()]
         self.aggregated_update = None
         self.total_clients = total_clients
         self.client_count = 0
-        self.aggregate_sum = aggregate_sum
+        self.summation = summation
 
     def collect_updates(self, updates):
         self.model_update += updates
         self.client_count += 1
         if self.client_count == self.total_clients:
             self.client_count = 0
-            if not self.aggregate_sum:
+            if not self.summation:
                 self.model_update /= self.total_clients
 
             self.aggregated_update = self.model_update
@@ -89,4 +97,5 @@ class TorchRpcCommunicator(Communicator):
 
             return msg
         else:
+            # TODO: implement simple aggregation on the specific data-type being called
             raise TypeError("aggregate fn only supports torch.nn.Module type")
