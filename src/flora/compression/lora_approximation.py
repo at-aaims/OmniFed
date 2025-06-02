@@ -17,6 +17,7 @@ from src.flora.compression import Compression
 
 # TODO: implement error-feedback in PowerSGD low-rank approximation
 
+
 class PowerSGDCompression(Compression):
     def __init__(self, device, compress_rank=1, power_itr=1):
         """Implementation of PowerSGD, a low-rank approximation technique for compression model updates.
@@ -59,5 +60,4 @@ class PowerSGDCompression(Compression):
         return P, Q
 
     def decompress(self, P, Q):
-
         return torch.matmul(P, Q.T)

@@ -13,28 +13,34 @@
 # limitations under the License.
 
 import subprocess
+
 import psutil
+
 
 def nvdia_gpu_count():
     try:
         # Run the `nvidia-smi` command and capture the output
-        output = subprocess.check_output(['nvidia-smi', '-L'])
-        gpu_count = len(output.decode().strip().split('\n'))
+        output = subprocess.check_output(["nvidia-smi", "-L"])
+        gpu_count = len(output.decode().strip().split("\n"))
         return gpu_count
     except Exception as e:
         # Return 0 if no NVIDIA GPUs are found or an error occurs
         return 0
 
+
 def amd_gpu_count():
     try:
         # Run the `lspci` command and capture the output and filter for AMD GPUs
-        output = subprocess.check_output(['lspci'])
+        output = subprocess.check_output(["lspci"])
         amd_gpu_count = sum(
-            'Advanced Micro Devices, Inc. [AMD/ATI]' in line for line in output.decode().strip().split('\n'))
+            "Advanced Micro Devices, Inc. [AMD/ATI]" in line
+            for line in output.decode().strip().split("\n")
+        )
         return amd_gpu_count
     except Exception as e:
         # Return 0 if no AMD GPUs are found or an error occurs
         return 0
+
 
 def detect_gpus_if_any():
     nvidia_count = nvdia_gpu_count()
@@ -46,6 +52,7 @@ def detect_gpus_if_any():
         return amd_count
     else:
         return 0
+
 
 def get_system_memory():
     memory_info = psutil.virtual_memory()

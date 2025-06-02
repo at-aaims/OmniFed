@@ -16,12 +16,21 @@ import torch
 import torchvision
 import torchvision.transforms as transforms
 
-from src.flora.datasets.image_classification import set_seed, SplitData, UnsplitData
+from src.flora.datasets.image_classification import SplitData, UnsplitData, set_seed
 
 # TODO: adjust num_workers in torch.utils.data.DataLoader based on total threads available on a client
 
-def cifar10Data(client_id=0, total_clients=1, datadir='~/', partition_dataset=True, train_bsz=32, test_bsz=32,
-                is_test=True, get_training_dataset=False):
+
+def cifar10Data(
+    client_id=0,
+    total_clients=1,
+    datadir="~/",
+    partition_dataset=True,
+    train_bsz=32,
+    test_bsz=32,
+    is_test=True,
+    get_training_dataset=False,
+):
     """
     :param client_id: id/rank of client or server
     :param total_clients: total number of clients/world-size
@@ -38,10 +47,20 @@ def cifar10Data(client_id=0, total_clients=1, datadir='~/', partition_dataset=Tr
     g = torch.Generator()
     g.manual_seed(total_clients)
 
-    normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
-    transform = transforms.Compose([transforms.ToTensor(), transforms.RandomHorizontalFlip(),
-                                    transforms.RandomCrop(32, 4), normalize])
-    training_set = torchvision.datasets.CIFAR10(root=datadir, train=True, download=True, transform=transform)
+    normalize = transforms.Normalize(
+        mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]
+    )
+    transform = transforms.Compose(
+        [
+            transforms.ToTensor(),
+            transforms.RandomHorizontalFlip(),
+            transforms.RandomCrop(32, 4),
+            normalize,
+        ]
+    )
+    training_set = torchvision.datasets.CIFAR10(
+        root=datadir, train=True, download=True, transform=transform
+    )
 
     if partition_dataset:
         training_set = SplitData(data=training_set, total_clients=total_clients)
@@ -53,15 +72,24 @@ def cifar10Data(client_id=0, total_clients=1, datadir='~/', partition_dataset=Tr
     if get_training_dataset:
         return training_set
     else:
-        train_loader = torch.utils.data.DataLoader(training_set, batch_size=train_bsz, shuffle=True,
-                                                   worker_init_fn=set_seed(client_id), generator=g, num_workers=4)
+        train_loader = torch.utils.data.DataLoader(
+            training_set,
+            batch_size=train_bsz,
+            shuffle=True,
+            worker_init_fn=set_seed(client_id),
+            generator=g,
+            num_workers=4,
+        )
         del training_set
 
         if is_test:
             transform = transforms.Compose([transforms.ToTensor(), normalize])
-            test_set = torchvision.datasets.CIFAR10(root=datadir, train=False, download=True, transform=transform)
-            test_loader = torch.utils.data.DataLoader(test_set, batch_size=test_bsz, shuffle=True, generator=g,
-                                                      num_workers=4)
+            test_set = torchvision.datasets.CIFAR10(
+                root=datadir, train=False, download=True, transform=transform
+            )
+            test_loader = torch.utils.data.DataLoader(
+                test_set, batch_size=test_bsz, shuffle=True, generator=g, num_workers=4
+            )
             del test_set
         else:
             test_loader = None
@@ -69,8 +97,16 @@ def cifar10Data(client_id=0, total_clients=1, datadir='~/', partition_dataset=Tr
         return train_loader, test_loader
 
 
-def cifar100Data(client_id=0, total_clients=1, datadir='~/', partition_dataset=True, train_bsz=32, test_bsz=32,
-                 is_test=True, get_training_dataset=False):
+def cifar100Data(
+    client_id=0,
+    total_clients=1,
+    datadir="~/",
+    partition_dataset=True,
+    train_bsz=32,
+    test_bsz=32,
+    is_test=True,
+    get_training_dataset=False,
+):
     """
     :param client_id: id/rank of client or server
     :param total_clients: total number of clients/world-size
@@ -87,10 +123,20 @@ def cifar100Data(client_id=0, total_clients=1, datadir='~/', partition_dataset=T
     g = torch.Generator()
     g.manual_seed(total_clients)
 
-    normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
-    transform = transforms.Compose([transforms.ToTensor(), transforms.RandomHorizontalFlip(),
-                                    transforms.RandomCrop(32, 4), normalize])
-    training_set = torchvision.datasets.CIFAR100(root=datadir, train=True, download=True, transform=transform)
+    normalize = transforms.Normalize(
+        mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]
+    )
+    transform = transforms.Compose(
+        [
+            transforms.ToTensor(),
+            transforms.RandomHorizontalFlip(),
+            transforms.RandomCrop(32, 4),
+            normalize,
+        ]
+    )
+    training_set = torchvision.datasets.CIFAR100(
+        root=datadir, train=True, download=True, transform=transform
+    )
 
     if partition_dataset:
         training_set = SplitData(data=training_set, total_clients=total_clients)
@@ -102,15 +148,24 @@ def cifar100Data(client_id=0, total_clients=1, datadir='~/', partition_dataset=T
     if get_training_dataset:
         return training_set
     else:
-        train_loader = torch.utils.data.DataLoader(training_set, batch_size=train_bsz, shuffle=True,
-                                                   worker_init_fn=set_seed(client_id), generator=g, num_workers=4)
+        train_loader = torch.utils.data.DataLoader(
+            training_set,
+            batch_size=train_bsz,
+            shuffle=True,
+            worker_init_fn=set_seed(client_id),
+            generator=g,
+            num_workers=4,
+        )
         del training_set
 
         if is_test:
             transform = transforms.Compose([transforms.ToTensor(), normalize])
-            test_set = torchvision.datasets.CIFAR100(root=datadir, train=False, download=True, transform=transform)
-            test_loader = torch.utils.data.DataLoader(test_set, batch_size=test_bsz, shuffle=True, generator=g,
-                                                      num_workers=4)
+            test_set = torchvision.datasets.CIFAR100(
+                root=datadir, train=False, download=True, transform=transform
+            )
+            test_loader = torch.utils.data.DataLoader(
+                test_set, batch_size=test_bsz, shuffle=True, generator=g, num_workers=4
+            )
             del test_set
         else:
             test_loader = None

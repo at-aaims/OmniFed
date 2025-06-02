@@ -12,10 +12,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import torch
-import numpy as np
 import random
 from _random import Random
+
+import numpy as np
+import torch
+
 
 def set_seed(seed=1234, determinism=False):
     torch.manual_seed(seed)
@@ -25,6 +27,7 @@ def set_seed(seed=1234, determinism=False):
     rng = Random()
     rng.seed(seed)
     torch.use_deterministic_algorithms(determinism)
+
 
 class Partition(object):
     def __init__(self, data, index):
@@ -41,6 +44,7 @@ class Partition(object):
 
 class SplitData(object):
     """Splits training data evenly based on the total number of clients."""
+
     def __init__(self, data, total_clients):
         self.data = data
         self.partitions = []
@@ -65,6 +69,7 @@ class SplitData(object):
 class UnsplitData(object):
     """Unlike split partitioner which evenly distributes data among all workers, unsplit partitioner keeps all
     data on each worker and shuffles it in a different order"""
+
     def __init__(self, data, client_id):
         self.data = data
         self.partitions = []
@@ -103,7 +108,9 @@ class partioneDataset(torch.utils.data.Dataset):
             tuple: A tuple containing the data (e.g., image) and the label.
         """
         image, label = self.data[idx]
-        return torch.tensor(image, dtype=torch.float32), torch.tensor(label, dtype=torch.long)
+        return torch.tensor(image, dtype=torch.float32), torch.tensor(
+            label, dtype=torch.long
+        )
 
 
 def split_into_chunks(dataset, client_id=0, total_clients=1):
@@ -122,7 +129,7 @@ def split_into_chunks(dataset, client_id=0, total_clients=1):
     if client_id == total_clients - 1:
         chunk_indices = indices[start_index:]
     else:
-        chunk_indices = indices[start_index:start_index + chunk_size]
+        chunk_indices = indices[start_index : start_index + chunk_size]
 
     # Create a subset for the current chunk
     chunk_dataset = torch.utils.data.Subset(dataset, chunk_indices)

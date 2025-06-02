@@ -12,8 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import os
 import json
+import os
 import shutil
 
 import torch
@@ -25,25 +25,28 @@ from src.flora.datasets.image_classification import set_seed, split_into_chunks
 # TODO: adjust num_workers in torch.utils.data.DataLoader based on total threads available on a client
 # TODO: verify training data split among clients or not (based on 'partition_dataset' argument)
 
-def processImageNet(datadir='~/'):
+
+def processImageNet(datadir="~/"):
     """
     :param datadir: points to the ImageNet folder after download and untar operation.
     :return: processed dataset in 'imagenet' directory with 'train' and 'val' dirs
     """
-    if not os.path.exists(os.path.join(datadir, 'train')) or not os.path.exists(os.path.join(datadir, 'val')):
+    if not os.path.exists(os.path.join(datadir, "train")) or not os.path.exists(
+        os.path.join(datadir, "val")
+    ):
         raise ValueError("ImageNet folder doesn't exist, please download and untar it!")
 
-    train_datadir = os.path.join(datadir, 'train')
-    val_datadir = os.path.join(datadir, 'val')
-    imagenet_classes_file = os.path.join(datadir, 'imagenet_classes.json')
+    train_datadir = os.path.join(datadir, "train")
+    val_datadir = os.path.join(datadir, "val")
+    imagenet_classes_file = os.path.join(datadir, "imagenet_classes.json")
 
-    imagenet_traindir = os.path.join(os.path.dirname(datadir), 'imagenet', 'train')
-    imagenet_valdir = os.path.join(os.path.dirname(datadir), 'imagenet', 'val')
+    imagenet_traindir = os.path.join(os.path.dirname(datadir), "imagenet", "train")
+    imagenet_valdir = os.path.join(os.path.dirname(datadir), "imagenet", "val")
     os.makedirs(imagenet_traindir, exist_ok=True)
     os.makedirs(imagenet_valdir, exist_ok=True)
 
     # Load class index mapping (if available)
-    with open(imagenet_classes_file, 'r') as f:
+    with open(imagenet_classes_file, "r") as f:
         class_mapping = json.load(f)
 
     # Organize training data
@@ -69,11 +72,19 @@ def processImageNet(datadir='~/'):
             for img in os.listdir(source_dir):
                 shutil.move(os.path.join(source_dir, img), dest_dir)
 
-    print(f'ImageNet dataset ready to be processed as dataloader for training/testing.')
+    print(f"ImageNet dataset ready to be processed as dataloader for training/testing.")
 
 
-def imagenetData(client_id=0, total_clients=1, datadir='~/', partition_dataset=True, train_bsz=32, test_bsz=32,
-                 is_test=True, get_training_dataset=False):
+def imagenetData(
+    client_id=0,
+    total_clients=1,
+    datadir="~/",
+    partition_dataset=True,
+    train_bsz=32,
+    test_bsz=32,
+    is_test=True,
+    get_training_dataset=False,
+):
     """
     :param client_id: id/rank of client/server
     :param datadir: where to download/read the data
@@ -92,23 +103,39 @@ def imagenetData(client_id=0, total_clients=1, datadir='~/', partition_dataset=T
     g = torch.Generator()
     g.manual_seed(seed=total_clients)
 
-    transform = transforms.Compose([transforms.Resize(256), transforms.CenterCrop(224), transforms.ToTensor(),
-                                    transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])])
-    training_set = ImageFolder(os.path.join(datadir, 'train'), transform=transform)
+    transform = transforms.Compose(
+        [
+            transforms.Resize(256),
+            transforms.CenterCrop(224),
+            transforms.ToTensor(),
+            transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+        ]
+    )
+    training_set = ImageFolder(os.path.join(datadir, "train"), transform=transform)
     # TODO: split data into unique chunks across clients
     if partition_dataset:
-        training_set = split_into_chunks(dataset=training_set, client_id=client_id, total_clients=total_clients)
+        training_set = split_into_chunks(
+            dataset=training_set, client_id=client_id, total_clients=total_clients
+        )
 
     if get_training_dataset:
         return training_set
     else:
-        train_loader = torch.utils.data.DataLoader(training_set, batch_size=train_bsz, shuffle=True,
-                                                   worker_init_fn=set_seed(client_id), generator=g, num_workers=4)
+        train_loader = torch.utils.data.DataLoader(
+            training_set,
+            batch_size=train_bsz,
+            shuffle=True,
+            worker_init_fn=set_seed(client_id),
+            generator=g,
+            num_workers=4,
+        )
         del training_set
 
         if is_test:
-            val_set = ImageFolder(os.path.join(datadir, 'val'), transform=transform)
-            val_loader = torch.utils.data.DataLoader(val_set, batch_size=test_bsz, shuffle=False, num_workers=4)
+            val_set = ImageFolder(os.path.join(datadir, "val"), transform=transform)
+            val_loader = torch.utils.data.DataLoader(
+                val_set, batch_size=test_bsz, shuffle=False, num_workers=4
+            )
             del val_set
         else:
             val_loader = None

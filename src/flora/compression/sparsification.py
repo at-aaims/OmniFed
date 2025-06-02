@@ -13,6 +13,7 @@
 # limitations under the License.
 
 import math
+
 import torch
 
 from src.flora.compression import Compression, ResidualUpdates
@@ -22,7 +23,11 @@ def topk_sparse(tensor, compress_ratio):
     tensor = tensor.flatten()
     k = max(1, int(tensor.numel() * compress_ratio))
 
-    _, indices = torch.topk(tensor.abs(), k, sorted=False,)
+    _, indices = torch.topk(
+        tensor.abs(),
+        k,
+        sorted=False,
+    )
     values = torch.gather(tensor, 0, indices)
     return values, indices
 
@@ -42,6 +47,7 @@ def topk_desparse(tensors, numel, device):
 
 class TopKCompression(Compression):
     """Implementation of Top-k lossy sparsification where largest k updates (in magnitude) are selected"""
+
     def __init__(self, device, compress_ratio):
         super().__init__()
         self.residual = ResidualUpdates()
@@ -70,6 +76,7 @@ class TopKCompression(Compression):
 
 class DGCCompression(Compression):
     """Implementation of Deep Gradient Compression (DGC) lossy sparsification"""
+
     def __init__(self, device, compress_ratio):
         super().__init__(is_tensor_size_same=False)
         self.residual = ResidualUpdates()
@@ -95,7 +102,7 @@ class DGCCompression(Compression):
         vals, indices = vals[:k], indices[:k]
 
         thr = vals.min()
-        mask = (tensor.abs() >= thr)
+        mask = tensor.abs() >= thr
         selected = mask.sum()
 
         for _ in range(10):
@@ -106,10 +113,10 @@ class DGCCompression(Compression):
             else:
                 break
 
-            mask = (tensor.abs() >= thr)
+            mask = tensor.abs() >= thr
             selected = mask.sum()
 
-        indices, = torch.where(mask)
+        (indices,) = torch.where(mask)
         values = tensor[indices]
 
         tensor_compressed = values, indices
@@ -129,6 +136,7 @@ class DGCCompression(Compression):
 
 class RedsyncCompression(Compression):
     """Implementation of Redsync lossy sparsification"""
+
     def __init__(self, device, compress_ratio):
         super().__init__(is_tensor_size_same=False)
         self.device = device
@@ -154,7 +162,7 @@ class RedsyncCompression(Compression):
         while r - l > eps:
             tmp_ratio = l + (r - l) / 2
             thres = mean_val + tmp_ratio * (max_val - mean_val)
-            one_indexes = (abs_tensor > thres)
+            one_indexes = abs_tensor > thres
             indexes = one_indexes.nonzero().data.squeeze().view(-1)
             nnz = indexes.numel()
             if nnz > k and 2 * k > nnz:
@@ -182,7 +190,6 @@ class RedsyncCompression(Compression):
 
 
 class SIDCoCompression(Compression):
-
     def __init__(self, num_stages, device, compress_ratio):
         """Implementation of Sparsity-induced lossy sparsification SIDCo based on double-exponential distribution"""
         super().__init__(is_tensor_size_same=False)
@@ -200,7 +207,7 @@ class SIDCoCompression(Compression):
         tensor = tensor.flatten()
         numel = tensor.numel()
         t_norm = tensor.norm(2)
-        abs_norm_tensor = (tensor.abs() / t_norm)
+        abs_norm_tensor = tensor.abs() / t_norm
         abs_norm_tensor_cpy = abs_norm_tensor.clone()
         t_mean = torch.mean(abs_norm_tensor)
         if self.num_stages == 1 or self.compress_ratio >= self.first_ratio:
@@ -211,9 +218,9 @@ class SIDCoCompression(Compression):
         r_ratio = self.compress_ratio / self.first_ratio
         if self.num_stages > 1 or self.num_stages == 0:
             if self.num_stages == 0:
-                loop = (math.ceil(math.log(r_ratio) / math.log(self.i_ratio)))
+                loop = math.ceil(math.log(r_ratio) / math.log(self.i_ratio))
             else:
-                self.i_ratio = (math.pow(r_ratio, 1.0 / (self.num_stages - 1)))
+                self.i_ratio = math.pow(r_ratio, 1.0 / (self.num_stages - 1))
                 loop = self.num_stages - 1
             i = loop
             while i > 0:
@@ -226,9 +233,13 @@ class SIDCoCompression(Compression):
                     t_min = abs_norm_tensor.min()
                     t_mean = torch.mean(abs_norm_tensor)
 
-                    threshold = (-(t_mean - t_min) * math.log(self.i_ratio) + t_min)
+                    threshold = -(t_mean - t_min) * math.log(self.i_ratio) + t_min
                     if i == 1 and self.num_stages == 0:
-                        threshold = (-(t_mean - t_min) * math.log(r_ratio / math.pow(self.i_ratio, loop - 1)) + t_min)
+                        threshold = (
+                            -(t_mean - t_min)
+                            * math.log(r_ratio / math.pow(self.i_ratio, loop - 1))
+                            + t_min
+                        )
                     i -= 1
                 else:
                     break
@@ -255,7 +266,7 @@ def randomk_sparse(tensor, compress_ratio, device):
     numel = tensor.numel()
     k = max(1, int(numel * compress_ratio))
 
-    indices = torch.randint(low=0, high=numel-1, size=(k,)).to(device)
+    indices = torch.randint(low=0, high=numel - 1, size=(k,)).to(device)
     values = tensor[indices].to(device)
 
     return values, indices
@@ -271,6 +282,7 @@ def randomk_desparse(tensors, numel, device):
 
 class RandomKCompression(Compression):
     """Implementation of random-k lossy sparsification where k-portion of updates are chosen randomly"""
+
     def __init__(self, device, compress_ratio):
         super().__init__()
         self.global_step = 0

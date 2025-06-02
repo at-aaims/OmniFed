@@ -18,7 +18,8 @@ from src.flora.communicator import Communicator
 
 # TODO: implement a base class for Decentralized FL as well!
 
-class BaseServer():
+
+class BaseServer:
     def __init__(self, model, data, communicator, id=0, total_clients=2, **kwargs):
         """
         :param model: model to train
@@ -50,8 +51,10 @@ class BaseServer():
         raise NotImplementedError("evaluate_model not implemented!")
 
 
-class BaseClient():
-    def __init__(self, model, train_data, communicator, id=1, total_clients=2, **kwargs):
+class BaseClient:
+    def __init__(
+        self, model, train_data, communicator, id=1, total_clients=2, **kwargs
+    ):
         """
         :param model: model to train
         :param train_data: dataset to use for training

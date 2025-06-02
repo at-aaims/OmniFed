@@ -22,6 +22,7 @@ from src.flora.communicator import Communicator
 # TODO: implement broadcast operation in torch.rpc
 # TODO: implement simple aggregation on the specific data-type being called
 
+
 class RpcServer(object):
     def __init__(self, model, compute_mean=True, total_clients=1):
         """
@@ -47,7 +48,7 @@ class RpcServer(object):
             return self.aggregated_update
 
     def server_model(self, id):
-        print(f'fetching model update to server-id {id}')
+        print(f"fetching model update to server-id {id}")
         if self.aggregated_update is None:
             return self.model_update
         else:
@@ -55,25 +56,35 @@ class RpcServer(object):
 
 
 class TorchRpcCommunicator(Communicator):
-    
-    def __init__(self, id=0, total_clients=1, master_addr='127.0.0.1', master_port=27890):
-        super().__init__(protocol_type='torch_rpc')
+    def __init__(
+        self, id=0, total_clients=1, master_addr="127.0.0.1", master_port=27890
+    ):
+        super().__init__(protocol_type="torch_rpc")
         self.id = id
         self.total_clients = total_clients
         self.master_addr = master_addr
         self.master_port = master_port
-        self.central_server = 'central_server'
-        os.environ['MASTER_ADDR'] = self.master_addr
-        os.environ['MASTER_PORT'] = str(self.master_port)
+        self.central_server = "central_server"
+        os.environ["MASTER_ADDR"] = self.master_addr
+        os.environ["MASTER_PORT"] = str(self.master_port)
 
         # TODO: adjust based on total available threads
         opts = rpc.TensorPipeRpcBackendOptions(num_worker_threads=4, rpc_timeout=0)
         if self.id == 0:
-            rpc.init_rpc(self.central_server, rank=self.id, world_size=self.total_clients, rpc_backend_options=opts)
+            rpc.init_rpc(
+                self.central_server,
+                rank=self.id,
+                world_size=self.total_clients,
+                rpc_backend_options=opts,
+            )
 
         else:
-            rpc.init_rpc(f'worker-{self.id}', rank=self.id, world_size=self.total_clients, rpc_backend_options=opts)
-
+            rpc.init_rpc(
+                f"worker-{self.id}",
+                rank=self.id,
+                world_size=self.total_clients,
+                rpc_backend_options=opts,
+            )
 
     def aggregate(self, msg, communicate_params=True):
         if isinstance(msg, torch.nn.Module):
@@ -84,10 +95,14 @@ class TorchRpcCommunicator(Communicator):
                 updates = [param.grad.detach() for param in msg.parameters()]
 
             if self.id == 0:
-                msg = rpc.rpc_sync(self.central_server, RpcServer.server_model, args=(self.id,))
+                msg = rpc.rpc_sync(
+                    self.central_server, RpcServer.server_model, args=(self.id,)
+                )
 
             else:
-                aggregated_update = rpc.rpc_sync(self.central_server, RpcServer.collect_updates, args=(updates,))
+                aggregated_update = rpc.rpc_sync(
+                    self.central_server, RpcServer.collect_updates, args=(updates,)
+                )
                 for param, update in zip(msg.parameters(), aggregated_update):
                     if communicate_params:
                         param.data.copy_(update)

@@ -14,6 +14,7 @@
 
 from abc import ABC, abstractmethod
 
+
 class ResidualMemory(ABC):
     @abstractmethod
     def compensate(self, tensor, name):
@@ -46,8 +47,9 @@ class ResidualUpdates(ResidualMemory):
         self.residuals[name] = residual
 
 
-class Compression():
+class Compression:
     """Interface for compressing and decompressing a given tensor."""
+
     def __init__(self, average=True, is_tensor_size_same=True):
         self.average = average
         self.is_tensor_size_same = is_tensor_size_same

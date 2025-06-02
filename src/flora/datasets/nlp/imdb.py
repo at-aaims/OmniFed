@@ -22,7 +22,7 @@ import torch
 
 from src.flora.datasets.nlp import imdbReviewsData
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     print(torch.__file__)
-    pth='/Users/ssq/Desktop/datasets/'
+    pth = "/Users/ssq/Desktop/datasets/"
     _, _ = imdbReviewsData(datadir=pth, partition_dataset=False)
