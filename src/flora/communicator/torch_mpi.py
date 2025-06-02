@@ -13,17 +13,26 @@
 # limitations under the License.
 
 import datetime
+
 import torch
+import torch.distributed as dist
 
 from src.flora.communicator import Communicator
-import torch.distributed as dist
 
 # TODO: not taking returned data from sent/recv fn calls...fix that!
 
-class TorchMPICommunicator(Communicator):
 
-    def __init__(self, id, total_clients, init_method='tcp', master_addr='127.0.0.1', master_port='27890',
-                 backend='gloo', sharedfile='sharedfile'):
+class TorchMPICommunicator(Communicator):
+    def __init__(
+        self,
+        id,
+        total_clients,
+        init_method="tcp",
+        master_addr="127.0.0.1",
+        master_port="27890",
+        backend="gloo",
+        sharedfile="sharedfile",
+    ):
         """
         :param id: client or server id ranging from 0 to (total_clients - 1)
         :param total_clients: total number of clients/world-size
@@ -33,20 +42,29 @@ class TorchMPICommunicator(Communicator):
         :param backend: communication backend to use: either 'mpi', 'gloo' or 'nccl'
         :param sharedfile: name of the shared file used by clients
         """
-        super().__init__(protocol_type='torch_mpi')
+        super().__init__(protocol_type="torch_mpi")
         self.world_size = total_clients
         self.backend = backend
 
-        if init_method == 'tcp':
+        if init_method == "tcp":
             timeout = datetime.timedelta(seconds=5 * 60)
-            tcp_addr = 'tcp://' + str(master_addr) + ':' + str(master_port)
-            dist.init_process_group(backend=self.backend, init_method=tcp_addr, rank=id,
-                                    world_size=self.world_size, timeout=timeout)
+            tcp_addr = "tcp://" + str(master_addr) + ":" + str(master_port)
+            dist.init_process_group(
+                backend=self.backend,
+                init_method=tcp_addr,
+                rank=id,
+                world_size=self.world_size,
+                timeout=timeout,
+            )
 
-        elif init_method == 'sharedfile':
-            sharedfile = 'file://' + sharedfile
-            dist.init_process_group(backend=self.backend, init_method=sharedfile, rank=id,
-                                    world_size=self.world_size)
+        elif init_method == "sharedfile":
+            sharedfile = "file://" + sharedfile
+            dist.init_process_group(
+                backend=self.backend,
+                init_method=sharedfile,
+                rank=id,
+                world_size=self.world_size,
+            )
 
     def broadcast(self, msg, id=0):
         """
@@ -56,7 +74,8 @@ class TorchMPICommunicator(Communicator):
         """
         if isinstance(msg, torch.nn.Module):
             for _, param in msg.named_parameters():
-                if not param.requires_grad: continue
+                if not param.requires_grad:
+                    continue
                 dist.broadcast(tensor=param.data, src=id)
         else:
             dist.broadcast(tensor=msg, src=id)
@@ -71,7 +90,8 @@ class TorchMPICommunicator(Communicator):
         """
         if isinstance(msg, torch.nn.Module):
             for _, param in msg.named_parameters():
-                if not param.requires_grad: continue
+                if not param.requires_grad:
+                    continue
                 if communicate_params:
                     dist.all_reduce(tensor=param.data, op=dist.ReduceOp.SUM)
                     param.data /= self.world_size if compute_mean else 1
@@ -93,7 +113,8 @@ class TorchMPICommunicator(Communicator):
         """
         if isinstance(msg, torch.nn.Module):
             for _, param in msg.named_parameters():
-                if not param.requires_grad: continue
+                if not param.requires_grad:
+                    continue
                 if communicate_params:
                     dist.send(tensor=param.data, dst=id)
                 else:
@@ -112,7 +133,8 @@ class TorchMPICommunicator(Communicator):
         """
         if isinstance(msg, torch.nn.Module):
             for _, param in msg.named_parameters():
-                if not param.requires_grad: continue
+                if not param.requires_grad:
+                    continue
                 if communicate_params:
                     dist.recv(tensor=param.data, src=id)
                 else:

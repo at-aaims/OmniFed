@@ -18,14 +18,15 @@ import torch.nn as nn
 
 class TrainingParameters(object):
     def __init__(self, **kwargs):
-        self.optimizer = kwargs.get('optimizer', None)
-        self.comm_freq = kwargs.get('comm_freq', None)
-        self.loss = kwargs.get('loss', None)
-        self.epochs = kwargs.get('epochs', None)
+        self.optimizer = kwargs.get("optimizer", None)
+        self.comm_freq = kwargs.get("comm_freq", None)
+        self.loss = kwargs.get("loss", None)
+        self.epochs = kwargs.get("epochs", None)
 
 
 class MLPModel(nn.Module):
     """basic fully-connected network"""
+
     def __init__(self, grad_dim, hidden_dim=1024, dropout_rate=0.2):
         super().__init__()
         self.net = nn.Sequential(
@@ -35,13 +36,14 @@ class MLPModel(nn.Module):
             nn.Linear(hidden_dim, hidden_dim),
             nn.ReLU(),
             nn.Dropout(dropout_rate),
-            nn.Linear(hidden_dim, grad_dim)
+            nn.Linear(hidden_dim, grad_dim),
         )
 
     def forward(self, large_batch_update):
         return self.net(large_batch_update)
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     model = MLPModel(grad_dim=10)
     optimer = torch.optim.SGD(model.parameters(), lr=0.1)
     loss = nn.CrossEntropyLoss()

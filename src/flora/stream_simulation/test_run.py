@@ -14,7 +14,11 @@
 
 from src.flora.stream_simulation import DataStreamSimulator, TrainingDataset
 
-if __name__ == '__main__':
-    strm = DataStreamSimulator(dataset_type=TrainingDataset.CIFAR10, datadir='/Users/ssq/Desktop/datasets/',
-                               kafka_dir='/Users/ssq/Desktop/datasets/kafka_2.12-3.2.0', total_clients=2)
+if __name__ == "__main__":
+    strm = DataStreamSimulator(
+        dataset_type=TrainingDataset.CIFAR10,
+        datadir="/Users/ssq/Desktop/datasets/",
+        kafka_dir="/Users/ssq/Desktop/datasets/kafka_2.12-3.2.0",
+        total_clients=2,
+    )
     strm.end_streaming()

@@ -13,21 +13,38 @@
 # limitations under the License.
 
 import os
-import time
+import subprocess
 import threading
+import time
 from abc import ABC, abstractmethod
 from enum import Enum
-import subprocess
 
-import torch
 import numpy as np
-from kafka import KafkaProducer, KafkaConsumer
+import torch
+from kafka import KafkaConsumer, KafkaProducer
 from kafka.errors import KafkaError
 
-from src.flora.datasets.image_classification.caltech import caltech101Data, caltech256Data
+from src.flora.datasets.image_classification.caltech import (
+    (
+   ,
+)
+    caltech101Data,
+    caltech256Data,
+)t (
+    emnistData,
+    fmnisData,
+   
+   
+)
+
 from src.flora.datasets.image_classification.cifar import cifar10Data, cifar100Data
 from src.flora.datasets.image_classification.imagenet import imagenetData
-from src.flora.datasets.image_classification.img_datasets import food101Data, places365Data, emnistData, fmnistData
+from src.flora.datasets.image_classification.img_datasets import (
+    food101Data,
+    places365Data,
+    emnistData,
+    fmnistData,
+)
 # from src.flora.datasets.image_classification.medical_imaging import isicArchiveData
 # from src.flora.datasets.nlp import imdbReviewsData
 # from src.flora.datasets.object_detection.coco import coco2017Data
@@ -43,42 +60,88 @@ from src.flora.datasets.image_classification.img_datasets import food101Data, pl
 # TODO: check version compatibility between torch and torchtext for NLP dataset IMDB
 # TODO: verify that topics are created if they don't already exist
 
+
 class DataHandler:
     def cifar10(get_training_dataset, datadir, client_id, total_clients, is_test):
-        return cifar10Data(get_training_dataset=get_training_dataset, datadir=datadir, client_id=client_id,
-                           total_clients=total_clients, is_test=is_test)
+        return cifar10Data(
+            get_training_dataset=get_training_dataset,
+            datadir=datadir,
+            client_id=client_id,
+            total_clients=total_clients,
+            is_test=is_test,
+        )
 
     def cifar100(get_training_dataset, datadir, client_id, total_clients, is_test):
-        return cifar100Data(get_training_dataset=get_training_dataset, datadir=datadir, client_id=client_id,
-                            total_clients=total_clients, is_test=is_test)
+        return cifar100Data(
+            get_training_dataset=get_training_dataset,
+            datadir=datadir,
+            client_id=client_id,
+            total_clients=total_clients,
+            is_test=is_test,
+        )
 
     def caltech101(get_training_dataset, datadir, client_id, total_clients, is_test):
-        return caltech101Data(get_training_dataset=get_training_dataset, datadir=datadir, client_id=client_id,
-                              total_clients=total_clients, is_test=is_test)
+        return caltech101Data(
+            get_training_dataset=get_training_dataset,
+            datadir=datadir,
+            client_id=client_id,
+            total_clients=total_clients,
+            is_test=is_test,
+        )
 
     def caltech256(get_training_dataset, datadir, client_id, total_clients, is_test):
-        return caltech256Data(get_training_dataset=get_training_dataset, datadir=datadir, client_id=client_id,
-                              total_clients=total_clients, is_test=is_test)
+        return caltech256Data(
+            get_training_dataset=get_training_dataset,
+            datadir=datadir,
+            client_id=client_id,
+            total_clients=total_clients,
+            is_test=is_test,
+        )
 
     def imagenet(get_training_dataset, datadir, client_id, total_clients, is_test):
-        return imagenetData(get_training_dataset=get_training_dataset, datadir=datadir, client_id=client_id,
-                            total_clients=total_clients, is_test=is_test)
+        return imagenetData(
+            get_training_dataset=get_training_dataset,
+            datadir=datadir,
+            client_id=client_id,
+            total_clients=total_clients,
+            is_test=is_test,
+        )
 
     def fmnist(get_training_dataset, datadir, client_id, total_clients, is_test):
-        return fmnistData(get_training_dataset=get_training_dataset, datadir=datadir, client_id=client_id,
-                          total_clients=total_clients, is_test=is_test)
+        return fmnistData(
+            get_training_dataset=get_training_dataset,
+            datadir=datadir,
+            client_id=client_id,
+            total_clients=total_clients,
+            is_test=is_test,
+        )
 
     def places365(get_training_dataset, datadir, client_id, total_clients, is_test):
-        return places365Data(get_training_dataset=get_training_dataset, datadir=datadir, client_id=client_id,
-                             total_clients=total_clients, is_test=is_test)
+        return places365Data(
+            get_training_dataset=get_training_dataset,
+            datadir=datadir,
+            client_id=client_id,
+            total_clients=total_clients,
+            is_test=is_test,
+        )
 
     def emnist(get_training_dataset, datadir, client_id, total_clients, is_test):
-        return emnistData(get_training_dataset=get_training_dataset, datadir=datadir, client_id=client_id,
-                          total_clients=total_clients, is_test=is_test)
+        return emnistData(
+            get_training_dataset=get_training_dataset,
+            datadir=datadir,
+            client_id=client_id,
+            total_clients=total_clients,
+            is_test=is_test,
+        )
 
     def food101(get_training_dataset, datadir, client_id, total_clients, is_test):
-        return food101Data(get_training_dataset=get_training_dataset, datadir=datadir, client_id=client_id,
-                           total_clients=total_clients, is_test=is_test)
+        return food101Data(
+            get_training_dataset=get_training_dataset,
+            datadir=datadir,
+            client_id=client_id,
+            total_clients=total_clients,
+            is_test=is_test,
+        )
 
 
 class TrainingDataset(Enum):
@@ -106,9 +169,20 @@ class TrainingDataset(Enum):
 
 
 class DataStreamSimulator(ABC):
-    def __init__(self, dataset=None, dataset_type=TrainingDataset.CIFAR10, kafka_host='127.0.0.1', kafka_port=9092,
-                 stream_rate=32, datadir='~/', client_id=0, total_clients=1, input_shape=[1,3,32,32], label_shape=[1],
-                 kafka_dir='~/kafka'):
+    def __init__(
+        self,
+        dataset=None,
+        dataset_type=TrainingDataset.CIFAR10,
+        kafka_host="127.0.0.1",
+        kafka_port=9092,
+        stream_rate=32,
+        datadir="~/",
+        client_id=0,
+        total_clients=1,
+        input_shape=[1, 3, 32, 32],
+        label_shape=[1],
+        kafka_dir="~/kafka",
+    ):
         """
         Simulates training data streaming into a kafka consumer, and currently published by the central server
         (client_id 0). default streams 32x32 RBG image and its corresponding label to a client (i.e., consumer)
@@ -136,74 +210,114 @@ class DataStreamSimulator(ABC):
         self.label_shape = label_shape
         self.kafka_dir = kafka_dir
 
-
         if self.total_clients < 2:
-            raise ValueError('total devices must be at least 2, for 1 client and 1 server')
+            raise ValueError(
+                "total devices must be at least 2, for 1 client and 1 server"
+            )
 
         if self.dataset is None and dataset_type is None:
-            raise ValueError("Must specify either dataset or dataset_type TrainingDataset")
+            raise ValueError(
+                "Must specify either dataset or dataset_type TrainingDataset"
+            )
 
         if self.dataset is not None and dataset_type is not None:
-            raise ValueError("Specify only one: dataset or dataset_type TrainingDataset")
+            raise ValueError(
+                "Specify only one: dataset or dataset_type TrainingDataset"
+            )
 
         if self.dataset is None:
-            if (self.dataset_type == TrainingDataset.CIFAR10 or self.dataset_type == TrainingDataset.CIFAR100
-                    or self.dataset_type == TrainingDataset.CALTECH101 or self.dataset_type == TrainingDataset.CALTECH256
-                    or self.dataset_type == TrainingDataset.IMAGENET or self.dataset_type == TrainingDataset.FOOD101
-                    or self.dataset_type == TrainingDataset.PLACES365 or self.dataset_type == TrainingDataset.EMNIST
-                    or self.dataset_type == TrainingDataset.FMNIST):
-
-                self.dataset = TrainingDataset.execute_action(enum_dataset=self.dataset_type, get_training_dataset=True,
-                                                              datadir=self.datadir, client_id=self.client_id,
-                                                              total_clients=self.total_clients, is_test=False)
-                print(f'length of dataset: {len(self.dataset)}')
-
+            if (
+                self.dataset_type == TrainingDataset.CIFAR10
+                or self.dataset_type == TrainingDataset.CIFAR100
+                or self.dataset_type == TrainingDataset.CALTECH101
+                or self.dataset_type == TrainingDataset.CALTECH256
+                or self.dataset_type == TrainingDataset.IMAGENET
+                or self.dataset_type == TrainingDataset.FOOD101
+                or self.dataset_type == TrainingDataset.PLACES365
+                or self.dataset_type == TrainingDataset.EMNIST
+                or self.dataset_type == TrainingDataset.FMNIST
+            ):
+                self.dataset = TrainingDataset.execute_action(
+                    enum_dataset=self.dataset_type,
+                    get_training_dataset=True,
+                    datadir=self.datadir,
+                    client_id=self.client_id,
+                    total_clients=self.total_clients,
+                    is_test=False,
+                )
+                print(f"length of dataset: {len(self.dataset)}")
 
         if self.client_id == 0:
             # start zookeeper and kafka servers
             self.start_zookeeper_kafka()
             # start producer to publish data to kafka topics
-            print(f'setting up producer on client_id {self.client_id}')
-            self.streamer = KafkaProducer(bootstrap_servers=self.kafka_host + ':' + str(self.kafka_port))
+            print(f"setting up producer on client_id {self.client_id}")
+            self.streamer = KafkaProducer(
+                bootstrap_servers=self.kafka_host + ":" + str(self.kafka_port)
+            )
             self.create_topics()
             self.produce()
         else:
-            self.streamer = KafkaConsumer('client' + str(self.client_id))
+            self.streamer = KafkaConsumer("client" + str(self.client_id))
 
     def start_zookeeper_kafka(self):
         # TODO: tweak to work for Windows with .bat executables
         try:
-            zookeeper_server_pth = os.path.join(self.kafka_dir, 'bin', 'zookeeper-server-start.sh')
-            kafka_server_pth = os.path.join(self.kafka_dir, 'bin', 'kafka-server-start.sh')
+            zookeeper_server_pth = os.path.join(
+                self.kafka_dir, "bin", "zookeeper-server-start.sh"
+            )
+            kafka_server_pth = os.path.join(
+                self.kafka_dir, "bin", "kafka-server-start.sh"
+            )
 
-            if not os.path.exists(zookeeper_server_pth) or not os.path.exists(kafka_server_pth):
-                raise FileNotFoundError(f'cannot find kafka scripts at {kafka_server_pth}')
+            if not os.path.exists(zookeeper_server_pth) or not os.path.exists(
+                kafka_server_pth
+            ):
+                raise FileNotFoundError(
+                    f"cannot find kafka scripts at {kafka_server_pth}"
+                )
 
-            if not self.check_if_already_running(service='zookeeper'):
-                zookeeper_server = [zookeeper_server_pth, 'config.zookeeper.properties']
-                result = subprocess.run(zookeeper_server, check=True, text=True, capture_output=True)
+            if not self.check_if_already_running(service="zookeeper"):
+                zookeeper_server = [zookeeper_server_pth, "config.zookeeper.properties"]
+                result = subprocess.run(
+                    zookeeper_server, check=True, text=True, capture_output=True
+                )
                 print(result.stdout)
                 wait_time = 5
-                print(f'starting zookeeper server...will start kafka-server in {wait_time} seconds...')
+                print(
+                    f"starting zookeeper server...will start kafka-server in {wait_time} seconds..."
+                )
                 time.sleep(wait_time)
 
-            if not self.check_if_already_running(service='kafka'):
-                kafka_server = [kafka_server_pth, 'config/server.properties']
-                result = subprocess.run(kafka_server, check=True, text=True, capture_output=True)
+            if not self.check_if_already_running(service="kafka"):
+                kafka_server = [kafka_server_pth, "config/server.properties"]
+                result = subprocess.run(
+                    kafka_server, check=True, text=True, capture_output=True
+                )
                 print(result.stdout)
 
         except subprocess.CalledProcessError as e:
-            print(f'could not start zookeeper or kafka on server {self.kafka_host}:{self.kafka_port}')
-
+            print(
+                f"could not start zookeeper or kafka on server {self.kafka_host}:{self.kafka_port}"
+            )
 
     def check_if_already_running(self, service):
         try:
             # Use pgrep on linux-like systems and tasklist on Windows
-            if os.name == 'posix':
-                result = subprocess.run(['pgrep', '-f', service], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            if os.name == "posix":
+                result = subprocess.run(
+                    ["pgrep", "-f", service],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                )
             else:
                 # On Windows, assume the executable name is 'zookeeper-server-start.bat' or similar
-                result = subprocess.run(['tasklist'], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+                result = subprocess.run(
+                    ["tasklist"],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                )
 
                 # Check if any line contains 'zookeeper' in the task list
                 return service in result.stdout.lower()
@@ -214,33 +328,45 @@ class DataStreamSimulator(ABC):
             print(f"An error occurred while checking {service} status: {e}")
             return False
 
-
     def create_topics(self):
         # TODO: check if topics already exist and handle accordingly
         try:
-            consumer = KafkaConsumer(bootstrap_servers=self.kafka_host + ':' + str(self.kafka_port))
+            consumer = KafkaConsumer(
+                bootstrap_servers=self.kafka_host + ":" + str(self.kafka_port)
+            )
             topics = consumer.topics()
             for client_id in range(self.total_clients):
                 try:
-                    topic_name = 'client' + str(client_id + 1)
+                    topic_name = "client" + str(client_id + 1)
                     if topic_name not in topics:
-                        kafka_topics_pth = os.path.join(self.kafka_dir, 'bin/kafka-topics.sh')
-                        command = [kafka_topics_pth, '--create', '--topic', topic_name,
-                                   '--bootstrap-server', self.kafka_host + ':' + str(self.kafka_port), '--partitions',
-                                   '1',
-                                   '--replication-factor', '1']
-                        print(f'command is {command}')
-                        result = subprocess.run(command, check=True, text=True, capture_output=True)
-                        print(f'topic {topic_name} created successfully.')
+                        kafka_topics_pth = os.path.join(
+                            self.kafka_dir, "bin/kafka-topics.sh"
+                        )
+                        command = [
+                            kafka_topics_pth,
+                            "--create",
+                            "--topic",
+                            topic_name,
+                            "--bootstrap-server",
+                            self.kafka_host + ":" + str(self.kafka_port),
+                            "--partitions",
+                            "1",
+                            "--replication-factor",
+                            "1",
+                        ]
+                        print(f"command is {command}")
+                        result = subprocess.run(
+                            command, check=True, text=True, capture_output=True
+                        )
+                        print(f"topic {topic_name} created successfully.")
                         print(result.stdout)
 
                 except subprocess.CalledProcessError as e:
-                    print(f'Error creating topic {e.stderr}')
+                    print(f"Error creating topic {e.stderr}")
         except KafkaError as e:
             print(f"Error while checking topic existence: {e}")
         finally:
             consumer.close()
-
 
     def publish_data_to_client(self, target_client=1):
         """spawn # of threads as total clients to publish data to a queue corresponding to each client"""
@@ -248,8 +374,11 @@ class DataStreamSimulator(ABC):
             while True:
                 for ix in range(len(self.dataset)):
                     inp, label = self.dataset[ix]
-                    self.streamer.send(topic='client' + str(target_client), key=label.to_bytes(),
-                                       value=inp.numpy().tobytes())
+                    self.streamer.send(
+                        topic="client" + str(target_client),
+                        key=label.to_bytes(),
+                        value=inp.numpy().tobytes(),
+                    )
 
                     time.sleep(1.0 / self.stream_rate)
 
@@ -259,22 +388,30 @@ class DataStreamSimulator(ABC):
         finally:
             self.streamer.close()
 
-
     @abstractmethod
     def produce(self):
         for client in range(self.total_clients):
-            print(f'going to publish data to client client-{client+1} in background thread...')
+            print(
+                f"going to publish data to client client-{client + 1} in background thread..."
+            )
             # self.publish_data_to_client(client + 1)
-            thread = threading.Thread(target=self.publish_data_to_client, args=(client + 1,))
+            thread = threading.Thread(
+                target=self.publish_data_to_client, args=(client + 1,)
+            )
             thread.start()
-
 
     @abstractmethod
     def consume(self):
         try:
             for data in self.streamer:
-                inp = torch.from_numpy(np.frombuffer(data.value, dtype=np.float32)).reshape(self.input_shape)
-                label = torch.from_numpy(np.frombuffer(data.key, dtype=np.int32))[0].reshape(self.label_shape).to(torch.int32)
+                inp = torch.from_numpy(
+                    np.frombuffer(data.value, dtype=np.float32)
+                ).reshape(self.input_shape)
+                label = (
+                    torch.from_numpy(np.frombuffer(data.key, dtype=np.int32))[0]
+                    .reshape(self.label_shape)
+                    .to(torch.int32)
+                )
 
                 yield inp, label
 
@@ -284,22 +421,6 @@ class DataStreamSimulator(ABC):
         finally:
             self.streamer.close()
 
-
     def end_streaming(self):
         self.streamer.close()
-        print('finished streaming')
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+        print("finished streaming")

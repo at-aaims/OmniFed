@@ -18,17 +18,19 @@ from src.flora.compression import Compression
 
 # TODO: check loss scaling is correctly applied in AMPCompression for mixed-precision training
 
+
 class QSGDCompression(Compression):
     """Implementation of quantized SGD or QSGD lossy quantization-based compression"""
+
     def __init__(self, device, bit_width):
         super().__init__()
         self.device = device
         self.bit_width = bit_width
-        self.scale = (2 ** self.bit_width) - 1
+        self.scale = (2**self.bit_width) - 1
 
     def compress(self, tensor):
         tensor = tensor.to(self.device)
-        scale = (2 ** self.bit_width) - 1
+        scale = (2**self.bit_width) - 1
         min_val, max_val = tensor.min(), tensor.max()
 
         # Scale the tensor to [0, scale]
@@ -47,10 +49,11 @@ class QSGDCompression(Compression):
 
 class AMPCompression(Compression):
     """Implementation of Automatic Mixed-Precision (AMP) training, where gradients are compressed to 16bit for communication"""
+
     def __init__(self, device):
         super().__init__()
         self.device = device
-        self.loss_scale_factor = (2 ** 16) - 1
+        self.loss_scale_factor = (2**16) - 1
 
     def compress(self, tensor, name):
         # Convert tensors to 16-bit
@@ -71,4 +74,6 @@ class AMPCompression(Compression):
 
             return model
         else:
-            raise TypeError("gradient_unscaling fn needs torch.nn.Module type for model argument")
+            raise TypeError(
+                "gradient_unscaling fn needs torch.nn.Module type for model argument"
+            )

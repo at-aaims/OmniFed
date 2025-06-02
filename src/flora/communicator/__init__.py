@@ -15,6 +15,7 @@
 # contains fn calls and implementation of different communication mechanisms like MPI, gRPC and MQTT, WebSocket??
 # also implements different compressors to reduce communication volume/cost
 
+
 class Communicator(object):
     def __init__(self, protocol_type):
         self.protocol_type = protocol_type
