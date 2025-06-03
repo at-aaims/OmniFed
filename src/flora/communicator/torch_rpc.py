@@ -24,24 +24,25 @@ from src.flora.communicator import Communicator
 
 
 class RpcServer(object):
-    def __init__(self, model, compute_mean=True, total_clients=1):
+    def __init__(self, model, total_clients=1):
         """
         :param model: model to communicate
-        :param compute_mean: whether to sum the updates or average them. calculate mean if True
         :param total_clients: total number of clients/ world-size (including the server)
         """
         self.model_update = [torch.zeros_like(param) for param in model.parameters()]
         self.aggregated_update = None
         self.total_clients = total_clients
         self.client_count = 0
-        self.compute_mean = compute_mean
+        self.samples = 0
+        self.collected_samples = 0
+        self.sample_count = 0
 
-    def collect_updates(self, updates):
+    def collect_updates(self, updates, compute_mean=True):
         self.model_update += updates
         self.client_count += 1
         if self.client_count == self.total_clients:
             self.client_count = 0
-            self.model_update /= self.total_clients if self.compute_mean else 1
+            self.model_update /= self.total_clients if compute_mean else 1
 
             self.aggregated_update = self.model_update
             self.model_update = [torch.zeros_like(param) for param in self.model_update]
@@ -53,6 +54,16 @@ class RpcServer(object):
             return self.model_update
         else:
             return self.aggregated_update
+
+    def aggregate_metric(self, samples, compute_mean=True):
+        self.samples += samples
+        self.sample_count += 1
+        if self.sample_count == self.total_clients:
+            self.sample_count = 0
+            self.samples /= self.total_clients if compute_mean else 1
+            self.collected_samples = self.samples
+            self.samples = 0
+            return self.collected_samples
 
 
 class TorchRpcCommunicator(Communicator):
@@ -86,7 +97,7 @@ class TorchRpcCommunicator(Communicator):
                 rpc_backend_options=opts,
             )
 
-    def aggregate(self, msg, communicate_params=True):
+    def aggregate(self, msg, communicate_params=True, compute_mean=True):
         if isinstance(msg, torch.nn.Module):
             # communicate either model parameters or gradients
             if communicate_params:
@@ -94,22 +105,37 @@ class TorchRpcCommunicator(Communicator):
             else:
                 updates = [param.grad.detach() for param in msg.parameters()]
 
-            if self.id == 0:
-                msg = rpc.rpc_sync(
-                    self.central_server, RpcServer.server_model, args=(self.id,)
-                )
+            # if self.id == 0:
+            #     msg = rpc.rpc_sync(
+            #         self.central_server, RpcServer.server_model, args=(self.id,)
+            #     )
+            #
+            # else:
+            #     aggregated_update = rpc.rpc_sync(
+            #         self.central_server, RpcServer.collect_updates, args=(updates,)
+            #     )
+            #     for param, update in zip(msg.parameters(), aggregated_update):
+            #         if communicate_params:
+            #             param.data.copy_(update)
+            #         else:
+            #             param.grad.data.copy_(update)
 
-            else:
-                aggregated_update = rpc.rpc_sync(
-                    self.central_server, RpcServer.collect_updates, args=(updates,)
-                )
-                for param, update in zip(msg.parameters(), aggregated_update):
-                    if communicate_params:
-                        param.data.copy_(update)
-                    else:
-                        param.grad.data.copy_(update)
+            aggregated_update = rpc.rpc_sync(
+                self.central_server,
+                RpcServer.collect_updates,
+                args=(updates, compute_mean),
+            )
+            for param, update in zip(msg.parameters(), aggregated_update):
+                if communicate_params:
+                    param.data.copy_(update)
+                else:
+                    param.grad.data.copy_(update)
 
             return msg
         else:
-            # TODO: implement simple aggregation on the specific data-type being called
-            raise TypeError("aggregate fn only supports torch.nn.Module type")
+            aggregated_samples = rpc.rpc_sync(
+                self.central_server,
+                RpcServer.aggregate_metric,
+                args=(msg, compute_mean),
+            )
+            return aggregated_samples

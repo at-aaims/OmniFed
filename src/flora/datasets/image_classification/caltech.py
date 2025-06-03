@@ -18,7 +18,6 @@ import shutil
 import tarfile
 import zipfile
 
-import requests
 import torch
 import torchvision.datasets as datasets
 import torchvision.transforms as transforms
@@ -46,7 +45,7 @@ def caltechDataSplit(datadir, seed=1234, train_ratio=0.8, dataset_name="Caltech1
         raise ValueError("Unknown dataset")
 
     caltech_dir = os.path.join(datadir, download_dir)
-    print(f"going to split CalTech dataset into train and test set")
+    print("going to split CalTech dataset into train and test set")
     train_dir = os.path.join(datadir, dataset_name, "train")
     test_dir = os.path.join(datadir, dataset_name, "test")
     os.makedirs(train_dir, exist_ok=True)
@@ -206,9 +205,9 @@ def caltech101Data(
         with zipfile.ZipFile(os.path.join(datadir, "caltech101.zip"), "r") as zip_ref:
             zip_ref.extractall(os.path.join(datadir, "Caltech101"))
 
-        print(f"Unzipped CalTech-101 dataset")
+        print("Unzipped CalTech-101 dataset")
         filename = "101_ObjectCategories.tar.gz"
-        print(f"Going to untar 101_ObjectCategories.tar.gz")
+        print("Going to untar 101_ObjectCategories.tar.gz")
         tar = tarfile.open(
             os.path.join(datadir, "Caltech101", "caltech-101", filename), "r"
         )

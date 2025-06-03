@@ -1,6 +1,10 @@
 # Created by https://www.toptal.com/developers/gitignore/api/python
 # Edit at https://www.toptal.com/developers/gitignore?templates=python
 
+# styagi's personal env
+pyvenv/
+pyvenv3_11_8/
+
 ### Python ###
 # Byte-compiled / optimized / DLL files
 __pycache__/
