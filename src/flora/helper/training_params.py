@@ -16,12 +16,46 @@ import torch
 import torch.nn as nn
 
 
-class TrainingParameters(object):
+class TrainingParameters:
     def __init__(self, **kwargs):
         self.optimizer = kwargs.get("optimizer", None)
-        self.comm_freq = kwargs.get("comm_freq", None)
         self.loss = kwargs.get("loss", None)
         self.epochs = kwargs.get("epochs", None)
+
+    def get_optimizer(self):
+        return self.optimizer
+
+    def get_loss(self):
+        return self.loss
+
+    def get_epochs(self):
+        return self.epochs
+
+
+class FedAvgTrainingParameters(TrainingParameters):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.comm_freq = kwargs.get("comm_freq", None)
+
+    def get_comm_freq(self):
+        return self.comm_freq
+
+
+class DiLocoTrainingParameters(TrainingParameters):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.comm_freq = kwargs.get("comm_freq", None)
+        self.outer_lr = kwargs.get("outer_lr", None)
+        self.outer_momentum = kwargs.get("outer_momentum", None)
+
+    def get_comm_freq(self):
+        return self.comm_freq
+
+    def get_outer_lr(self):
+        return self.outer_lr
+
+    def get_outer_momentum(self):
+        return self.outer_momentum
 
 
 class MLPModel(nn.Module):

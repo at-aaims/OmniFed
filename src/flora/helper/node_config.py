@@ -23,7 +23,7 @@ def nvdia_gpu_count():
         output = subprocess.check_output(["nvidia-smi", "-L"])
         gpu_count = len(output.decode().strip().split("\n"))
         return gpu_count
-    except Exception as e:
+    except Exception:
         # Return 0 if no NVIDIA GPUs are found or an error occurs
         return 0
 
@@ -37,7 +37,7 @@ def amd_gpu_count():
             for line in output.decode().strip().split("\n")
         )
         return amd_gpu_count
-    except Exception as e:
+    except Exception:
         # Return 0 if no AMD GPUs are found or an error occurs
         return 0
 

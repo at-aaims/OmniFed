@@ -75,7 +75,7 @@ def coco2017Data(
     g.manual_seed(total_clients)
     if "coco2017".lower() not in datadir.lower():
         print(
-            f"Going to download COCO 2017 dataset from Kaggle. This may take a while..."
+            "Going to download COCO 2017 dataset from Kaggle. This may take a while..."
         )
         coco2017_install_pth = kagglehub.dataset_download("awsaf49/coco-2017-dataset")
         if not os.path.exists(datadir):

@@ -21,19 +21,19 @@ class Communicator(object):
         self.protocol_type = protocol_type
 
     def broadcast(self, **kwargs):
-        raise NotImplemented("implement broadcast")
+        raise NotImplementedError("implement broadcast")
 
     def send(self, **kwargs):
-        raise NotImplemented("implement send")
+        raise NotImplementedError("implement send")
 
     def receive(self, **kwargs):
-        raise NotImplemented("implement receive")
+        raise NotImplementedError("implement receive")
 
     def aggregate(self, **kwargs):
-        raise NotImplemented("implement aggregate")
+        raise NotImplementedError("implement aggregate")
 
     def allgather(self, **kwargs):
-        raise NotImplemented("implement allgather")
+        raise NotImplementedError("implement allgather")
 
     def close(self, **kwargs):
-        raise NotImplemented("implement close")
+        raise NotImplementedError("implement close")

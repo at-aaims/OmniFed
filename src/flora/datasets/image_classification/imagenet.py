@@ -72,7 +72,7 @@ def processImageNet(datadir="~/"):
             for img in os.listdir(source_dir):
                 shutil.move(os.path.join(source_dir, img), dest_dir)
 
-    print(f"ImageNet dataset ready to be processed as dataloader for training/testing.")
+    print("ImageNet dataset ready to be processed as dataloader for training/testing.")
 
 
 def imagenetData(

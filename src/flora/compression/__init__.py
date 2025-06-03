@@ -19,7 +19,7 @@ class ResidualMemory(ABC):
     @abstractmethod
     def compensate(self, tensor, name):
         """Update the tensor with the residuals."""
-        raise NotImplemented("compensate was not implemented.")
+        raise NotImplementedError("compensate was not implemented.")
 
     def update(self, tensor, name, compressor, tensor_compressed, ctx):
         """Update the residuals."""
@@ -56,18 +56,18 @@ class Compression:
 
     def compress(self, tensor, **kwargs):
         """Compresses a tensor and returns it with the context needed to decompress it."""
-        raise NotImplemented("compress not implemented.")
+        raise NotImplementedError("compress not implemented.")
 
     def decompress(self, **kwargs):
         """Decompress the tensor with the given context."""
-        raise NotImplemented("decompress not implemented.")
+        raise NotImplementedError("decompress not implemented.")
 
     # def aggregate(self, tensors):
     #     """Aggregate a list of tensors."""
     #     return sum(tensors)
 
     def loss_scaling(self, loss):
-        raise NotImplemented("loss_scaling not implemented.")
+        raise NotImplementedError("loss_scaling not implemented.")
 
     def gradient_unscaling(self, **kwargs):
-        raise NotImplemented("gradient_unscaling not implemented.")
+        raise NotImplementedError("gradient_unscaling not implemented.")
