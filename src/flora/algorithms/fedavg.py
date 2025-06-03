@@ -39,7 +39,6 @@ class FederatedAveraging:
         :param total_clients: total number of clients / world size
         :param train_params: training hyperparameters
         """
-        # super().__init__(model, train_data, communicator, id, total_clients)
         self.model = model
         self.train_data = train_data
         self.communicator = communicator
@@ -52,7 +51,6 @@ class FederatedAveraging:
         self.epochs = self.train_params.get_epochs()
         self.local_step = 0
         self.training_samples = 0
-
         dev_id = NodeConfig().get_gpus() % self.total_clients
         self.device = torch.device(
             "cuda:" + str(dev_id) if torch.cuda.is_available() else "cpu"
@@ -62,11 +60,6 @@ class FederatedAveraging:
     def initialize_model(self):
         # model broadcasted from central server with id 0
         self.model = self.communicator.broadcast(msg=self.model, id=0)
-
-    def aggregate_updates(self):
-        self.model = self.communicator.aggregate(
-            msg=self.model, communicate_params=True, compute_mean=False
-        )
 
     def train_loop(self):
         for inputs, labels in self.train_data:

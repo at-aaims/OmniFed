@@ -1,5 +1,20 @@
-import torch
+# Copyright (c) 2025, Oak Ridge National Laboratory.  All rights reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 import copy
+
+import torch
 
 from src.flora.communicator import Communicator
 from src.flora.helper.training_params import DiLocoTrainingParameters
@@ -53,7 +68,7 @@ class DiLoCo:
     def aggregate_updates(self):
         with torch.no_grad():
             for (name1, param1), (name2, param2) in zip(
-                self.global_model.parameters(), self.model.parameters()
+                self.global_model.named_parameters(), self.model.named_parameters()
             ):
                 assert name1 == name2, f"Parameter mismatch: {name1} vs {name2}"
                 target_param = dict(self.diff_params.named_parameters())[name1]
