@@ -32,7 +32,7 @@ class TrainingParameters:
         return self.epochs
 
 
-class FedAvgTrainingParameters(TrainingParameters):
+      class FedAvgTrainingParameters(TrainingParameters):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.comm_freq = kwargs.get("comm_freq", None)
@@ -57,6 +57,19 @@ class DiLocoTrainingParameters(TrainingParameters):
     def get_outer_momentum(self):
         return self.outer_momentum
 
+      
+class FedProxTrainingParameters(TrainingParameters):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.comm_freq = kwargs.get("comm_freq", None)
+        self.mu = kwargs.get("mu", None)
+
+    def get_comm_freq(self):
+        return self.comm_freq
+
+    def get_mu(self):
+        return self.mu
+      
 
 class MLPModel(nn.Module):
     """basic fully-connected network"""
