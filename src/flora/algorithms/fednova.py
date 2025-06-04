@@ -72,7 +72,7 @@ class FedNova:
         momentum_term = 1 - lr * self.weight_decay
         alpha = 0.0
         for j in range(self.comm_freq):
-            alpha += momentum_term ** j
+            alpha += momentum_term**j
         alpha *= lr
         return alpha
 
@@ -82,18 +82,23 @@ class FedNova:
         alpha = self.compute_alpha(lr)
         with torch.no_grad():
             for (name1, param1), (name2, param2) in zip(
-                    self.global_model.named_parameters(), self.model.named_parameters()
+                self.global_model.named_parameters(), self.model.named_parameters()
             ):
                 assert name1 == name2, f"Parameter mismatch: {name1} vs {name2}"
                 target_param = dict(self.diff_params.named_parameters())[name1]
                 target_param.copy_((weight_scaling * (param1 - param2)) / alpha)
 
-        self.diff_params = self.communicator.aggregate(msg=self.diff_params, communicate_params=True, compute_mean=False)
+        self.diff_params = self.communicator.aggregate(
+            msg=self.diff_params, communicate_params=True, compute_mean=False
+        )
 
     def model_update(self):
         lr = self.optimizer.param_groups[0]["lr"]
         with torch.no_grad():
-            for (name1, param1), (name2, param_delta) in zip(self.global_model.named_parameters(), self.diff_params.named_parameters()):
+            for (name1, param1), (name2, param_delta) in zip(
+                self.global_model.named_parameters(),
+                self.diff_params.named_parameters(),
+            ):
                 assert name1 == name2, f"Parameter mismatch: {name1} vs {name2}"
                 param1 -= lr * param_delta
 
