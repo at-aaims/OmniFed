@@ -71,6 +71,23 @@ class FedProxTrainingParameters(TrainingParameters):
         return self.mu
 
 
+class FedMomTrainingParameters(TrainingParameters):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.comm_freq = kwargs.get("comm_freq", None)
+        self.lr = kwargs.get("lr", None)
+        self.momentum = kwargs.get("momentum", None)
+
+    def get_comm_freq(self):
+        return self.comm_freq
+
+    def get_lr(self):
+        return self.lr
+
+    def get_momentum(self):
+        return self.momentum
+
+
 class MLPModel(nn.Module):
     """basic fully-connected network"""
 

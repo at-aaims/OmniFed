@@ -18,10 +18,12 @@ import torch
 
 from src.flora.communicator import Communicator
 from src.flora.helper.node_config import NodeConfig
-from src.flora.helper.training_params import FedProxTrainingParameters
+from src.flora.helper.training_params import FedMomTrainingParameters
 
 
-class FedProx:
+class FederatedMomentum:
+    """Implementation of Federated Momentum or FedMom"""
+
     def __init__(
         self,
         model: torch.nn.Module,
@@ -29,7 +31,7 @@ class FedProx:
         communicator: Communicator,
         id: int,
         total_clients: int,
-        train_params: FedProxTrainingParameters,
+        train_params: FedMomTrainingParameters,
     ):
         """
         :param model: model to train
@@ -49,40 +51,71 @@ class FedProx:
         self.comm_freq = self.train_params.get_comm_freq()
         self.loss = self.train_params.get_loss()
         self.epochs = self.train_params.get_epochs()
-        self.mu = self.train_params.get_mu()
+        self.lr = self.train_params.get_lr()
+        self.momentum = self.train_params.get_momentum()
         self.local_step = 0
+        self.training_samples = 0
         dev_id = NodeConfig().get_gpus() % self.total_clients
         self.device = torch.device(
             "cuda:" + str(dev_id) if torch.cuda.is_available() else "cpu"
         )
         self.model.to(self.device)
         self.global_model = copy.deepcopy(self.model)
+        self.diff_params = copy.deepcopy(self.model)
+        self.global_model, self.diff_params = (
+            self.global_model.to(self.device),
+            self.diff_params.to(self.device),
+        )
+        self.velocity = {
+            name: torch.zeros_like(param.data)
+            for name, param in self.model.named_parameters()
+        }
 
     def initialize_model(self):
-        # model broadcasted from central server with id 0
+        # broadcast model from central server with id 0
         self.model = self.communicator.broadcast(msg=self.model, id=0)
+
+    def _outer_step(self):
+        total_samples = self.communicator.aggregate(
+            msg=torch.Tensor([self.training_samples]), compute_mean=False
+        )
+        with torch.no_grad():
+            for (name1, param1), (name2, param2) in zip(
+                self.global_model.named_parameters(), self.model.named_parameters()
+            ):
+                assert name1 == name2, f"Parameter mismatch: {name1} vs {name2}"
+                target_param = dict(self.diff_params.named_parameters())[name1]
+                # scaling updates based on number of samples processed by each client
+                target_param.copy_(
+                    ((param1 - param2) * self.training_samples) / total_samples.item()
+                )
+
+        self.diff_params = self.communicator.aggregate(
+            msg=self.diff_params, communicate_params=True, compute_mean=False
+        )
+        with torch.no_grad():
+            for (name, param), (_, param_delta) in zip(
+                self.global_model.named_parameters(),
+                self.diff_params.named_parameters(),
+            ):
+                self.velocity[name] = self.momentum * self.velocity[name] + param_delta
+                param.data -= self.lr * self.velocity[name]
+
+            self.model.load_state_dict(self.global_model.state_dict())
 
     def train_loop(self):
         for inputs, labels in self.train_data:
             inputs, labels = inputs.to(self.device), labels.to(self.device)
             pred = self.model(inputs)
-            proximal_term = 0.0
-            for (name1, param1), (name2, param2) in zip(
-                self.model.named_parameters(), self.global_model.named_parameters()
-            ):
-                proximal_term += ((param1 - param2) ** 2).sum()
+            loss = self.loss(pred, labels)
+            self.training_samples += inputs.size(0)
 
-            fedprox_loss = self.loss(pred, labels) + (self.mu * proximal_term) / 2
-
-            fedprox_loss.backward()
+            loss.backward()
             self.optimizer.step()
             self.optimizer.zero_grad()
             self.local_step += 1
             if self.local_step % self.comm_freq == 0:
-                self.model = self.communicator.aggregate(
-                    msg=self.model, communicate_params=True, compute_mean=True
-                )
-                self.global_model = self.model
+                self._outer_step()
 
     def train(self):
         self.initialize_model()
