@@ -27,7 +27,6 @@ class FederatedAveraging:
         model: torch.nn.Module,
         train_data: torch.utils.data.DataLoader,
         communicator: Communicator,
-        id: int,
         total_clients: int,
         train_params: FedAvgTrainingParameters,
     ):
@@ -35,15 +34,12 @@ class FederatedAveraging:
         :param model: model to train
         :param data: data to train
         :param communicator: communicator object
-        :param id: id of communicator
         :param total_clients: total number of clients / world size
         :param train_params: training hyperparameters
         """
-        # super().__init__(model, train_data, communicator, id, total_clients)
         self.model = model
         self.train_data = train_data
         self.communicator = communicator
-        self.id = id
         self.total_clients = total_clients
         self.train_params = train_params
         self.optimizer = self.train_params.get_optimizer()
@@ -52,7 +48,7 @@ class FederatedAveraging:
         self.epochs = self.train_params.get_epochs()
         self.local_step = 0
         self.training_samples = 0
-        
+
         dev_id = NodeConfig().get_gpus() % self.total_clients
         self.device = torch.device(
             "cuda:" + str(dev_id) if torch.cuda.is_available() else "cpu"
@@ -60,7 +56,7 @@ class FederatedAveraging:
         self.model.to(self.device)
 
     def initialize_model(self):
-        # model broadcasted from central server with id 0
+        # broadcast model from central server with id 0
         self.model = self.communicator.broadcast(msg=self.model, id=0)
 
     def train_loop(self):

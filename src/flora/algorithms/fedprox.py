@@ -27,7 +27,6 @@ class FedProx:
         model: torch.nn.Module,
         train_data: torch.utils.data.DataLoader,
         communicator: Communicator,
-        id: int,
         total_clients: int,
         train_params: FedProxTrainingParameters,
     ):
@@ -35,14 +34,12 @@ class FedProx:
         :param model: model to train
         :param data: data to train
         :param communicator: communicator object
-        :param id: id of communicator
         :param total_clients: total number of clients / world size
         :param train_params: training hyperparameters
         """
         self.model = model
         self.train_data = train_data
         self.communicator = communicator
-        self.id = id
         self.total_clients = total_clients
         self.train_params = train_params
         self.optimizer = self.train_params.get_optimizer()
