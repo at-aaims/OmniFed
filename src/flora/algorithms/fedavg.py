@@ -52,7 +52,7 @@ class FederatedAveraging:
         self.epochs = self.train_params.get_epochs()
         self.local_step = 0
         self.training_samples = 0
-
+        
         dev_id = NodeConfig().get_gpus() % self.total_clients
         self.device = torch.device(
             "cuda:" + str(dev_id) if torch.cuda.is_available() else "cpu"
