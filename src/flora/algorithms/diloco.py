@@ -66,9 +66,10 @@ class DiLoCo:
             for name, param in self.model.named_parameters()
         }
 
-    def initialize_model(self):
-        # model broadcasted from central server with id 0
-        self.model = self.communicator.broadcast(msg=self.model, id=0)
+    def broadcast_model(self, model):
+        # broadcast model from central server with id 0
+        model = self.communicator.broadcast(msg=model, id=0)
+        return model
 
     def aggregate_updates(self):
         with torch.no_grad():
@@ -114,10 +115,10 @@ class DiLoCo:
             if self.local_step % self.comm_freq == 0:
                 self.aggregate_updates()
                 self.global_model = self._outer_step()
-                self.model = self.global_model
+                self.model.load_state_dict(self.global_model.state_dict())
 
     def train(self):
-        self.initialize_model()
+        self.model = self.broadcast_model(model=self.model)
         if self.epochs is not None and isinstance(self.epochs, int) and self.epochs > 0:
             for epoch in range(self.epochs):
                 self.train_loop()

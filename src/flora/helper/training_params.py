@@ -97,6 +97,19 @@ class FedBNTrainingParameters(TrainingParameters):
         return self.comm_freq
 
 
+class FedNovaTrainingParameters(TrainingParameters):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.comm_freq = kwargs.get("comm_freq", None)
+        self.weight_decay = kwargs.get("weight_decay", None)
+
+    def get_comm_freq(self):
+        return self.comm_freq
+
+    def get_weight_decay(self):
+        return self.weight_decay
+
+
 class MLPModel(nn.Module):
     """basic fully-connected network"""
 

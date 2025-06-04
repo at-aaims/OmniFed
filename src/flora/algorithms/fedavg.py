@@ -55,9 +55,10 @@ class FederatedAveraging:
         )
         self.model.to(self.device)
 
-    def initialize_model(self):
+    def broadcast_model(self, model):
         # broadcast model from central server with id 0
-        self.model = self.communicator.broadcast(msg=self.model, id=0)
+        model = self.communicator.broadcast(msg=model, id=0)
+        return model
 
     def train_loop(self):
         for inputs, labels in self.train_data:
@@ -87,7 +88,7 @@ class FederatedAveraging:
                 self.training_samples = 0
 
     def train(self):
-        self.initialize_model()
+        self.model = self.broadcast_model(model=self.model)
         if self.epochs is not None and isinstance(self.epochs, int) and self.epochs > 0:
             for epoch in range(self.epochs):
                 self.train_loop()

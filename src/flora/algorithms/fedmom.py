@@ -68,9 +68,10 @@ class FederatedMomentum:
             for name, param in self.model.named_parameters()
         }
 
-    def initialize_model(self):
+    def broadcast_model(self, model):
         # broadcast model from central server with id 0
-        self.model = self.communicator.broadcast(msg=self.model, id=0)
+        model = self.communicator.broadcast(msg=model, id=0)
+        return model
 
     def _outer_step(self):
         total_samples = self.communicator.aggregate(
@@ -98,8 +99,6 @@ class FederatedMomentum:
                 self.velocity[name] = self.momentum * self.velocity[name] + param_delta
                 param.data -= self.lr * self.velocity[name]
 
-            self.model.load_state_dict(self.global_model.state_dict())
-
     def train_loop(self):
         for inputs, labels in self.train_data:
             inputs, labels = inputs.to(self.device), labels.to(self.device)
@@ -113,9 +112,10 @@ class FederatedMomentum:
             self.local_step += 1
             if self.local_step % self.comm_freq == 0:
                 self._outer_step()
+                self.model.load_state_dict(self.global_model.state_dict())
 
     def train(self):
-        self.initialize_model()
+        self.model = self.broadcast_model(model=self.model)
         if self.epochs is not None and isinstance(self.epochs, int) and self.epochs > 0:
             for epoch in range(self.epochs):
                 self.train_loop()
