@@ -23,13 +23,13 @@ from src.flora.helper.training_params import FedProxTrainingParameters
 
 class FedProx:
     def __init__(
-            self,
-            model: torch.nn.Module,
-            train_data: torch.utils.data.DataLoader,
-            communicator: Communicator,
-            id: int,
-            total_clients: int,
-            train_params: FedProxTrainingParameters,
+        self,
+        model: torch.nn.Module,
+        train_data: torch.utils.data.DataLoader,
+        communicator: Communicator,
+        id: int,
+        total_clients: int,
+        train_params: FedProxTrainingParameters,
     ):
         """
         :param model: model to train
@@ -66,8 +66,10 @@ class FedProx:
         for inputs, labels in self.train_data:
             inputs, labels = inputs.to(self.device), labels.to(self.device)
             pred = self.model(inputs)
-            proximal_term = 0.
-            for (name1, param1), (name2, param2) in zip(self.model.named_parameters(), self.global_model.named_parameters()):
+            proximal_term = 0.0
+            for (name1, param1), (name2, param2) in zip(
+                self.model.named_parameters(), self.global_model.named_parameters()
+            ):
                 proximal_term += ((param1 - param2) ** 2).sum()
 
             fedprox_loss = self.loss(pred, labels) + (self.mu * proximal_term) / 2
@@ -77,7 +79,9 @@ class FedProx:
             self.optimizer.zero_grad()
             self.local_step += 1
             if self.local_step % self.comm_freq == 0:
-                self.model = self.communicator.aggregate(msg=self.model, communicate_params=True, compute_mean=True)
+                self.model = self.communicator.aggregate(
+                    msg=self.model, communicate_params=True, compute_mean=True
+                )
                 self.global_model = self.model
 
     def train(self):
