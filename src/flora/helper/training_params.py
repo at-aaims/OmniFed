@@ -110,6 +110,15 @@ class FedNovaTrainingParameters(TrainingParameters):
         return self.weight_decay
 
 
+class ScaffoldTrainingParameters(TrainingParameters):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.comm_freq = kwargs.get("comm_freq", None)
+
+    def get_comm_freq(self):
+        return self.comm_freq
+
+
 class MLPModel(nn.Module):
     """basic fully-connected network"""
 
