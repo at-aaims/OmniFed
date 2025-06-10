@@ -20,7 +20,6 @@ import torch.distributed.rpc as rpc
 from src.flora.communicator import Communicator
 
 # TODO: implement broadcast operation in torch.rpc
-# TODO: implement simple aggregation on the specific data-type being called
 
 
 class RpcServer(object):
@@ -36,8 +35,10 @@ class RpcServer(object):
         self.samples = 0
         self.collected_samples = 0
         self.sample_count = 0
+        self.collect_updates = {}
+        self.collect_count = 0
 
-    def collect_updates(self, updates, compute_mean=True):
+    def aggregate_updates(self, updates, compute_mean=True):
         self.model_update += updates
         self.client_count += 1
         if self.client_count == self.total_clients:
@@ -47,6 +48,32 @@ class RpcServer(object):
             self.aggregated_update = self.model_update
             self.model_update = [torch.zeros_like(param) for param in self.model_update]
             return self.aggregated_update
+
+    def collect_updates(self, msg, client_id, communicate_params=True):
+        if isinstance(msg, torch.nn.Module):
+            for name, param in msg.named_parameters():
+                if not param.requires_grad:
+                    continue
+
+                if name in self.collect_updates.keys():
+                    update_collection = self.collect_updates[name]
+                else:
+                    update_collection = []
+
+                # unlike torch_mpi, RPC keeps a tuple of (client_id, update) to know which client an update came from
+                if communicate_params:
+                    update_collection.append((client_id, param.data))
+                else:
+                    update_collection.append((client_id, param.grad))
+
+                self.collect_updates[name] = update_collection
+
+            self.collect_count += 1
+            if self.collect_count == self.total_clients:
+                self.collect_count = 0
+                collected_data = list(self.collect_updates.values())
+                self.collect_updates = {}
+                return collected_data
 
     def server_model(self, id):
         print(f"fetching model update to server-id {id}")
@@ -122,7 +149,7 @@ class TorchRpcCommunicator(Communicator):
 
             aggregated_update = rpc.rpc_sync(
                 self.central_server,
-                RpcServer.collect_updates,
+                RpcServer.aggregate_updates,
                 args=(updates, compute_mean),
             )
             for param, update in zip(msg.parameters(), aggregated_update):
@@ -139,3 +166,14 @@ class TorchRpcCommunicator(Communicator):
                 args=(msg, compute_mean),
             )
             return aggregated_samples
+
+    def broadcast(self, msg):
+        raise NotImplementedError("not implemented error!")
+
+    def collect(self, msg, id, communicate_params=True):
+        collected_updates = rpc.rpc_sync(
+            self.central_server,
+            RpcServer.collect_updates,
+            args=(msg, id, communicate_params),
+        )
+        return collected_updates
