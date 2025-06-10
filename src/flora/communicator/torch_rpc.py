@@ -168,7 +168,7 @@ class TorchRpcCommunicator(Communicator):
             return aggregated_samples
 
     def broadcast(self, msg):
-        raise NotImplementedError("not implemented")
+        raise NotImplementedError("not implemented error!")
 
     def collect(self, msg, id, communicate_params=True):
         collected_updates = rpc.rpc_sync(
