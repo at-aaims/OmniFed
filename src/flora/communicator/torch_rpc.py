@@ -19,8 +19,6 @@ import torch.distributed.rpc as rpc
 
 from src.flora.communicator import Communicator
 
-# TODO: implement broadcast operation in torch.rpc
-
 
 class RpcServer(object):
     def __init__(self, model, total_clients=1):
@@ -39,7 +37,9 @@ class RpcServer(object):
         self.collect_count = 0
 
     def aggregate_updates(self, updates, compute_mean=True):
-        self.model_update += updates
+        for server_update, model_update in zip(self.model_update, updates):
+            server_update.add_(model_update)
+
         self.client_count += 1
         if self.client_count == self.total_clients:
             self.client_count = 0
@@ -132,21 +132,6 @@ class TorchRpcCommunicator(Communicator):
             else:
                 updates = [param.grad.detach() for param in msg.parameters()]
 
-            # if self.id == 0:
-            #     msg = rpc.rpc_sync(
-            #         self.central_server, RpcServer.server_model, args=(self.id,)
-            #     )
-            #
-            # else:
-            #     aggregated_update = rpc.rpc_sync(
-            #         self.central_server, RpcServer.collect_updates, args=(updates,)
-            #     )
-            #     for param, update in zip(msg.parameters(), aggregated_update):
-            #         if communicate_params:
-            #             param.data.copy_(update)
-            #         else:
-            #             param.grad.data.copy_(update)
-
             aggregated_update = rpc.rpc_sync(
                 self.central_server,
                 RpcServer.aggregate_updates,
@@ -167,8 +152,15 @@ class TorchRpcCommunicator(Communicator):
             )
             return aggregated_samples
 
-    def broadcast(self, msg):
-        raise NotImplementedError("not implemented error!")
+    def broadcast(self, msg, id=0):
+        model_update = rpc.rpc_sync(
+            self.central_server, RpcServer.server_model, args=(id,)
+        )
+        if isinstance(msg, torch.nn.Module):
+            for param, update in zip(msg.parameters(), model_update):
+                param.data.copy_(update)
+
+            return msg
 
     def collect(self, msg, id, communicate_params=True):
         collected_updates = rpc.rpc_sync(
