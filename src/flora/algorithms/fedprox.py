@@ -52,8 +52,9 @@ class FedProx:
         self.device = torch.device(
             "cuda:" + str(dev_id) if torch.cuda.is_available() else "cpu"
         )
-        self.model.to(self.device)
+        self.model = self.model.to(self.device)
         self.global_model = copy.deepcopy(self.model)
+        self.global_model = self.global_model.to(self.device)
 
     def broadcast_model(self, model):
         # broadcast model from central server with id 0

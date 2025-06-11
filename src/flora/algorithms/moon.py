@@ -18,11 +18,24 @@ import torch
 
 from src.flora.communicator import Communicator
 from src.flora.helper.node_config import NodeConfig
-from src.flora.helper.training_params import FedNovaTrainingParameters
+from src.flora.helper.training_params import MOONTrainingParameters
+
+class MoonWrapper(torch.nn.Module):
+    def __init__(self, base_model):
+        super().__init__()
+        self.base_model = base_model
+        self.proj_head = torch.nn.Identity()
+
+    def forward(self, input):
+        features = self.base_model.features(input)
+        logits = self.base_model.classifier(features)
+        representation = self.proj_head(features)
+
+        return logits, representation
 
 
-class FedNova:
-    """Implementation of Federated Normalized Averaging or FedNova"""
+class Moon:
+    """Implementation of Model-Contrastive Federated Learning or MOON"""
 
     def __init__(
         self,
@@ -30,7 +43,7 @@ class FedNova:
         train_data: torch.utils.data.DataLoader,
         communicator: Communicator,
         total_clients: int,
-        train_params: FedNovaTrainingParameters,
+        train_params: MOONTrainingParameters,
     ):
         """
         :param model: model to train
@@ -39,7 +52,7 @@ class FedNova:
         :param total_clients: total number of clients / world size
         :param train_params: training hyperparameters
         """
-        self.model = model
+        self.model = MoonWrapper(model)
         self.train_data = train_data
         self.communicator = communicator
         self.total_clients = total_clients
@@ -48,7 +61,11 @@ class FedNova:
         self.comm_freq = self.train_params.get_comm_freq()
         self.loss = self.train_params.get_loss()
         self.epochs = self.train_params.get_epochs()
-        self.weight_decay = self.train_params.get_weight_decay()
+        self.num_prev_models = self.train_params.get_num_prev_models()
+        self.temperature = self.train_params.get_temperature()
+        self.mu = self.train_params.get_mu()
+        # history of previous models tracked for contrastive loss calculation
+        self.prev_models = []
         self.local_step = 0
         self.training_samples = 0
         dev_id = NodeConfig().get_gpus() % self.total_clients
@@ -57,54 +74,37 @@ class FedNova:
         )
         self.model = self.model.to(self.device)
         self.global_model = copy.deepcopy(self.model)
-        self.diff_params = copy.deepcopy(self.model)
-        self.global_model, self.diff_params = self.global_model.to(self.device), self.diff_params.to(self.device)
+        self.global_model = self.global_model.to(self.device)
 
     def broadcast_model(self, model):
         # broadcast model from central server with id 0
         model = self.communicator.broadcast(msg=model, id=0)
         return model
 
-    def compute_alpha(self, lr):
-        momentum_term = 1 - lr * self.weight_decay
-        alpha = 0.0
-        for j in range(self.comm_freq):
-            alpha += momentum_term**j
-        alpha *= lr
-        return alpha
-
-    def normalized_update(self, weight_scaling: float):
-        """sends normalized updates and receives scaled, aggregated update"""
-        lr = self.optimizer.param_groups[0]["lr"]
-        alpha = self.compute_alpha(lr)
-        with torch.no_grad():
-            for (name1, param1), (name2, param2) in zip(
-                self.global_model.named_parameters(), self.model.named_parameters()
-            ):
-                assert name1 == name2, f"Parameter mismatch: {name1} vs {name2}"
-                target_param = dict(self.diff_params.named_parameters())[name1]
-                target_param.copy_((weight_scaling * (param1 - param2)) / alpha)
-
-        self.diff_params = self.communicator.aggregate(
-            msg=self.diff_params, communicate_params=True, compute_mean=False
-        )
-
-    def model_update(self):
-        lr = self.optimizer.param_groups[0]["lr"]
-        with torch.no_grad():
-            for (name1, param1), (name2, param_delta) in zip(
-                self.global_model.named_parameters(),
-                self.diff_params.named_parameters(),
-            ):
-                assert name1 == name2, f"Parameter mismatch: {name1} vs {name2}"
-                param1 -= lr * param_delta
-
     def train_loop(self):
         for inputs, labels in self.train_data:
             inputs, labels = inputs.to(self.device), labels.to(self.device)
-            pred = self.model(inputs)
-            loss = self.loss(pred, labels)
+            # local model prediction and representation
+            pred, local_repr = self.model(inputs)
             self.training_samples += inputs.size(0)
+            with torch.no_grad():
+                _, global_repr = self.global_model(inputs)
+                if len(self.prev_models) > 0:
+                    negative_reprs = [prev_model(inputs)[1] for prev_model in self.prev_models]
+
+            loss = self.loss(pred, labels)
+            if len(negative_reprs) > 0:
+                local_repr = torch.nn.functional.normalize(local_repr, dim=1)
+                global_repr = torch.nn.functional.normalize(global_repr, dim=1)
+                negative_reprs = [torch.nn.functional.normalize(repr, dim=1) for repr in negative_reprs]
+                pos_sim = torch.exp(torch.sum(local_repr * global_repr, dim=1) / self.temperature)
+                neg_sim = torch.stack([
+                    torch.exp(torch.sum(local_repr * neg, dim=1) / self.temperature)
+                    for neg in negative_reprs
+                ], dim=1).sum(dim=1)
+
+                contrastive_loss = -torch.log(pos_sim / (pos_sim + neg_sim + 1e-8))
+                loss += self.mu * contrastive_loss
 
             loss.backward()
             self.optimizer.step()
@@ -116,11 +116,25 @@ class FedNova:
                     msg=torch.Tensor([self.training_samples]), compute_mean=False
                 )
                 weight_scaling = self.training_samples / total_samples.item()
-                self.normalized_update(weight_scaling)
-                self.model_update()
-                self.model.load_state_dict(self.global_model.state_dict())
+                for _, param in self.model.named_parameters():
+                    if not param.requires_grad:
+                        continue
+                    param.data *= weight_scaling
+
+                self.global_model = self.communicator.aggregate(
+                    msg=self.model, communicate_params=True, compute_mean=False
+                )
+                self.training_samples = 0
+
+                model_copy = copy.deepcopy(self.global_model)
+                model_copy.eval()
+                if len(self.prev_models) == self.num_prev_models:
+                    self.prev_models.pop()
+                self.prev_models.insert(0, model_copy)
 
     def train(self):
+        self.model.train()
+        self.global_model.eval()
         self.model = self.broadcast_model(model=self.model)
         if self.epochs is not None and isinstance(self.epochs, int) and self.epochs > 0:
             for epoch in range(self.epochs):

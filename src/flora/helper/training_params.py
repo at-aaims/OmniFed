@@ -132,6 +132,33 @@ class FedDynTrainingParameters(TrainingParameters):
         return self.regularizer_alpha
 
 
+class MOONTrainingParameters(TrainingParameters):
+    def __init__(self, **kwargs):
+        """
+        :param comm_freq: iterations after which collect/aggregate updates
+        :param num_prev_models: num of previous models to keep track
+        :param temperature: temperature parameter between representations
+        :param mu: contrastive loss weight
+        """
+        super().__init__(**kwargs)
+        self.comm_freq = kwargs.get("comm_freq", None)
+        self.num_prev_models = kwargs.get("num_prev_models", None)
+        self.temperature = kwargs.get("temperature", None)
+        self.mu = kwargs.get("mu", None)
+
+    def get_comm_freq(self):
+        return self.comm_freq
+
+    def get_num_prev_models(self):
+        return self.num_prev_models
+
+    def get_temperature(self):
+        return self.temperature
+
+    def get_mu(self):
+        return self.mu
+
+
 class MLPModel(nn.Module):
     """basic fully-connected network"""
 
