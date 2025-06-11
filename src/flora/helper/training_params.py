@@ -119,6 +119,19 @@ class ScaffoldTrainingParameters(TrainingParameters):
         return self.comm_freq
 
 
+class FedDynTrainingParameters(TrainingParameters):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.comm_freq = kwargs.get("comm_freq", None)
+        self.regularizer_alpha = kwargs.get("regularizer_alpha", None)
+
+    def get_comm_freq(self):
+        return self.comm_freq
+
+    def get_regularizer_alpha(self):
+        return self.regularizer_alpha
+
+
 class MLPModel(nn.Module):
     """basic fully-connected network"""
 
