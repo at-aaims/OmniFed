@@ -145,6 +145,7 @@ class Scaffold:
                         avg_control_variate_delta[name]
                     )
 
+                self.model.load_state_dict(self.global_model.state_dict())
                 del avg_model_delta, avg_control_variate_delta
 
     def train(self):

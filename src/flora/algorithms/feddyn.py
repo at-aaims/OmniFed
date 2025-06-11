@@ -104,6 +104,7 @@ class FedDyn:
                 self.global_model = self.communicator.aggregate(
                     msg=self.model, communicate_params=True, compute_mean=False
                 )
+                self.model.load_state_dict(self.global_model.state_dict())
                 self.training_samples = 0
 
     def train(self):

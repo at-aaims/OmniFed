@@ -18,32 +18,40 @@ import torch
 
 from src.flora.communicator import Communicator
 from src.flora.helper.node_config import NodeConfig
-from src.flora.helper.training_params import MOONTrainingParameters
+from src.flora.helper.training_params import FedPerTrainingParameters
 
-class MoonWrapper(torch.nn.Module):
-    def __init__(self, base_model):
-        super().__init__()
+# Example of personal_head used by FedPerModel
+
+# class SimplePersonalModel(torch.nn.Module):
+#     def __init__(self, input_dim=5408, num_classes=10):
+#         super().__init__()
+#         self.classifier = torch.nn.Linear(input_dim, num_classes)
+#
+#     def forward(self, x):
+#         return self.classifier(x)
+
+class FedPerModel(torch.nn.Module):
+    def __init__(self, base_model: torch.nn.Module, personal_head: torch.nn.Module):
+        super(FedPerModel, self).__init__()
         self.base_model = base_model
-        self.proj_head = torch.nn.Identity()
+        self.personal_head = personal_head
 
-    def forward(self, input):
-        features = self.base_model.features(input)
-        logits = self.base_model.classifier(features)
-        representation = self.proj_head(features)
-
-        return logits, representation
+    def forward(self, x):
+        x = self.base_model(x)
+        return self.personal_head(x)
 
 
-class Moon:
-    """Implementation of Model-Contrastive Federated Learning or MOON"""
+class FedPer:
+    """implementation of FedPer"""
 
     def __init__(
         self,
-        model: torch.nn.Module,
+        base_model: torch.nn.Module,
+        personal_head: torch.nn.Module,
         train_data: torch.utils.data.DataLoader,
         communicator: Communicator,
         total_clients: int,
-        train_params: MOONTrainingParameters,
+        train_params: FedPerTrainingParameters,
     ):
         """
         :param model: model to train
@@ -52,7 +60,7 @@ class Moon:
         :param total_clients: total number of clients / world size
         :param train_params: training hyperparameters
         """
-        self.model = MoonWrapper(model)
+        self.model = FedPerModel(base_model, personal_head)
         self.train_data = train_data
         self.communicator = communicator
         self.total_clients = total_clients
@@ -61,11 +69,6 @@ class Moon:
         self.comm_freq = self.train_params.get_comm_freq()
         self.loss = self.train_params.get_loss()
         self.epochs = self.train_params.get_epochs()
-        self.num_prev_models = self.train_params.get_num_prev_models()
-        self.temperature = self.train_params.get_temperature()
-        self.mu = self.train_params.get_mu()
-        # history of previous models tracked for contrastive loss calculation
-        self.prev_models = []
         self.local_step = 0
         self.training_samples = 0
         dev_id = NodeConfig().get_gpus() % self.total_clients
@@ -84,27 +87,9 @@ class Moon:
     def train_loop(self):
         for inputs, labels in self.train_data:
             inputs, labels = inputs.to(self.device), labels.to(self.device)
-            # local model prediction and representation
-            pred, local_repr = self.model(inputs)
-            self.training_samples += inputs.size(0)
-            with torch.no_grad():
-                _, global_repr = self.global_model(inputs)
-                if len(self.prev_models) > 0:
-                    negative_reprs = [prev_model(inputs)[1] for prev_model in self.prev_models]
-
+            pred = self.model(inputs)
             loss = self.loss(pred, labels)
-            if len(negative_reprs) > 0:
-                local_repr = torch.nn.functional.normalize(local_repr, dim=1)
-                global_repr = torch.nn.functional.normalize(global_repr, dim=1)
-                negative_reprs = [torch.nn.functional.normalize(repr, dim=1) for repr in negative_reprs]
-                pos_sim = torch.exp(torch.sum(local_repr * global_repr, dim=1) / self.temperature)
-                neg_sim = torch.stack([
-                    torch.exp(torch.sum(local_repr * neg, dim=1) / self.temperature)
-                    for neg in negative_reprs
-                ], dim=1).sum(dim=1)
-
-                contrastive_loss = -torch.log(pos_sim / (pos_sim + neg_sim + 1e-8))
-                loss += self.mu * contrastive_loss
+            self.training_samples += inputs.size(0)
 
             loss.backward()
             self.optimizer.step()
@@ -122,16 +107,11 @@ class Moon:
                     param.data *= weight_scaling
 
                 self.global_model = self.communicator.aggregate(
-                    msg=self.model, communicate_params=True, compute_mean=False
+                    msg=self.model.base_model, communicate_params=True, compute_mean=False
                 )
-                self.model.load_state_dict(self.global_model.state_dict())
+                self.model.base_model.load_state_dict(self.global_model.base_model.state_dict())
                 self.training_samples = 0
 
-                model_copy = copy.deepcopy(self.global_model)
-                model_copy.eval()
-                if len(self.prev_models) == self.num_prev_models:
-                    self.prev_models.pop()
-                self.prev_models.insert(0, model_copy)
 
     def train(self):
         self.model.train()
