@@ -168,6 +168,31 @@ class FedPerTrainingParameters(TrainingParameters):
         return self.comm_freq
 
 
+class DittoTrainingParameters(TrainingParameters):
+    def __init__(self, **kwargs):
+        """
+        :param comm_freq: iterations after which collect/aggregate updates
+        :param ditto_regularizer: regularization parameter controlling closeness between local and global model
+        """
+        super().__init__(**kwargs)
+        self.comm_freq = kwargs.get("comm_freq", None)
+        self.ditto_regularizer = kwargs.get("ditto_regularizer", None)
+        self.global_loss = kwargs.get("global_loss", None)
+        self.global_optimizer = kwargs.get("global_optimizer", None)
+
+    def get_comm_freq(self):
+        return self.comm_freq
+
+    def get_ditto_regularizer(self):
+        return self.ditto_regularizer
+
+    def get_global_loss(self):
+        return self.global_loss
+
+    def get_global_optimizer(self):
+        return self.global_optimizer
+
+
 class MLPModel(nn.Module):
     """basic fully-connected network"""
 

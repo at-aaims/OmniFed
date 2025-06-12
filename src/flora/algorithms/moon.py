@@ -20,6 +20,7 @@ from src.flora.communicator import Communicator
 from src.flora.helper.node_config import NodeConfig
 from src.flora.helper.training_params import MOONTrainingParameters
 
+
 class MoonWrapper(torch.nn.Module):
     def __init__(self, base_model):
         super().__init__()
@@ -90,18 +91,28 @@ class Moon:
             with torch.no_grad():
                 _, global_repr = self.global_model(inputs)
                 if len(self.prev_models) > 0:
-                    negative_reprs = [prev_model(inputs)[1] for prev_model in self.prev_models]
+                    negative_reprs = [
+                        prev_model(inputs)[1] for prev_model in self.prev_models
+                    ]
 
             loss = self.loss(pred, labels)
             if len(negative_reprs) > 0:
                 local_repr = torch.nn.functional.normalize(local_repr, dim=1)
                 global_repr = torch.nn.functional.normalize(global_repr, dim=1)
-                negative_reprs = [torch.nn.functional.normalize(repr, dim=1) for repr in negative_reprs]
-                pos_sim = torch.exp(torch.sum(local_repr * global_repr, dim=1) / self.temperature)
-                neg_sim = torch.stack([
-                    torch.exp(torch.sum(local_repr * neg, dim=1) / self.temperature)
-                    for neg in negative_reprs
-                ], dim=1).sum(dim=1)
+                negative_reprs = [
+                    torch.nn.functional.normalize(repr, dim=1)
+                    for repr in negative_reprs
+                ]
+                pos_sim = torch.exp(
+                    torch.sum(local_repr * global_repr, dim=1) / self.temperature
+                )
+                neg_sim = torch.stack(
+                    [
+                        torch.exp(torch.sum(local_repr * neg, dim=1) / self.temperature)
+                        for neg in negative_reprs
+                    ],
+                    dim=1,
+                ).sum(dim=1)
 
                 contrastive_loss = -torch.log(pos_sim / (pos_sim + neg_sim + 1e-8))
                 loss += self.mu * contrastive_loss
