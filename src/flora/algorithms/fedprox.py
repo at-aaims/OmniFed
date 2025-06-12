@@ -52,8 +52,9 @@ class FedProx:
         self.device = torch.device(
             "cuda:" + str(dev_id) if torch.cuda.is_available() else "cpu"
         )
-        self.model.to(self.device)
+        self.model = self.model.to(self.device)
         self.global_model = copy.deepcopy(self.model)
+        self.global_model = self.global_model.to(self.device)
 
     def broadcast_model(self, model):
         # broadcast model from central server with id 0
@@ -77,10 +78,10 @@ class FedProx:
             self.optimizer.zero_grad()
             self.local_step += 1
             if self.local_step % self.comm_freq == 0:
-                self.model = self.communicator.aggregate(
+                self.global_model = self.communicator.aggregate(
                     msg=self.model, communicate_params=True, compute_mean=True
                 )
-                self.global_model.load_state_dict(self.model.state_dict())
+                self.model.load_state_dict(self.global_model.state_dict())
 
     def train(self):
         self.model = self.broadcast_model(model=self.model)
