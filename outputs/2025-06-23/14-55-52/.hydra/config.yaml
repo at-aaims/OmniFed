@@ -1,0 +1,51 @@
+global_rounds: 3
+node:
+  _target_: src.flora.flora.Node
+  model:
+    _target_: src.flora.models.ComposableModel
+    backbone:
+      _target_: src.flora.models.SimpleCNNBackbone
+      in_channels: 1
+      conv_channels:
+      - 32
+      - 64
+      kernel_sizes: 3
+      paddings: 1
+    head:
+      _target_: src.flora.models.ClassificationHead
+      in_channels: 64
+      num_classes: 10
+  loader:
+    _target_: torch.utils.data.DataLoader
+    dataset:
+      _target_: torchvision.datasets.MNIST
+      root: ./ignored/mnist
+      train: true
+      download: true
+      transform:
+        _target_: torchvision.transforms.Compose
+        transforms:
+        - _target_: torchvision.transforms.ToTensor
+        - _target_: torchvision.transforms.Normalize
+          mean:
+          - 0.1307
+          std:
+          - 0.3081
+    batch_size: 16
+    shuffle: true
+    num_workers: 2
+  comm:
+    _target_: src.flora.communicator.TorchDistCommunicator
+    _partial_: true
+    master_addr: 127.0.0.1
+    master_port: '29500'
+    backend: gloo
+    timeout: 20
+  algorithm:
+    _target_: src.flora.algorithms.FedAvg
+    _partial_: true
+    local_epochs: 2
+    lr: 0.01
+topology:
+  _target_: src.flora.topology.CentralizedTopology
+  num_nodes: 3

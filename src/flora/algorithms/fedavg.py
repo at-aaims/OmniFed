@@ -20,7 +20,11 @@ from src.flora.helper.training_params import FedAvgTrainingParameters
 
 
 class FederatedAveraging:
-    """Implementation of Federated Averaging"""
+    """
+    Implementation of Federated Averaging
+
+    TODO: Deprecate this implementation and remove once all algorithms are migrated to the new API.
+    """
 
     def __init__(
         self,

@@ -12,28 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# contains fn calls and implementation of different communication mechanisms like MPI, gRPC and MQTT, WebSocket??
-# also implements different compressors to reduce communication volume/cost
-
-
-class Communicator(object):
-    def __init__(self, protocol_type):
-        self.protocol_type = protocol_type
-
-    def broadcast(self, **kwargs):
-        raise NotImplementedError("implement broadcast")
-
-    def send(self, **kwargs):
-        raise NotImplementedError("implement send")
-
-    def receive(self, **kwargs):
-        raise NotImplementedError("implement receive")
-
-    def aggregate(self, **kwargs):
-        raise NotImplementedError("implement aggregate")
-
-    def allgather(self, **kwargs):
-        raise NotImplementedError("implement allgather")
-
-    def close(self, **kwargs):
-        raise NotImplementedError("implement close")
+from .BaseCommunicator import Communicator
+from .DummyCommunicator import DummyCommunicator
+from .TorchDistCommunicator import TorchDistCommunicator
