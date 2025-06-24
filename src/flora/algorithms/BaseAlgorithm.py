@@ -17,6 +17,9 @@ from typing import Any, Dict
 
 import rich.repr
 from torch import nn
+from torch.utils.data import DataLoader
+
+from ..dataset.DataModule import DataModule
 
 # ======================================================================================
 
@@ -62,9 +65,10 @@ class Algorithm(ABC):
         return metrics
 
     # @abstractmethod
-    def on_local_round(
+    def train_round(
         self,
         round_num: int,
+        dataloader: DataLoader,
         metrics: Dict[str, Any],
     ) -> Dict[str, Any]:
         """
@@ -82,37 +86,29 @@ class Algorithm(ABC):
     def train_epoch(
         self,
         round_num: int,
-        metrics: Dict[str, Any],
-    ) -> Dict[str, Any]:
+        data: DataModule,
+    ):
         """
         Perform local training for a single epoch.
 
         NOTE: Currently not used.
         TODO: Update this to enable the override-only-what-is-needed paradigm.
-
-        Args:
-            round_num (int): The current round number.
-            metrics (Dict[str, Any]): Dictionary to store metrics and statistics.
         """
-        return metrics
+        pass
 
     # @abstractmethod
     def train_step(
         self,
-        round_num: int,
+        batch: Any,
         metrics: Dict[str, Any],
-    ) -> Dict[str, Any]:
+    ):
         """
         Perform local training for a single step.
 
         NOTE: Currently not used.
         TODO: Update this to enable the override-only-what-is-needed paradigm.
-
-        Args:
-            round_num (int): The current round number.
-            metrics (Dict[str, Any]): Dictionary to store metrics and statistics.
         """
-        return metrics
+        pass
 
     def on_round_end(
         self,

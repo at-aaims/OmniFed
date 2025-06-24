@@ -14,7 +14,6 @@
 
 import logging
 import time
-from typing import Any, Dict, List
 
 import ray
 import rich.repr
@@ -44,62 +43,72 @@ class Engine:
 
     def __init__(
         self,
-        topology_cfg: DictConfig,
-        node_defaults: DictConfig,
-        global_rounds: int,
+        cfg: DictConfig,
     ):
-        utils.log_sep("Engine Initialization", color="blue")
+        utils.log_sep(f"{self.__class__.__name__} Init", color="blue")
         # Initialize Ray with more verbose logging and explicit namespace
         ray.init(
             ignore_reinit_error=True,
             log_to_driver=True,  # NOTE: when false, Task and Actor logs are not copied to the driver stdout.
-            logging_level=logging.INFO,
+            logging_level=logging.INFO,  # TODO: Tie this to Hydra's logging level
             namespace="federated_learning",
         )
+        # ---
+        self.cfg: DictConfig = cfg
 
-        self.topology_cfg = topology_cfg
-        self.node_defaults = node_defaults
-        self.global_rounds = global_rounds
+        self.topology: Topology = instantiate(self.cfg.topology)
 
-    def run_experiment(self):
+        self.global_rounds: int = cfg.global_rounds
+
+    def setup(self):
+        utils.log_sep("FLORA Engine Setup", color="blue")
+
+        self.topology.setup(
+            comm_cfg=self.cfg.comm,
+            algo_cfg=self.cfg.algo,
+            model_cfg=self.cfg.model,
+            data_cfg=self.cfg.data,
+        )
+
+    def start(self):
         """
         NOTE: stuffed everything in here for now, plan to refactor into smaller generalized methods.
         """
         try:
-            # -------------------------------------------------
-            utils.log_sep("FL Rounds Start", color="blue")
-
-            topology: Topology = instantiate(self.topology_cfg)
-            nodes = topology.setup_nodes(self.node_defaults, topology.num_nodes)
-
-            setup_futures = [n.setup.remote() for n in nodes]
-            ray.get(setup_futures)
+            # ----------------------------------------------------------------
+            utils.log_sep("FLORA Engine Start", color="blue")
 
             summaries = []
-            for round_num in range(self.global_rounds):
-                utils.log_sep(f"Round {round_num + 1}/{self.global_rounds}")
-                round_start_time = time.time()
+            for round_idx in range(self.global_rounds):
+                round_num = round_idx + 1
+                utils.log_sep(f"Round {round_num}/{self.global_rounds}")
+                _t_start_round = time.time()
 
-                # Execute through topology's execute_round method
-                results_futures = [
-                    n.execute_round.remote(int(round_num)) for n in nodes
-                ]
+                results_futures = []
+                for node in self.topology:
+                    future = node.execute_round.remote(
+                        round_num,
+                    )
+                    results_futures.append(future)
+
                 results = ray.get(results_futures)
 
-                round_duration = time.time() - round_start_time
+                # ---
+                _t_round = time.time() - _t_start_round
 
-                ct_total = len(results)
-                ct_success = len([r for r in results if r is not None])
+                _ct_total = len(results)
+                _ct_success = len([r for r in results if r is not None])
 
-                # Store metrics
-                success_rate = (ct_success / ct_total) * 100
+                _success_rate = (_ct_success / _ct_total) * 100
+
+                # ---
                 summaries.append(
                     {
-                        "round_num": round_num + 1,
-                        "duration": round_duration,
-                        "total_count": ct_total,
-                        "success_count": ct_success,
-                        "success_rate": success_rate,
+                        "round_num": round_num,
+                        "duration": _t_round,
+                        "total_count": _ct_total,
+                        "success_count": _ct_success,
+                        "success_rate": _success_rate,
                     }
                 )
 
@@ -108,7 +117,7 @@ class Engine:
 
             utils.log_sep("FL Rounds End", color="blue")
 
-            # -------------------------------------------------
+            # ----------------------------------------------------------------
 
             table = Table(
                 title="Summary",

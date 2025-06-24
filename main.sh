@@ -21,8 +21,8 @@ export HYDRA_FULL_ERROR=1              # Show full error trace for Hydra
 
 clear
 
-# rm -rf ./outputs
+rm -rf ./outputs
 
 # =========================================
 
-python -u main.py --config-name test_mnist
+python -u main.py --config-name test_mnist_fedavg1

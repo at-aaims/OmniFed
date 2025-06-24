@@ -12,13 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from abc import ABC, abstractmethod
-from typing import Callable, List, Optional, Union
+from typing import Callable, List, Optional
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torchvision import ops
 
 from .ComposableModel import BaseHead
 
