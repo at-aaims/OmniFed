@@ -6,7 +6,6 @@ defaults:
 global_rounds: 3
 
 node:
-    _target_: src.flora.flora.Node
     model:
         _target_: src.flora.models.ComposableModel
         backbone:
