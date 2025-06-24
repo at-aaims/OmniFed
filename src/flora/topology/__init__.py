@@ -12,6 +12,5 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from .BaseCommunicator import Communicator
-from .DummyCommunicator import DummyCommunicator
-from .TorchDistCommunicator import TorchDistCommunicator
+from .BaseTopology import Topology
+from .CentralizedTopology import CentralizedTopology
