@@ -38,16 +38,16 @@ class FedAvg(Algorithm):
         self,
         comm: Communicator,
         model: nn.Module,
-        lr: float,
         local_epochs: int,
+        lr: float,
     ):
         print(f"{self.__class__.__name__} init...")
         self.comm: Communicator = comm
         self.model: nn.Module = model
 
         # ---
-        self.lr: float = lr
         self.local_epochs: int = local_epochs
+        self.lr: float = lr
 
         # ---
         self.opt: torch.optim.Optimizer = torch.optim.SGD(
