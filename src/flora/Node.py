@@ -81,7 +81,7 @@ class Node:
         self.rank: Optional[int] = rank
         self.world_size: Optional[int] = world_size
 
-        self.device: torch.device = self.__select_device(device, rank=rank)
+        self.device: torch.device = self.select_device(device, rank=rank)
 
         # ---
         # Instantiate Components
@@ -104,14 +104,14 @@ class Node:
         role_names = [role.value for role in self.roles]
         return f"{self.id}: {role_names}"
 
-    def __select_device(
-        self, device_hint: str, rank: Optional[int] = None
-    ) -> torch.device:
+    @staticmethod
+    def select_device(device_hint: str, rank: Optional[int] = None) -> torch.device:
         """
         Setup device with local GPU detection and round-robin assignment.
 
         # TODO: Round-robin GPU assignment assumes all nodes are on the same machine, which may not be true for multi-node setups.
         # TODO: If some nodes lack GPUs, we may need smarter logic for heterogeneous environments.
+        # TODO: Potentially move into a NodeResources mixin in the future.
 
         Args:
             device_hint: Device hint ("auto", "cpu", "cuda", "cuda:0", etc.)
