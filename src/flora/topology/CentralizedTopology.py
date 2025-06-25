@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import List
+from typing import Any, Dict, List
 
 import ray
 import rich.repr
@@ -71,12 +71,14 @@ class CentralizedTopology(Topology):
         # ----------------------------------------------------------------
         # INIT ALL NODES
 
-        node_rayopts = dict()
-        if torch.cuda.is_available():
-            node_rayopts.update(dict(num_gpus=1.0 / self.num_nodes))
-
-        # ---
         for rank in range(self.num_nodes):
+            # Configure Ray actor options
+            node_rayopts: Dict[str, Any] = {}
+
+            # Request GPU resources if available, but don't assign specific devices here
+            if torch.cuda.is_available():
+                node_rayopts["num_gpus"] = 1.0 / self.num_nodes
+
             if rank == 0:
                 node = Node.options(**node_rayopts).remote(
                     id=f"S{rank}",

@@ -13,7 +13,7 @@
 # limitations under the License.
 
 from enum import Enum
-from typing import Any, Dict, Set
+from typing import Any, Dict, Optional, Set
 
 import ray
 import torch
@@ -68,15 +68,29 @@ class Node:
         algo_cfg: DictConfig,
         model_cfg: DictConfig,
         data_cfg: DictConfig,
-        device: str = "cuda" if torch.cuda.is_available() else "cpu",
+        rank: Optional[int] = None,
+        world_size: Optional[int] = None,
+        device: str = "auto",
         **kwargs: Any,
     ):
         print(f"{self.__class__.__name__} {id} init...")
         self.id: str = id
         self.roles: Set[NodeRole] = roles
 
+        # ---
+        self.rank: Optional[int] = rank
+        self.world_size: Optional[int] = world_size
+
+        self.device: torch.device = self.__select_device(device, rank=rank)
+
+        # ---
         # Instantiate Components
-        self.comm: Communicator = instantiate(comm_cfg, **kwargs)
+        self.comm: Communicator = instantiate(
+            comm_cfg,
+            rank=rank,
+            world_size=world_size,
+        )
+
         self.model: nn.Module = instantiate(model_cfg)
         self.data: DataModule = instantiate(data_cfg)
 
@@ -86,20 +100,51 @@ class Node:
             model=self.model,
         )
 
-        # Device setup
-        self.device = torch.device(device)
-
     def __repr__(self) -> str:
         role_names = [role.value for role in self.roles]
-        return f"Node id={self.id}, roles={role_names}"
+        return f"{self.id}: {role_names}"
+
+    def __select_device(
+        self, device_hint: str, rank: Optional[int] = None
+    ) -> torch.device:
+        """
+        Setup device with local GPU detection and round-robin assignment.
+
+        # TODO: Round-robin GPU assignment assumes all nodes are on the same machine, which may not be true for multi-node setups.
+        # TODO: If some nodes lack GPUs, we may need smarter logic for heterogeneous environments.
+
+        Args:
+            device_hint: Device hint ("auto", "cpu", "cuda", "cuda:0", etc.)
+
+        Returns:
+            Configured torch device
+        """
+
+        if device_hint == "auto":
+            local_gpu_count = torch.cuda.device_count()
+            if local_gpu_count > 0:
+                # Use provided rank if available; otherwise, default to 0 and warn.
+                if rank is None:
+                    print(
+                        "WARN: No rank provided; defaulting to 0 for device assignment."
+                    )
+                    rank = 0
+
+                assigned_gpu = rank % local_gpu_count
+                device_str = f"cuda:{assigned_gpu}"
+                print(f"Auto-detected {local_gpu_count} local GPUs, using {device_str}")
+                return torch.device(device_str)
+
+            print("No local GPUs detected, using CPU")
+            return torch.device("cpu")
+
+        print(f"Using explicit device {device_hint}")
+        return torch.device(device_hint)
 
     def setup(self, **kwargs: Any) -> None:
         """Instantiate all dependencies with full runtime context."""
         print(f"setup: {kwargs}", flush=True)
-        self.comm.setup(
-            **kwargs,
-            # Routes kwargs like rank, world_size, etc. to the communicator's setup function if needed
-        )
+        self.comm.setup()
 
         # TODO: there's probably a better place for this
         self.model.to(self.device)
