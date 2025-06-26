@@ -43,22 +43,22 @@ class TorchDistCommunicator(Communicator):
         timeout: int = 10,
         max_retries: int = 3,
     ):
-        print(f"Rank {rank}: {self.__class__.__name__} initializing...")
-        self.rank = rank
-        self.world_size = world_size
-        self.init_method = init_method
+        print(f"{self.__class__.__name__} init...")
+        self.rank: int = rank
+        self.world_size: int = world_size
+        self.init_method: str = init_method
         # self.group_name = group_name
-        self.master_addr = master_addr
-        self.master_port = master_port
-        self.backend = backend
-        self.sharedfile = sharedfile
-        self.timeout = datetime.timedelta(seconds=timeout)
-        self.max_retries = max_retries
+        self.master_addr: str = master_addr
+        self.master_port: str = master_port
+        self.backend: str = backend
+        self.sharedfile: str = sharedfile
+        self.timeout: datetime.timedelta = datetime.timedelta(seconds=timeout)
+        self.max_retries: int = max_retries
 
         # Fallback if necessary
         if self.backend == "nccl" and not torch.cuda.is_available():
             print(
-                f"Rank {self.rank}: NCCL backend requested but CUDA not available, falling back to gloo"
+                f"NCCL backend requested but CUDA not available, falling back to gloo"
             )
             self.backend = "gloo"
 
@@ -72,7 +72,7 @@ class TorchDistCommunicator(Communicator):
     #     for attempt in range(self.max_retries + 1):
     #         try:
     #             print(
-    #                 f"Rank {self.rank}: Initializing process group (attempt {attempt + 1})"
+    #                 f"Initializing process group (attempt {attempt + 1})"
     #             )
 
     #             # NOTE: May no longer be necessary (need to re-think back through this)
@@ -91,7 +91,7 @@ class TorchDistCommunicator(Communicator):
     #             break
     #         except Exception as e:
     #             print(
-    #                 f"Rank {self.rank}: Initialization attempt {attempt + 1} failed: {str(e)}"
+    #                 f"Initialization attempt {attempt + 1} failed: {str(e)}"
     #             )
     #             if attempt == self.max_retries:
     #                 raise RuntimeError(
@@ -99,7 +99,7 @@ class TorchDistCommunicator(Communicator):
     #                 ) from e
     #             time.sleep(1.0)
 
-    #     print(f"Rank {self.rank}: Process group initialized successfully")
+    #     print(f"Process group initialized successfully")
 
     def setup(self):
         """
@@ -107,8 +107,12 @@ class TorchDistCommunicator(Communicator):
         """
         # TODO: Check if this is already done internatlly in dist.init_process_group
         # if dist.is_initialized():
-        #     print(f"Rank {self.rank}: Process group already initialized")
+        #     print(f"Process group already initialized")
         #     return
+
+        print(
+            f"setup: rank={self.rank}, world_size={self.world_size}, init_method={self.init_method}, backend={self.backend}, master_addr={self.master_addr}, master_port={self.master_port}, sharedfile={self.sharedfile}"
+        )
 
         if self.init_method == "tcp":
             addr = f"tcp://{self.master_addr}:{self.master_port}"
@@ -128,8 +132,6 @@ class TorchDistCommunicator(Communicator):
                 world_size=self.world_size,
             )
 
-        print(f"Rank {self.rank}: Process group initialized via {self.init_method}")
-
     def broadcast(
         self,
         msg: Communicator.MsgT,
@@ -140,7 +142,8 @@ class TorchDistCommunicator(Communicator):
         :param id: node id which initiates the broadcast
         :return: returns the broadcasted message
         """
-        print(f"Rank {self.rank}: Broadcasting message from rank {src} to all ranks")
+        print(f"Broadcast from rank {src} to all ranks | {type(msg)}")
+
         if isinstance(msg, nn.Module):
             for _, p in msg.named_parameters():
                 if p.requires_grad:
@@ -160,7 +163,10 @@ class TorchDistCommunicator(Communicator):
         :param communicate_params: collect model parameters if True, else aggregate model gradients
         :return: aggregated message
         """
-        print(f"Rank {self.rank}: Aggregating message from all ranks")
+        print(
+            f"Aggregate from all ranks | {type(msg)} communicate_params={communicate_params} compute_mean={compute_mean}"
+        )
+
         if isinstance(msg, nn.Module):
             for _, p in msg.named_parameters():
                 if not p.requires_grad:
@@ -187,7 +193,10 @@ class TorchDistCommunicator(Communicator):
         :param communicate_params: collect model parameters if True, else aggregate model gradients
         :return: the sending message
         """
-        print(f"Rank {self.rank}: Sending message to rank {dst}")
+        print(
+            f"Send to rank {dst} | {type(msg)} communicate_params={communicate_params}"
+        )
+
         if isinstance(msg, nn.Module):
             for _, p in msg.named_parameters():
                 if not p.requires_grad:
@@ -211,7 +220,10 @@ class TorchDistCommunicator(Communicator):
         :param communicate_params: collect model parameters if True, else aggregate model gradients
         :return: the receiving message
         """
-        print(f"Rank {self.rank}: Receiving message from rank {src}")
+        print(
+            f"Receive from rank {src} | {type(msg)} communicate_params={communicate_params}"
+        )
+
         if isinstance(msg, nn.Module):
             for _, p in msg.named_parameters():
                 if not p.requires_grad:
@@ -227,7 +239,7 @@ class TorchDistCommunicator(Communicator):
         self,
         msg: Union[nn.Module, torch.Tensor, float, int],
         communicate_params: bool = True,
-    ) -> list:
+    ) -> list[tuple[int, Communicator.MsgT]]:
         """
          all-gather in decentralized MPI collectives
         :param msg: message to receive
@@ -236,7 +248,9 @@ class TorchDistCommunicator(Communicator):
         :param communicate_params: collect model parameters if True, else send model gradients
         :return: either nested list of layerwise model data collected from clients or a simple list of gathered data
         """
-        print(f"Rank {self.rank}: Collecting message from all ranks")
+        print(
+            f"Collect from all ranks | {type(msg)} communicate_params={communicate_params}"
+        )
 
         collected = []
         if isinstance(msg, nn.Module):
@@ -259,8 +273,8 @@ class TorchDistCommunicator(Communicator):
         Clean up the process group.
         """
         # if not dist.is_initialized():
-        #     print(f"Rank {self.rank}: Process group not initialized, nothing to close")
+        #     print(f"Process group not initialized, nothing to close")
         #     return
-        print(f"Rank {self.rank}: Destroying process group")
+        print(f"Destroying process group")
         dist.destroy_process_group()
-        print(f"Rank {self.rank}: Process group destroyed successfully")
+        print(f"Process group destroyed successfully")

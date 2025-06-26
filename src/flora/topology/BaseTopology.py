@@ -18,8 +18,8 @@ from typing import List
 import rich.repr
 from omegaconf import DictConfig
 
+from .. import utils
 from ..Node import Node
-
 
 # ======================================================================================
 
@@ -34,17 +34,43 @@ class Topology(ABC):
     Each topology implementation determines how nodes are configured and how they communicate with each other.
     """
 
-    def __init__(self, num_nodes: int):
+    def __init__(self):
         """
         Initialize topology.
-
-        Args:
-            num_nodes: Number of nodes to create
         """
-        self.num_nodes = num_nodes
+        utils.log_sep(f"{self.__class__.__name__} Init")
+        self.__nodes: List[Node] = []
+
+    def setup(
+        self,
+        comm_cfg: DictConfig,
+        algo_cfg: DictConfig,
+        model_cfg: DictConfig,
+        data_cfg: DictConfig,
+    ):
+        """
+        Can be overridden if necessary
+        """
+        utils.log_sep("Topology Setup")
+
+        self.__nodes = self.create_nodes(
+            comm_cfg=comm_cfg,
+            algo_cfg=algo_cfg,
+            model_cfg=model_cfg,
+            data_cfg=data_cfg,
+        )
+
+        if not self.__nodes:
+            raise ValueError("Topology.create_nodes() must return at least one node.")
 
     @abstractmethod
-    def setup_nodes(self, node_defaults: DictConfig, num_nodes: int) -> List[Node]:
+    def create_nodes(
+        self,
+        comm_cfg: DictConfig,
+        algo_cfg: DictConfig,
+        model_cfg: DictConfig,
+        data_cfg: DictConfig,
+    ) -> List[Node]:
         """
         Create and configure nodes for this topology.
 
@@ -53,11 +79,25 @@ class Topology(ABC):
         2. Establishing communication relationships between nodes
         3. Setting up any topology-specific state
 
-        Args:
-            node_defaults: Default configuration for nodes
-            num_nodes: Number of nodes to create
-
         Returns:
             List of configured nodes
         """
         pass
+
+    def __len__(self) -> int:
+        """
+        Get the number of nodes in this topology.
+        """
+        return len(self.__nodes)
+
+    def __getitem__(self, index: int) -> Node:
+        """
+        Get a node by index.
+        """
+        return self.__nodes[index]
+
+    def __iter__(self):
+        """
+        Iterate over nodes in this topology.
+        """
+        return iter(self.__nodes)

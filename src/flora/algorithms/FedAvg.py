@@ -12,9 +12,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import Any, Dict
 import time
 from collections import defaultdict
+from typing import Any, Dict
 
 import rich.repr
 import torch
@@ -38,25 +38,23 @@ class FedAvg(Algorithm):
         self,
         comm: Communicator,
         model: nn.Module,
-        loader: DataLoader,
-        lr: float,
         local_epochs: int,
+        lr: float,
     ):
-        print(f"{self.__class__.__name__} initializing...")
-        # Store configuration parameters
+        print(f"{self.__class__.__name__} init...")
         self.comm: Communicator = comm
         self.model: nn.Module = model
-        self.loader: DataLoader = loader
 
+        # ---
+        self.local_epochs: int = local_epochs
         self.lr: float = lr
+
+        # ---
         self.opt: torch.optim.Optimizer = torch.optim.SGD(
             self.model.parameters(),
             lr=self.lr,
         )
-
-        self.local_epochs: int = local_epochs
-
-        self.loss_fn: nn.Module = nn.CrossEntropyLoss()
+        self.criterion: nn.Module = nn.CrossEntropyLoss()
 
     def on_round_start(
         self,
@@ -66,7 +64,7 @@ class FedAvg(Algorithm):
         """
         Broadcast model parameters at the beginning of each round.
         """
-        print(f"on_round_start: round_num={round_num}, metrics={metrics}")
+        print(f"on_round_start: round_num={round_num}, metrics={metrics}", flush=True)
         # Server broadcasts model parameters to all clients
         self.comm.broadcast(
             self.model,
@@ -74,9 +72,10 @@ class FedAvg(Algorithm):
         )
         return metrics
 
-    def on_local_round(
+    def train_round(
         self,
         round_num: int,
+        dataloader: DataLoader,
         metrics: Dict[str, Any],
     ) -> Dict[str, Any]:
         """
@@ -84,7 +83,7 @@ class FedAvg(Algorithm):
 
         TODO: Abstract some of this away into the base class to enable the override-only-what-is-needed paradigm in subclasses.
         """
-        print(f"on_local_round: round_num={round_num}, metrics={metrics}")
+        print(f"train_round: round_num={round_num}, metrics={metrics}", flush=True)
 
         self.model.train()
         _device = next(self.model.parameters()).device
@@ -98,9 +97,9 @@ class FedAvg(Algorithm):
         epoch_iter = range(self.local_epochs)
         for epoch_idx in epoch_iter:
             epoch_start_time = time.time()
-            data_iter = iter(self.loader)
+            data_iter = iter(dataloader)
 
-            for batch_idx in range(len(self.loader)):
+            for batch_idx in range(len(dataloader)):
                 _t_batch_start = time.time()
 
                 # Data loading phase
@@ -120,7 +119,7 @@ class FedAvg(Algorithm):
                 # Forward pass
                 self.opt.zero_grad()
                 outputs = self.model(x)
-                loss = self.loss_fn(outputs, y)
+                loss = self.criterion(outputs, y)
 
                 # sample-weighted loss
                 _metrics_mean["loss/train"].update(loss.detach(), batch_size)
@@ -177,7 +176,7 @@ class FedAvg(Algorithm):
         """
         Perform model aggregation and additional logging after local training.
         """
-        print(f"on_round_end: round_num={round_num}, metrics={metrics}")
+        print(f"on_round_end: round_num={round_num}, metrics={metrics}", flush=True)
 
         # Log pre-aggregation model norm
         metrics["agg/param_norm_pre"] = self.get_param_norm(self.model)

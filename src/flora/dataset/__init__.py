@@ -13,3 +13,4 @@
 # limitations under the License.
 
 from .DummyDataset import DummyDataset
+from .DataModule import DataModule

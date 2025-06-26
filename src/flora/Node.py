@@ -13,16 +13,17 @@
 # limitations under the License.
 
 from enum import Enum
-from typing import Any, Dict, Set
+from typing import Any, Dict, Optional, Set
 
 import ray
 import torch
+from hydra.utils import instantiate
+from omegaconf import DictConfig
 from torch import nn
-from torch.utils.data import DataLoader
-from torchinfo import summary
 
 from .algorithms.BaseAlgorithm import Algorithm
 from .communicator.BaseCommunicator import Communicator
+from .dataset.DataModule import DataModule
 
 
 class NodeRole(Enum):
@@ -33,8 +34,8 @@ class NodeRole(Enum):
     Nodes can have multiple roles to express their full set of capabilities.
     """
 
-    AGGREGATOR = "aggregator"  # Aggregates updates from other nodes
-    TRAINER = "trainer"  # Performs local training
+    AGGREGATOR = "Aggregator"  # Aggregates updates from other nodes
+    TRAINER = "Trainer"  # Performs local training
 
     # Future additions??
     # COORDINATOR = "coordinator"  # Coordinates communication/scheduling
@@ -62,39 +63,92 @@ class Node:
     def __init__(
         self,
         id: str,
-        comm: Communicator,
         roles: Set[NodeRole],
-        model: nn.Module,
-        loader: DataLoader,
-        algorithm: Algorithm,
+        comm_cfg: DictConfig,
+        algo_cfg: DictConfig,
+        model_cfg: DictConfig,
+        data_cfg: DictConfig,
+        rank: Optional[int] = None,
+        world_size: Optional[int] = None,
+        device: str = "auto",
+        **kwargs: Any,
     ):
-        print(f"{self.__class__.__name__} {id} initializing...")
+        print(f"{self.__class__.__name__} {id} init...")
         self.id: str = id
-        self.comm: Communicator = comm
         self.roles: Set[NodeRole] = roles
 
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        # ---
+        self.rank: Optional[int] = rank
+        self.world_size: Optional[int] = world_size
 
-        self.model: nn.Module = model
-        self.loader: DataLoader = loader
-        self.algorithm: Algorithm = algorithm
+        self.device: torch.device = self.select_device(device, rank=rank)
+
+        # ---
+        # Instantiate Components
+        self.comm: Communicator = instantiate(
+            comm_cfg,
+            rank=rank,
+            world_size=world_size,
+        )
+
+        self.model: nn.Module = instantiate(model_cfg)
+        self.data: DataModule = instantiate(data_cfg)
+
+        self.algo: Algorithm = instantiate(
+            algo_cfg,
+            comm=self.comm,
+            model=self.model,
+        )
 
     def __repr__(self) -> str:
         role_names = [role.value for role in self.roles]
-        return f"Node id={self.id}, roles={role_names}"
+        return f"{self.id}: {role_names}"
 
-    def info(self):
-        # TODO: this is not yet called anywhere, but useful info
-        summary(self.model, verbose=1)
+    @staticmethod
+    def select_device(device_hint: str, rank: Optional[int] = None) -> torch.device:
+        """
+        Setup device with local GPU detection and round-robin assignment.
 
-    def setup(self):
+        # TODO: Round-robin GPU assignment assumes all nodes are on the same machine, which may not be true for multi-node setups.
+        # TODO: If some nodes lack GPUs, we may need smarter logic for heterogeneous environments.
+        # TODO: Potentially move into a NodeResources mixin in the future.
+
+        Args:
+            device_hint: Device hint ("auto", "cpu", "cuda", "cuda:0", etc.)
+
+        Returns:
+            Configured torch device
         """
-        Perform any necessary setup operations.
-        """
+
+        if device_hint == "auto":
+            local_gpu_count = torch.cuda.device_count()
+            if local_gpu_count > 0:
+                # Use provided rank if available; otherwise, default to 0 and warn.
+                if rank is None:
+                    print(
+                        "WARN: No rank provided; defaulting to 0 for device assignment."
+                    )
+                    rank = 0
+
+                assigned_gpu = rank % local_gpu_count
+                device_str = f"cuda:{assigned_gpu}"
+                print(f"Auto-detected {local_gpu_count} local GPUs, using {device_str}")
+                return torch.device(device_str)
+
+            print("No local GPUs detected, using CPU")
+            return torch.device("cpu")
+
+        print(f"Using explicit device {device_hint}")
+        return torch.device(device_hint)
+
+    def setup(self, **kwargs: Any) -> None:
+        """Instantiate all dependencies with full runtime context."""
+        print(f"setup: {kwargs}", flush=True)
         self.comm.setup()
-        # Move model to the appropriate device
+
+        # TODO: there's probably a better place for this
         self.model.to(self.device)
-        # TODO: maybe calling algorithm setup function here would be useful pattern? FOr e.g., could pass direct reference to this Node instance.
+        # summary(self.model, verbose=1)
 
     def execute_round(self, round_num: int) -> Dict[str, Any]:
         """
@@ -106,13 +160,41 @@ class Node:
         Returns:
             Dictionary with training metrics and results
         """
+        print(f"execute_round: round_num={round_num}")
         results: Dict[str, Any] = dict()
 
-        results.update(self.algorithm.on_round_start(round_num, results) or {})
+        results.update(
+            self.algo.on_round_start(
+                round_num,
+                results,
+            )
+            or {}
+        )
 
-        # TODO: Role-based delegation
-        results.update(self.algorithm.on_local_round(round_num, results) or {})
+        # Basic Role-based delegation
+        # TODO: Implement more complex role-based delegation logic that can generalize to any topology, algorithm, and configuration.
+        # if NodeRole.TRAINER in self.roles:
+        #     # Trainer nodes perform local training
+        #     if self.data is None:
+        #         raise ValueError(
+        #             f"Expected Node {self.id} to have data for training, but no data module was provided."
+        #         )
 
-        results.update(self.algorithm.on_round_end(round_num, results) or {})
+        results.update(
+            self.algo.train_round(
+                round_num=round_num,
+                dataloader=self.data.train,
+                metrics=results,
+            )
+            or {}
+        )
+
+        results.update(
+            self.algo.on_round_end(
+                round_num,
+                results,
+            )
+            or {}
+        )
 
         return results

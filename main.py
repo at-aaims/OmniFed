@@ -12,14 +12,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import time
 import hydra
 from omegaconf import DictConfig, OmegaConf
-from rich import print
-from rich.panel import Panel
-from rich.pretty import Pretty
 
 from src.flora import utils
 from src.flora.Engine import Engine
+
+from rich.pretty import pprint
 
 # =============================================================================
 
@@ -34,24 +34,21 @@ def main(cfg: DictConfig) -> None:
 
     utils.log_sep("FLORA Federated Learning Framework", color="blue")
 
-    print(
-        Panel(
-            Pretty(
-                OmegaConf.to_container(cfg, resolve=True),
-                expand_all=True,
-                indent_guides=True,
-            ),
-            title="Configuration",
-        )
+    pprint(
+        OmegaConf.to_container(
+            cfg,
+            resolve=True,
+        ),
+        expand_all=True,
+        indent_guides=True,
     )
 
-    engine = Engine(
-        topology_cfg=cfg.topology,
-        node_defaults=cfg.node,
-        global_rounds=cfg.global_rounds,
-    )
+    engine = Engine(cfg)
 
-    engine.run_experiment()
+    engine.setup()
+
+    time.sleep(1)  # NOTE: useful for debugging for now
+    engine.start()
 
 
 if __name__ == "__main__":

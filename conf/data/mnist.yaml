@@ -1,0 +1,59 @@
+# ./conf/data/mnist.yaml
+
+# Defines a reusable datamodule config using the torchvision MNIST dataset.
+
+_target_: src.flora.dataset.DataModule
+
+# ─────────────
+
+train:
+  _target_: torch.utils.data.DataLoader
+
+  dataset: 
+    _target_: torchvision.datasets.MNIST
+    root: /tmp/torchvision-mnist
+    train: true
+    download: true
+    transform:
+      _target_: torchvision.transforms.Compose
+      transforms:
+        - _target_: torchvision.transforms.ToTensor
+        - _target_: torchvision.transforms.Normalize
+          mean: [0.1307]
+          std: [0.3081]
+
+  shuffle: true
+
+  batch_size: ???
+  num_workers: 2
+
+# ─────────────
+
+val: # TODO: Currently unused
+  _target_: torch.utils.data.DataLoader
+
+  dataset: 
+    _target_: torchvision.datasets.MNIST
+    root: /tmp/torchvision-mnist
+    train: false
+    download: true
+    transform:
+      _target_: torchvision.transforms.Compose
+      transforms:
+        - _target_: torchvision.transforms.ToTensor
+        - _target_: torchvision.transforms.Normalize
+          mean: [0.1307]
+          std: [0.3081]
+
+  shuffle: false
+
+  batch_size: ???
+  num_workers: 2
+
+# ─────────────
+
+# test: # Optional
+# ...
+
+
+

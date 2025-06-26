@@ -12,11 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import List
+from typing import Any, Dict, List
 
+import ray
 import rich.repr
 import torch
-from hydra.utils import instantiate
 from omegaconf import DictConfig
 
 from .. import utils
@@ -36,7 +36,23 @@ class CentralizedTopology(Topology):
     - All communication flows through the aggregator
     """
 
-    def setup_nodes(self, node_defaults: DictConfig, num_nodes: int) -> List[Node]:
+    def __init__(self, num_nodes: int):
+        """
+        Initialize centralized topology.
+
+        Args:
+            self.node_cfg (DictConfig): Default configuration for nodes
+        """
+        super().__init__()
+        self.num_nodes: int = num_nodes
+
+    def create_nodes(
+        self,
+        comm_cfg: DictConfig,
+        algo_cfg: DictConfig,
+        model_cfg: DictConfig,
+        data_cfg: DictConfig,
+    ) -> List[Node]:
         """
         Create nodes for centralized topology.
 
@@ -44,56 +60,60 @@ class CentralizedTopology(Topology):
         - Rank 0: Aggregator (no training data, coordinates aggregation)
         - Ranks 1+: Trainers (training data, perform local training)
 
-        Args:
-            node_defaults: Default configuration for nodes
-            num_nodes: Number of nodes to create
-
         Returns:
             List of configured nodes
         """
         utils.log_sep("Node Creation")
-        print(f"Creating {num_nodes} distributed nodes")
+        print(f"create_nodes: num_nodes={self.num_nodes}")
 
-        nodes: list[Node] = []
+        nodes: List[Node] = []
 
-        # Calculate GPU resources
-        node_options = dict()
-        if torch.cuda.is_available():
-            node_options.update(dict(num_gpus=1.0 / num_nodes))  # Create node actors
+        # ----------------------------------------------------------------
+        # INIT ALL NODES
 
-        for rank in range(num_nodes):
-            # TODO: some of this should be streamlined a bit to look cleaner
-            # Instantiate communicator from partial and inject runtime parameters
-            comm_partial = instantiate(node_defaults.comm)
-            comm = comm_partial(rank=rank, world_size=num_nodes)
+        for rank in range(self.num_nodes):
+            # Configure Ray actor options
+            node_rayopts: Dict[str, Any] = {}
 
-            model = instantiate(node_defaults.model)
-            loader = instantiate(node_defaults.loader)
+            # Request GPU resources if available, but don't assign specific devices here
+            if torch.cuda.is_available():
+                node_rayopts["num_gpus"] = 1.0 / self.num_nodes
 
-            # Instantiate algorithm from partial and inject runtime dependencies
-            algorithm_partial = instantiate(node_defaults.algorithm)
-            algorithm = algorithm_partial(comm=comm, model=model, loader=loader)
-
-            # Configure node roles based on rank
             if rank == 0:
-                # Aggregator node
-                roles = {NodeRole.AGGREGATOR}
+                node = Node.options(**node_rayopts).remote(
+                    id=f"S{rank}",
+                    roles={NodeRole.AGGREGATOR},
+                    comm_cfg=comm_cfg,
+                    model_cfg=model_cfg,
+                    algo_cfg=algo_cfg,
+                    data_cfg=data_cfg,  # TODO: Remove data from aggregator nodes
+                    rank=rank,
+                    world_size=self.num_nodes,
+                )
             else:
-                # Trainer node
-                roles = {NodeRole.TRAINER}
-
-            # Instantiate the node with pre-instantiated objects
-            node = Node.options(**node_options).remote(
-                id=f"N{rank}",
-                comm=comm,
-                roles=roles,
-                model=model,
-                loader=loader,
-                algorithm=algorithm,
-            )
+                node = Node.options(**node_rayopts).remote(
+                    id=f"C{rank}",
+                    roles={NodeRole.TRAINER},
+                    comm_cfg=comm_cfg,
+                    model_cfg=model_cfg,
+                    algo_cfg=algo_cfg,
+                    data_cfg=data_cfg,  # TODO: Only trainers should hold data
+                    rank=rank,
+                    world_size=self.num_nodes,
+                )
 
             nodes.append(node)
 
-        print(f"Configured centralized topology with {len(nodes)} nodes")
-        print(f"Aggregator: Node 0, Trainers: Nodes 1-{len(nodes) - 1}")
+        # ----------------------------------------------------------------
+        # SETUP ALL NODES
+        setup_futures = []
+        for rank, node in enumerate(nodes):
+            future = node.setup.remote(
+                # rank=rank,
+                # world_size=self.num_nodes,
+            )
+            setup_futures.append(future)
+
+        # Wait for all setups to complete
+        ray.get(setup_futures)
         return nodes
