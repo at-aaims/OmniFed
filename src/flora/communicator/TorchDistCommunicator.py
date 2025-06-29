@@ -57,9 +57,7 @@ class TorchDistCommunicator(Communicator):
 
         # Fallback if necessary
         if self.backend == "nccl" and not torch.cuda.is_available():
-            print(
-                f"NCCL backend requested but CUDA not available, falling back to gloo"
-            )
+            print("NCCL backend requested but CUDA not available, falling back to gloo")
             self.backend = "gloo"
 
     # def setup(self):
@@ -275,6 +273,6 @@ class TorchDistCommunicator(Communicator):
         # if not dist.is_initialized():
         #     print(f"Process group not initialized, nothing to close")
         #     return
-        print(f"Destroying process group")
+        print("Destroying process group")
         dist.destroy_process_group()
-        print(f"Process group destroyed successfully")
+        print("Process group destroyed successfully")
