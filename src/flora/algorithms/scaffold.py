@@ -55,23 +55,27 @@ class Scaffold:
         self.device = torch.device(
             "cuda:" + str(dev_id) if torch.cuda.is_available() else "cpu"
         )
-        self.model.to(self.device)
+        self.model = self.model.to(self.device)
         self.global_model = copy.deepcopy(self.model)
+        self.global_model = self.global_model.to(self.device)
         self.server_control_variates = {
-            name: torch.zeros_like(param.data)
+            name: torch.zeros_like(param.data).to(self.device)
             for name, param in self.model.named_parameters()
         }
         self.client_control_variates = {
-            name: torch.zeros_like(param.data)
+            name: torch.zeros_like(param.data).to(self.device)
             for name, param in self.model.named_parameters()
         }
-        self.old_client_control_variates = copy.deepcopy(self.client_control_variates)
+        self.old_client_control_variates = {
+            name: torch.zeros_like(param.data).to(self.device)
+            for name, param in self.model.named_parameters()
+        }
         self.model_delta = {
-            name: torch.zeros_like(param.data)
+            name: torch.zeros_like(param.data).to(self.device)
             for name, param in self.model.named_parameters()
         }
         self.control_variate_delta = {
-            name: torch.zeros_like(param.data)
+            name: torch.zeros_like(param.data).to(self.device)
             for name, param in self.model.named_parameters()
         }
 
@@ -141,6 +145,7 @@ class Scaffold:
                         avg_control_variate_delta[name]
                     )
 
+                self.model.load_state_dict(self.global_model.state_dict())
                 del avg_model_delta, avg_control_variate_delta
 
     def train(self):

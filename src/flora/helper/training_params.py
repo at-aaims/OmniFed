@@ -119,6 +119,80 @@ class ScaffoldTrainingParameters(TrainingParameters):
         return self.comm_freq
 
 
+class FedDynTrainingParameters(TrainingParameters):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.comm_freq = kwargs.get("comm_freq", None)
+        self.regularizer_alpha = kwargs.get("regularizer_alpha", None)
+
+    def get_comm_freq(self):
+        return self.comm_freq
+
+    def get_regularizer_alpha(self):
+        return self.regularizer_alpha
+
+
+class MOONTrainingParameters(TrainingParameters):
+    def __init__(self, **kwargs):
+        """
+        :param comm_freq: iterations after which collect/aggregate updates
+        :param num_prev_models: num of previous models to keep track
+        :param temperature: temperature parameter between representations
+        :param mu: contrastive loss weight
+        """
+        super().__init__(**kwargs)
+        self.comm_freq = kwargs.get("comm_freq", None)
+        self.num_prev_models = kwargs.get("num_prev_models", None)
+        self.temperature = kwargs.get("temperature", None)
+        self.mu = kwargs.get("mu", None)
+
+    def get_comm_freq(self):
+        return self.comm_freq
+
+    def get_num_prev_models(self):
+        return self.num_prev_models
+
+    def get_temperature(self):
+        return self.temperature
+
+    def get_mu(self):
+        return self.mu
+
+
+class FedPerTrainingParameters(TrainingParameters):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.comm_freq = kwargs.get("comm_freq", None)
+
+    def get_comm_freq(self):
+        return self.comm_freq
+
+
+class DittoTrainingParameters(TrainingParameters):
+    def __init__(self, **kwargs):
+        """
+        :param comm_freq: iterations after which collect/aggregate updates
+        :param ditto_regularizer: regularization parameter controlling closeness between local and global model
+        """
+        super().__init__(**kwargs)
+        self.comm_freq = kwargs.get("comm_freq", None)
+        self.ditto_regularizer = kwargs.get("ditto_regularizer", None)
+        self.global_loss = kwargs.get("global_loss", None)
+        self.global_optimizer = kwargs.get("global_optimizer", None)
+
+    def get_comm_freq(self):
+        return self.comm_freq
+
+    def get_ditto_regularizer(self):
+        return self.ditto_regularizer
+
+    def get_global_loss(self):
+        return self.global_loss
+
+    def get_global_optimizer(self):
+        return self.global_optimizer
+
+
 class MLPModel(nn.Module):
     """basic fully-connected network"""
 

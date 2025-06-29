@@ -22,7 +22,7 @@ from src.flora.communicator import Communicator
 # TODO: not taking returned data from sent/recv fn calls...fix that!
 
 
-class TorchMPICommunicator(Communicator):
+class TorchDistCommunicator(Communicator):
     def __init__(
         self,
         id,
@@ -34,6 +34,8 @@ class TorchMPICommunicator(Communicator):
         sharedfile="sharedfile",
     ):
         """
+        NOTE: Kept for reference for now, but will be deprecated in favor of TorchDistCommunicator
+
         :param id: client or server id ranging from 0 to (total_clients - 1)
         :param total_clients: total number of clients/world-size
         :param init_method: initialization method for clients: either tcp or sharedfile
@@ -124,7 +126,7 @@ class TorchMPICommunicator(Communicator):
 
         return msg
 
-    def recv(self, msg, id=0, communicate_params=True):
+    def receive(self, msg, id=0, communicate_params=True):
         """
         :param msg: message to receive
         :param id: client or server id ranging from 0 to (total_clients - 1)

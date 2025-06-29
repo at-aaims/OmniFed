@@ -56,7 +56,7 @@ class FederatedMomentum:
         self.device = torch.device(
             "cuda:" + str(dev_id) if torch.cuda.is_available() else "cpu"
         )
-        self.model.to(self.device)
+        self.model = self.model.to(self.device)
         self.global_model = copy.deepcopy(self.model)
         self.diff_params = copy.deepcopy(self.model)
         self.global_model, self.diff_params = (
@@ -64,7 +64,7 @@ class FederatedMomentum:
             self.diff_params.to(self.device),
         )
         self.velocity = {
-            name: torch.zeros_like(param.data)
+            name: torch.zeros_like(param.data).to(self.device)
             for name, param in self.model.named_parameters()
         }
 

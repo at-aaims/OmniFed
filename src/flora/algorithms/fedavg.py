@@ -20,7 +20,11 @@ from src.flora.helper.training_params import FedAvgTrainingParameters
 
 
 class FederatedAveraging:
-    """Implementation of Federated Averaging"""
+    """
+    Implementation of Federated Averaging
+
+    TODO: Deprecate this implementation and remove once all algorithms are migrated to the new API.
+    """
 
     def __init__(
         self,
@@ -53,7 +57,7 @@ class FederatedAveraging:
         self.device = torch.device(
             "cuda:" + str(dev_id) if torch.cuda.is_available() else "cpu"
         )
-        self.model.to(self.device)
+        self.model = self.model.to(self.device)
 
     def broadcast_model(self, model):
         # broadcast model from central server with id 0
