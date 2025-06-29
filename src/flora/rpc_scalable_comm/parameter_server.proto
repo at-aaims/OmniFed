@@ -1,0 +1,66 @@
+syntax = "proto3";
+
+package parameter_server;
+
+// Service definition for parameter server
+service ParameterServer {
+    // Send model updates to server
+    rpc SendUpdate(ModelUpdate) returns (UpdateResponse);
+
+    // Get averaged model parameters from server
+    rpc GetAveragedModel(GetModelRequest) returns (ModelParameters);
+
+    // Register client with server
+    rpc RegisterClient(ClientInfo) returns (RegistrationResponse);
+}
+
+// Model update from client
+message ModelUpdate {
+    string client_id = 1;
+    int32 round_number = 2;
+    repeated LayerParameters layers = 3;
+    bytes serialized_data = 4;  // NEW: For efficient serialization
+}
+
+// Layer parameters (weights and biases)
+message LayerParameters {
+    string layer_name = 1;
+    repeated float weights = 2;
+    repeated float biases = 3;
+    repeated int32 weight_shape = 4;
+    repeated int32 bias_shape = 5;
+}
+
+// Complete model parameters
+message ModelParameters {
+    int32 round_number = 1;
+    repeated LayerParameters layers = 2;
+    bool is_ready = 3;
+    bytes serialized_data = 4;  // NEW: For efficient serialization
+}
+
+// Response after sending update
+message UpdateResponse {
+    bool success = 1;
+    string message = 2;
+    int32 clients_registered = 3;
+    int32 updates_received = 4;
+}
+
+// Request for getting averaged model
+message GetModelRequest {
+    string client_id = 1;
+    int32 round_number = 2;
+}
+
+// Client registration info
+message ClientInfo {
+    string client_id = 1;
+}
+
+// Registration response
+message RegistrationResponse {
+    bool success = 1;
+    string message = 2;
+    int32 total_clients = 3;
+}

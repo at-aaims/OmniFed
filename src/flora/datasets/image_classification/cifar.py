@@ -78,7 +78,7 @@ def cifar10Data(
             shuffle=True,
             worker_init_fn=set_seed(client_id),
             generator=g,
-            num_workers=4,
+            num_workers=1,
         )
         del training_set
 
@@ -88,7 +88,7 @@ def cifar10Data(
                 root=datadir, train=False, download=True, transform=transform
             )
             test_loader = torch.utils.data.DataLoader(
-                test_set, batch_size=test_bsz, shuffle=True, generator=g, num_workers=4
+                test_set, batch_size=test_bsz, shuffle=True, generator=g, num_workers=1
             )
             del test_set
         else:

@@ -25,18 +25,9 @@ from kafka import KafkaConsumer, KafkaProducer
 from kafka.errors import KafkaError
 
 from src.flora.datasets.image_classification.caltech import (
-    (
-   ,
-)
     caltech101Data,
     caltech256Data,
-)t (
-    emnistData,
-    fmnisData,
-   
-   
 )
-
 from src.flora.datasets.image_classification.cifar import cifar10Data, cifar100Data
 from src.flora.datasets.image_classification.imagenet import imagenetData
 from src.flora.datasets.image_classification.img_datasets import (
@@ -296,7 +287,7 @@ class DataStreamSimulator(ABC):
                 )
                 print(result.stdout)
 
-        except subprocess.CalledProcessError as e:
+        except subprocess.CalledProcessError:
             print(
                 f"could not start zookeeper or kafka on server {self.kafka_host}:{self.kafka_port}"
             )
