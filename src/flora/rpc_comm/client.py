@@ -212,7 +212,7 @@ class ParameterServerClient:
         print(f"\n=== Round {self.round_number} ===")
 
         # Step 1: Train locally
-        loss = self.train_local_epoch()
+        self.train_local_epoch()
 
         # Step 2: Send update to server
         if not self.send_update_to_server(client_id):

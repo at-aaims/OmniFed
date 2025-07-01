@@ -20,17 +20,20 @@ from typing import Union
 import torch.nn
 
 from src.flora.communicator import Communicator
-from src.flora.flora_rpc import flora_grpc_pb2_grpc
-from src.flora.flora_rpc.central_server import CentralServerServicer
-from src.flora.flora_rpc.grpc_client import GrpcClient
+import src.flora.communicator.grpc_communicator_pb2_grpc as flora_grpc_pb2_grpc
+# from src.flora.flora_rpc.central_server import CentralServerServicer
+# from src.flora.flora_rpc.grpc_client import GrpcClient
+from src.flora.communicator.grpc_server import CentralServerServicer
+from src.flora.communicator.grpc_client import GrpcClient
 
 
 class GrpcCommunicator(Communicator):
     def __init__(self, model: torch.nn.Module, id:int =0, total_clients: int =1, master_addr: str ="127.0.0.1",
                  master_port: int =50051, accumulate_updates: bool =True):
-        super().__init__(protocol_type="gRPC")
+        super().__init__(protocol_type="RPC")
         self.id = id
-        self.total_clients = total_clients
+        # total clients excluding parameter server
+        self.total_clients = total_clients - 1
         self.master_port = master_port
         self.accumulate_updates = accumulate_updates
 

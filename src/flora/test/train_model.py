@@ -15,7 +15,9 @@
 import logging
 import socket
 
-from src.flora.communicator import torch_mpi, torch_rpc
+from src.flora.communicator import torch_mpi
+# from src.flora.flora_rpc import grpc_communicator
+from src.flora.communicator import grpc_communicator
 from src.flora.datasets.image_classification import cifar
 from src.flora.test import get_model
 from src.flora.helper import training_params
@@ -71,13 +73,14 @@ class ModelTrainer(object):
                 master_port=args.master_port,
             )
         elif args.communicator == "RPC":
-            self.communicator = torch_rpc.TorchRpcCommunicator(
+            self.communicator = grpc_communicator.GrpcCommunicator(model=self.model,
                 id=self.rank,
-                model=self.model,
                 total_clients=self.world_size,
                 master_addr=args.master_addr,
                 master_port=args.master_port,
+                accumulate_updates=True
             )
+
         logging.info("initialized communicator object...")
 
         self.train_dataloader, self.test_dataloader = cifar.cifar10Data(

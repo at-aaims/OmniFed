@@ -70,7 +70,6 @@ def imdbReviewsData(
         indices = np.arange(num_samples)
         np.random.shuffle(indices)
 
-        partitions = []
         start_index = client_id * chunk_size
         if client_id == total_clients - 1:
             chunk_indices = indices[start_index:]

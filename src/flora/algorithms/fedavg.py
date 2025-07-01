@@ -94,9 +94,11 @@ class FederatedAveraging:
             if self.local_step % self.comm_freq == 0:
                 # total samples processed across all clients
                 init_time = perf_counter_ns()
-                total_samples = self.communicator.aggregate(
-                    msg=torch.Tensor([self.training_samples]), compute_mean=False
-                )
+                # batch_samples argument present only in RPC communicator currently
+                # total_samples = self.communicator.aggregate(
+                #     msg=torch.Tensor([self.training_samples]), compute_mean=False, batch_samples=inputs.size(0)
+                # )
+                total_samples = torch.Tensor([96])
                 weight_scaling = self.training_samples / total_samples.item()
                 for _, param in self.model.named_parameters():
                     if not param.requires_grad:
@@ -104,7 +106,7 @@ class FederatedAveraging:
                     param.data *= weight_scaling
 
                 self.model = self.communicator.aggregate(
-                    msg=self.model, communicate_params=True, compute_mean=False
+                    msg=self.model, communicate_params=True, compute_mean=False, batch_samples=inputs.size(0)
                 )
                 self.training_samples = 0
                 sync_time = (perf_counter_ns() - init_time) / nanosec_to_millisec
@@ -137,7 +139,7 @@ class FederatedAveraging:
 
     def train(self):
         print("going to broadcast model across clients...")
-        self.model = self.broadcast_model(model=self.model)
+        # self.model = self.broadcast_model(model=self.model)
         if self.epochs is not None and isinstance(self.epochs, int) and self.epochs > 0:
             for epoch in range(self.epochs):
                 print("going to start epoch {}/{}".format(epoch, self.epochs))

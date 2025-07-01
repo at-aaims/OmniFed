@@ -29,7 +29,7 @@ def generate_grpc_code():
         ]
 
         print(f"Running: {' '.join(cmd)}")
-        result = subprocess.run(cmd, check=True, capture_output=True, text=True)
+        subprocess.run(cmd, check=True, capture_output=True, text=True)
 
         print("Successfully generated gRPC code:")
         print("  - parameter_server_pb2.py")

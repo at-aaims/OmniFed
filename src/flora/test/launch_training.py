@@ -13,7 +13,6 @@
 # limitations under the License.
 
 import argparse
-import os
 
 import src.flora.helper as helper
 from src.flora.test.train_model import ModelTrainer
@@ -23,10 +22,16 @@ if __name__ == "__main__":
     parser.add_argument(
         "--seed", type=int, default=1234, help="seed value for result replication"
     )
+    # parser.add_argument(
+    #     "--dir",
+    #     type=str,
+    #     default="~/",
+    #     help="dir where data is downloaded and/or saved",
+    # )
     parser.add_argument(
         "--dir",
         type=str,
-        default="~/",
+        default="/Users/ssq/Desktop/datasets/flora_test/",
         help="dir where data is downloaded and/or saved",
     )
     parser.add_argument("--bsz", type=int, default=32)
@@ -35,7 +40,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--communicator",
         type=str,
-        default="Collective",
+        default="RPC",
         help="either Collective or RPC",
     )
     parser.add_argument(
@@ -61,8 +66,8 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
-    os.environ["MASTER_ADDR"] = args.master_addr
-    os.environ["MASTER_PORT"] = args.master_port
+    # os.environ["MASTER_ADDR"] = args.master_addr
+    # os.environ["MASTER_PORT"] = args.master_port
     # if args.backend == "Gloo":
     #     os.environ["GLOO_SOCKET_IFNAME"] = 'lo0'
 

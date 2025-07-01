@@ -103,7 +103,9 @@ class CentralServerClient:
             layer_proto = flora_grpc_pb2.LayerState(layer_name=name)
             if self.communicate_params:
                 # for weighted aggregation, summed updates are divided by self.total_samples on the server
-                param.data = torch.mul(param.data, self.batch_samples)
+                if self.compute_mean:
+                    param.data = torch.mul(param.data, self.batch_samples)
+
                 layer_proto.param_update.extend(param.data.flatten().tolist())
                 layer_proto.param_shape.extend(list(param.data.shape))
 
@@ -204,7 +206,7 @@ class CentralServerClient:
         print(f"\n=== Round {self.round_number} ===")
 
         # Step 1: Train locally
-        loss = self.train_local_epoch()
+        self.train_local_epoch()
 
         # Step 2: Send update to server
         if not self.send_update_to_server():

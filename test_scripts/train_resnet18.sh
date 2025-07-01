@@ -3,14 +3,16 @@
 cd ../
 
 # kill -s 9 `ps -ef | grep src.flora.test.launch_training |grep -v grep | awk '{print $2}'`
+# kill -9 $(ps aux | grep src.flora.test.launch_training | grep -v grep | awk '{print $2}')
 
 dir='/Users/ssq/Desktop/datasets/flora_test/'
 bsz=32
-worldsize=2
+worldsize=4
 comm='RPC'
-commfreq=50
+commfreq=5
 masteraddr='127.0.0.1'
-masterport=28670
+#masterport=28670
+masterport=50055
 backend='Gloo'
 model='resnet18'
 dataset='cifar10'
@@ -23,4 +25,6 @@ do
   python3 -m src.flora.test.launch_training --dir=$dir --bsz=$bsz --rank=$rank --world-size=$worldsize \
   --communicator=$comm --comm-freq=$commfreq --master-addr=$masteraddr --master-port=$masterport --backend=$backend \
   --model=$model --dataset=$dataset --train-dir=$dir --test-dir=$dir &
+  echo "going to sleep for 5 seconds..."
+  sleep 5
 done
