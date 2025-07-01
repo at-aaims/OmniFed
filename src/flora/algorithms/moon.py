@@ -310,7 +310,7 @@ class MOONNew(Algorithm):
         """
         # Aggregate sample counts for weighted aggregation
         total_samples = self.comm.aggregate(
-            torch.tensor([self.round_total_samples], dtype=torch.float32),
+            torch.tensor([self.total_samples], dtype=torch.float32),
             communicate_params=False,
             compute_mean=False,
         ).item()
@@ -322,7 +322,7 @@ class MOONNew(Algorithm):
             return
 
         # Calculate data proportion for weighted aggregation
-        data_proportion = self.round_total_samples / total_samples
+        data_proportion = self.total_samples / total_samples
 
         # Scale model parameters by data proportion
         utils.scale_params(self.local_model, data_proportion)

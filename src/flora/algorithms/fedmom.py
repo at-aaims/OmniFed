@@ -201,7 +201,7 @@ class FedMomNew(Algorithm):
 
         # Aggregate sample counts to compute global total
         total_samples = self.comm.aggregate(
-            torch.tensor([self.round_total_samples], dtype=torch.float32),
+            torch.tensor([self.total_samples], dtype=torch.float32),
             communicate_params=False,
             compute_mean=False,
         ).item()
@@ -213,7 +213,7 @@ class FedMomNew(Algorithm):
             return
 
         # Calculate data proportion for weighted aggregation of deltas
-        data_proportion = self.round_total_samples / total_samples
+        data_proportion = self.total_samples / total_samples
 
         # Scale local deltas by data proportion
         for name in local_deltas:

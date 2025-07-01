@@ -169,7 +169,7 @@ class FedProxNew(Algorithm):
         """
         # Aggregate sample counts from all clients to determine total data processed
         total_samples = self.comm.aggregate(
-            torch.tensor([self.round_total_samples], dtype=torch.float32),
+            torch.tensor([self.total_samples], dtype=torch.float32),
             communicate_params=False,
             compute_mean=False,
         ).item()
@@ -181,7 +181,7 @@ class FedProxNew(Algorithm):
             return
 
         # Calculate the proportion of data this client contributed
-        data_proportion = self.round_total_samples / total_samples
+        data_proportion = self.total_samples / total_samples
 
         # Scale model parameters by the data proportion for weighted aggregation
         utils.scale_params(self.local_model, data_proportion)

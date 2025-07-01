@@ -211,7 +211,7 @@ class DiLoCoNew(Algorithm):
 
         # Aggregate sample counts to compute global total
         total_samples = self.comm.aggregate(
-            torch.tensor([self.round_total_samples], dtype=torch.float32),
+            torch.tensor([self.total_samples], dtype=torch.float32),
             communicate_params=False,
             compute_mean=False,
         ).item()

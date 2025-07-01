@@ -209,7 +209,7 @@ class DittoNew(Algorithm):
         """
         # Aggregate sample counts
         total_samples = self.comm.aggregate(
-            torch.tensor([self.round_total_samples], dtype=torch.float32),
+            torch.tensor([self.total_samples], dtype=torch.float32),
             communicate_params=False,
             compute_mean=False,
         ).item()
@@ -221,7 +221,7 @@ class DittoNew(Algorithm):
             return
 
         # Calculate data proportion for weighted aggregation
-        data_proportion = self.round_total_samples / total_samples
+        data_proportion = self.total_samples / total_samples
 
         # Scale global model parameters by data proportion
         utils.scale_params(self.global_model, data_proportion)

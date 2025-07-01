@@ -201,7 +201,7 @@ class FedNovaNew(Algorithm):
         """
         Perform an optimizer step and increment the local step counter for normalization.
         """
-        self.round_optimizer.step()
+        self.optimizer.step()
         self.local_steps_this_round += 1
 
     def _compute_alpha(self, lr: float, local_steps: int) -> float:
@@ -221,7 +221,7 @@ class FedNovaNew(Algorithm):
         """
         Apply FedNova normalized averaging and update the global model with aggregated updates.
         """
-        lr = self.round_optimizer.param_groups[0]["lr"]
+        lr = self.optimizer.param_groups[0]["lr"]
         alpha = self._compute_alpha(lr, self.local_steps_this_round)
 
         # Compute normalized parameter deltas for each trainable parameter
@@ -233,7 +233,7 @@ class FedNovaNew(Algorithm):
 
         # Aggregate sample counts from all clients to determine total data processed
         total_samples = self.comm.aggregate(
-            torch.tensor([self.round_total_samples], dtype=torch.float32),
+            torch.tensor([self.total_samples], dtype=torch.float32),
             communicate_params=False,
             compute_mean=False,
         ).item()
@@ -245,7 +245,7 @@ class FedNovaNew(Algorithm):
             return
 
         # Calculate the proportion of data this client contributed
-        data_proportion = self.round_total_samples / total_samples
+        data_proportion = self.total_samples / total_samples
 
         # Scale normalized deltas by the data proportion for weighted aggregation
         for name, delta in normalized_deltas.items():

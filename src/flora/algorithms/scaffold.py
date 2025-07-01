@@ -222,7 +222,7 @@ class ScaffoldNew(Algorithm):
         """
         Track optimizer steps for control variate normalization.
         """
-        self.round_optimizer.step()
+        self.optimizer.step()
         self.optimizer_steps += 1
 
     def round_start(self, round_idx: int) -> None:
@@ -247,7 +247,7 @@ class ScaffoldNew(Algorithm):
         Aggregate model deltas and control variate deltas, then update global model and server control variates.
         """
         effective_comm_freq = max(1, self.optimizer_steps)
-        lr = self.round_optimizer.param_groups[0]["lr"]
+        lr = self.optimizer.param_groups[0]["lr"]
 
         # Update client control variates
         for (name1, param1), (name2, param2) in zip(
@@ -271,7 +271,7 @@ class ScaffoldNew(Algorithm):
 
         # Aggregate sample counts for weighted aggregation
         total_samples = self.comm.aggregate(
-            torch.tensor([self.round_total_samples], dtype=torch.float32),
+            torch.tensor([self.total_samples], dtype=torch.float32),
             communicate_params=False,
             compute_mean=False,
         ).item()
@@ -287,7 +287,7 @@ class ScaffoldNew(Algorithm):
         )
         aggregated_cv_deltas = self.comm.aggregate(msg=self.cv_delta, compute_mean=True)
 
-        lr = self.round_optimizer.param_groups[0]["lr"]
+        lr = self.optimizer.param_groups[0]["lr"]
         utils.apply_model_delta(self.global_model, aggregated_model_deltas, scale=lr)
         for name in self.server_cv:
             if name in aggregated_cv_deltas:
