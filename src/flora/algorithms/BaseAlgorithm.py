@@ -84,7 +84,7 @@ class Algorithm(ABC):
     # =============================================================================
 
     @abstractmethod
-    def configure_optimizer(self, model: nn.Module) -> torch.optim.Optimizer:
+    def configure_optimizer(self) -> torch.optim.Optimizer:
         """
         Configure optimizer for the given model.
         """
@@ -96,7 +96,7 @@ class Algorithm(ABC):
 
         Sets up execution context.
         """
-        self._round_optimizer = self.configure_optimizer(self.local_model)
+        self._round_optimizer = self.configure_optimizer()
         self._round_total_samples = 0
         self._round_metrics = RoundMetrics()
 
@@ -142,7 +142,12 @@ class Algorithm(ABC):
             self.round_metrics.update_mean("time/epoch", epoch_time)
 
             print(
-                f"Round {round_idx + 1} | Epoch {epoch_idx + 1}/{max_epochs} | {self.round_metrics.compute_all()}"
+                f"Round {round_idx + 1} | Epoch {epoch_idx + 1}/{max_epochs} |",
+                {
+                    k: round(v, 3) if isinstance(v, float) else v
+                    for k, v in self.round_metrics.to_dict().items()
+                },
+                flush=True,
             )
 
         self.local_model.to(device_prev)

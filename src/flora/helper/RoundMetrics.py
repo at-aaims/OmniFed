@@ -42,7 +42,7 @@ class RoundMetrics:
         """Update a sum-tracked metric with automatic tensor conversion."""
         self._sum_metrics[name].update(value)
 
-    def compute_all(self) -> Dict[str, float]:
+    def to_dict(self) -> Dict[str, float]:
         """Compute and return all metrics as a flat dictionary."""
         return {
             **{k: v.compute().item() for k, v in self._mean_metrics.items()},

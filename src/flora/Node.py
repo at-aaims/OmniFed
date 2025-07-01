@@ -65,7 +65,7 @@ class Node:
     def __init__(
         self,
         id: str,
-        roles: Set[NodeRole],
+        # roles: Set[NodeRole],
         comm_cfg: DictConfig,
         algo_cfg: DictConfig,
         model_cfg: DictConfig,
@@ -78,7 +78,7 @@ class Node:
     ):
         print(f"{self.__class__.__name__} {id} init...")
         self.id: str = id
-        self.roles: Set[NodeRole] = roles
+        # self.roles: Set[NodeRole] = roles
         self.max_epochs: int = max_epochs
 
         # Distributed computing context
@@ -103,7 +103,9 @@ class Node:
 
         # Federated learning algorithm (handles computation logic)
         self.algo: Algorithm = instantiate(
-            algo_cfg, local_model=self.local_model, comm=self.comm
+            algo_cfg,
+            local_model=self.local_model,
+            comm=self.comm,
         )
 
     def __repr__(self) -> str:
@@ -113,8 +115,9 @@ class Node:
         Returns:
             Formatted string with node ID and role list
         """
-        role_names = [role.value for role in self.roles]
-        return f"Node {self.id}: {role_names}"
+        # role_names = [role.value for role in self.roles]
+        # return f"Node {self.id}: {role_names}"
+        return f"{self.id}"
 
     @staticmethod
     def select_device(device_hint: str, rank: Optional[int] = None) -> torch.device:
@@ -208,9 +211,6 @@ class Node:
                 self.max_epochs,
                 self.device,
             )
-            print(
-                f"Completed local training ({self.algo.round_total_samples} samples processed)"
-            )
         else:
             print("WARN: No local training data available, skipping local training")
 
@@ -223,8 +223,12 @@ class Node:
         self.algo.round_end(round_idx)
 
         # Collect all metrics from algorithm execution
-        metrics.update(self.algo.round_metrics.compute_all())
+        metrics.update(self.algo.round_metrics.to_dict())
         metrics["time/round"] = time.time() - round_start_time
 
-        print(f"Round {round_idx} END | {metrics}", flush=True)
+        print(
+            f"Round {round_idx} END |",
+            {k: round(v, 3) if isinstance(v, float) else v for k, v in metrics.items()},
+            flush=True,
+        )
         return metrics

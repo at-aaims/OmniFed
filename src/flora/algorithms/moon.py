@@ -228,11 +228,11 @@ class MOONNew(Algorithm):
         self.global_model.eval()
         self.prev_models = []
 
-    def configure_optimizer(self, model: nn.Module) -> torch.optim.Optimizer:
+    def configure_optimizer(self) -> torch.optim.Optimizer:
         """
         SGD optimizer for local updates.
         """
-        return torch.optim.SGD(model.parameters(), lr=self.lr)
+        return torch.optim.SGD(self.local_model.parameters(), lr=self.lr)
 
     def train_step(self, batch: Any, batch_idx: int) -> Tuple[torch.Tensor, int]:
         """
@@ -323,9 +323,6 @@ class MOONNew(Algorithm):
 
         # Calculate data proportion for weighted aggregation
         data_proportion = self.round_total_samples / total_samples
-        print(
-            f"MOON Round {round_idx}: Processed {self.round_total_samples}/{total_samples} samples (weight: {data_proportion:.4f})"
-        )
 
         # Scale model parameters by data proportion
         utils.scale_params(self.local_model, data_proportion)

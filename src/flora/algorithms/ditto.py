@@ -161,11 +161,11 @@ class DittoNew(Algorithm):
             self.global_model.parameters(), lr=self.global_lr
         )
 
-    def configure_optimizer(self, model: nn.Module) -> torch.optim.Optimizer:
+    def configure_optimizer(self) -> torch.optim.Optimizer:
         """
         SGD optimizer for local updates.
         """
-        return torch.optim.SGD(model.parameters(), lr=self.lr)
+        return torch.optim.SGD(self.local_model.parameters(), lr=self.lr)
 
     def train_step(self, batch: Any, batch_idx: int) -> tuple[torch.Tensor, int]:
         """
@@ -222,9 +222,6 @@ class DittoNew(Algorithm):
 
         # Calculate data proportion for weighted aggregation
         data_proportion = self.round_total_samples / total_samples
-        print(
-            f"Ditto Round {round_idx}: Processed {self.round_total_samples}/{total_samples} samples (weight: {data_proportion:.4f})"
-        )
 
         # Scale global model parameters by data proportion
         utils.scale_params(self.global_model, data_proportion)

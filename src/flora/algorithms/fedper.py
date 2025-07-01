@@ -167,11 +167,11 @@ class FedPerNew(Algorithm):
         self.lr = lr
         self.personal_layers = personal_layers or ["classifier", "head", "fc"]
 
-    def configure_optimizer(self, model: nn.Module) -> torch.optim.Optimizer:
+    def configure_optimizer(self) -> torch.optim.Optimizer:
         """
         SGD optimizer for both base and personal parameters.
         """
-        return torch.optim.SGD(model.parameters(), lr=self.lr)
+        return torch.optim.SGD(self.local_model.parameters(), lr=self.lr)
 
     def _is_personal_layer(self, param_name: str) -> bool:
         """
@@ -216,9 +216,6 @@ class FedPerNew(Algorithm):
 
         # Step 2: Calculate data proportion for weighted aggregation
         data_proportion = self.round_total_samples / total_samples
-        print(
-            f"FedPer Round {round_idx}: Processed {self.round_total_samples}/{total_samples} samples (weight: {data_proportion:.4f})"
-        )
 
         # Step 3: Scale model parameters by data proportion
         utils.scale_params(self.local_model, data_proportion)

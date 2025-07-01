@@ -127,11 +127,11 @@ class FedProxNew(Algorithm):
         # ---
         self.global_model = copy.deepcopy(local_model)
 
-    def configure_optimizer(self, model: nn.Module) -> torch.optim.Optimizer:
+    def configure_optimizer(self) -> torch.optim.Optimizer:
         """
         SGD optimizer for local updates.
         """
-        return torch.optim.SGD(model.parameters(), lr=self.lr)
+        return torch.optim.SGD(self.local_model.parameters(), lr=self.lr)
 
     def train_step(self, batch: Any, batch_idx: int) -> tuple[torch.Tensor, int]:
         """
@@ -182,9 +182,6 @@ class FedProxNew(Algorithm):
 
         # Calculate the proportion of data this client contributed
         data_proportion = self.round_total_samples / total_samples
-        print(
-            f"FedProx Round {round_idx}: Processed {self.round_total_samples}/{total_samples} samples (weight: {data_proportion:.4f})"
-        )
 
         # Scale model parameters by the data proportion for weighted aggregation
         utils.scale_params(self.local_model, data_proportion)

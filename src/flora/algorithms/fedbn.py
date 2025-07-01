@@ -142,11 +142,11 @@ class FedBNNew(Algorithm):
         super().__init__(local_model, comm)
         self.lr = lr
 
-    def configure_optimizer(self, model: nn.Module) -> torch.optim.Optimizer:
+    def configure_optimizer(self) -> torch.optim.Optimizer:
         """
         SGD optimizer for local updates.
         """
-        return torch.optim.SGD(model.parameters(), lr=self.lr)
+        return torch.optim.SGD(self.local_model.parameters(), lr=self.lr)
 
     def train_step(self, batch: Any, batch_idx: int) -> Tuple[torch.Tensor, int]:
         """
@@ -203,9 +203,6 @@ class FedBNNew(Algorithm):
 
         # Step 2: Calculate data proportion for weighted aggregation
         data_proportion = self.round_total_samples / total_samples
-        print(
-            f"FedBN Round {round_idx}: Processed {self.round_total_samples}/{total_samples} samples (weight: {data_proportion:.4f})"
-        )
 
         # Step 3: Scale only non-BN parameters by data proportion
         for name, param in self.local_model.named_parameters():

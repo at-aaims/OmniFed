@@ -171,12 +171,12 @@ class FedNovaNew(Algorithm):
         self.global_model = copy.deepcopy(local_model)
         self.local_steps_this_round: int = 0
 
-    def configure_optimizer(self, model: nn.Module) -> torch.optim.Optimizer:
+    def configure_optimizer(self) -> torch.optim.Optimizer:
         """
         SGD optimizer with weight decay.
         """
         return torch.optim.SGD(
-            model.parameters(), lr=self.lr, weight_decay=self.weight_decay
+            self.local_model.parameters(), lr=self.lr, weight_decay=self.weight_decay
         )
 
     def train_step(self, batch: Any, batch_idx: int) -> Tuple[torch.Tensor, int]:
@@ -246,9 +246,6 @@ class FedNovaNew(Algorithm):
 
         # Calculate the proportion of data this client contributed
         data_proportion = self.round_total_samples / total_samples
-        print(
-            f"FedNova Round {round_idx}: Processed {self.round_total_samples}/{total_samples} samples (weight: {data_proportion:.4f}), alpha: {alpha:.6f}"
-        )
 
         # Scale normalized deltas by the data proportion for weighted aggregation
         for name, delta in normalized_deltas.items():

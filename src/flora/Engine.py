@@ -111,9 +111,7 @@ class Engine:
                         "success_rate": _success_rate,
                     }
                 )
-
-                # Round summary
-                print(f"Round Complete | {summaries[-1]}")
+                print(f"Round Complete | {summaries[-1]}", flush=True)
 
             utils.log_sep("FL Rounds End", color="blue")
 

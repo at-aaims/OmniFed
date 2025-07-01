@@ -203,11 +203,11 @@ class ScaffoldNew(Algorithm):
             self.model_delta[name] = torch.zeros_like(param.data)
             self.cv_delta[name] = torch.zeros_like(param.data)
 
-    def configure_optimizer(self, model: nn.Module) -> torch.optim.Optimizer:
+    def configure_optimizer(self) -> torch.optim.Optimizer:
         """
         SGD optimizer for local updates.
         """
-        return torch.optim.SGD(model.parameters(), lr=self.lr)
+        return torch.optim.SGD(self.local_model.parameters(), lr=self.lr)
 
     def train_step(self, batch: Any, batch_idx: int) -> Tuple[torch.Tensor, int]:
         """
@@ -281,11 +281,6 @@ class ScaffoldNew(Algorithm):
                 "WARN: No samples processed in this round... possible client failure or aggregation error?"
             )
             return
-
-        data_proportion = self.round_total_samples / total_samples
-        print(
-            f"SCAFFOLD Round {round_idx}: Processed {self.round_total_samples}/{total_samples} samples (weight: {data_proportion:.4f})"
-        )
 
         aggregated_model_deltas = self.comm.aggregate(
             msg=self.model_delta, compute_mean=True

@@ -13,7 +13,7 @@
 # limitations under the License.
 
 import datetime
-from typing import Union, Dict
+from typing import Union
 
 import torch
 import torch.distributed as dist
@@ -57,9 +57,7 @@ class TorchDistCommunicator(Communicator):
 
         # Fallback if necessary
         if self.backend == "nccl" and not torch.cuda.is_available():
-            print(
-                f"NCCL backend requested but CUDA not available, falling back to gloo"
-            )
+            print("NCCL backend requested but CUDA not available, falling back to gloo")
             self.backend = "gloo"
 
     # def setup(self):
@@ -111,7 +109,8 @@ class TorchDistCommunicator(Communicator):
         #     return
 
         print(
-            f"setup: rank={self.rank}, world_size={self.world_size}, init_method={self.init_method}, backend={self.backend}, master_addr={self.master_addr}, master_port={self.master_port}, sharedfile={self.sharedfile}"
+            f"setup: rank={self.rank}, world_size={self.world_size}, init_method={self.init_method}, backend={self.backend}, master_addr={self.master_addr}, master_port={self.master_port}, sharedfile={self.sharedfile}",
+            flush=True,
         )
 
         if self.init_method == "tcp":
@@ -142,7 +141,7 @@ class TorchDistCommunicator(Communicator):
         :param id: node id which initiates the broadcast
         :return: returns the broadcasted message
         """
-        print(f"Broadcast from rank {src} to all ranks | {type(msg)}")
+        print(f"Broadcast from rank {src} to all ranks | {type(msg)}", flush=True)
 
         if isinstance(msg, nn.Module):
             for _, p in msg.named_parameters():
@@ -168,7 +167,8 @@ class TorchDistCommunicator(Communicator):
         :return: aggregated message
         """
         print(
-            f"Aggregate from all ranks | {type(msg)} communicate_params={communicate_params} compute_mean={compute_mean}"
+            f"Aggregate from all ranks | {type(msg)} communicate_params={communicate_params} compute_mean={compute_mean}",
+            flush=True,
         )
 
         if isinstance(msg, nn.Module):
@@ -204,7 +204,8 @@ class TorchDistCommunicator(Communicator):
         :return: the sending message
         """
         print(
-            f"Send to rank {dst} | {type(msg)} communicate_params={communicate_params}"
+            f"Send to rank {dst} | {type(msg)} communicate_params={communicate_params}",
+            flush=True,
         )
 
         if isinstance(msg, nn.Module):
@@ -231,7 +232,8 @@ class TorchDistCommunicator(Communicator):
         :return: the receiving message
         """
         print(
-            f"Receive from rank {src} | {type(msg)} communicate_params={communicate_params}"
+            f"Receive from rank {src} | {type(msg)} communicate_params={communicate_params}",
+            flush=True,
         )
 
         if isinstance(msg, nn.Module):
@@ -259,7 +261,8 @@ class TorchDistCommunicator(Communicator):
         :return: either nested list of layerwise model data collected from clients or a simple list of gathered data
         """
         print(
-            f"Collect from all ranks | {type(msg)} communicate_params={communicate_params}"
+            f"Collect from all ranks | {type(msg)} communicate_params={communicate_params}",
+            flush=True,
         )
 
         collected = []
@@ -285,6 +288,6 @@ class TorchDistCommunicator(Communicator):
         # if not dist.is_initialized():
         #     print(f"Process group not initialized, nothing to close")
         #     return
-        print(f"Destroying process group")
+        print("Destroying process group")
         dist.destroy_process_group()
-        print(f"Process group destroyed successfully")
+        print("Process group destroyed successfully")

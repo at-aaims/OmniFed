@@ -170,11 +170,11 @@ class DiLoCoNew(Algorithm):
             if param.requires_grad:
                 self.velocity[name] = torch.zeros_like(param.data)
 
-    def configure_optimizer(self, model: nn.Module) -> torch.optim.Optimizer:
+    def configure_optimizer(self) -> torch.optim.Optimizer:
         """
         Configure SGD optimizer for DiLoCo local updates.
         """
-        return torch.optim.SGD(model.parameters(), lr=self.lr)
+        return torch.optim.SGD(self.local_model.parameters(), lr=self.lr)
 
     def train_step(self, batch: Any, batch_idx: int) -> Tuple[torch.Tensor, int]:
         """
@@ -221,12 +221,6 @@ class DiLoCoNew(Algorithm):
                 "WARN: No samples processed in this round... possible client failure or aggregation error?"
             )
             return
-
-        # Calculate data proportion for weighted aggregation of deltas
-        data_proportion = self.round_total_samples / total_samples
-        print(
-            f"DiLoCo Round {round_idx}: Processed {self.round_total_samples}/{total_samples} samples (weight: {data_proportion:.4f})"
-        )
 
         # Aggregate local deltas across all clients
         aggregated_deltas = self.comm.aggregate(msg=local_deltas, compute_mean=True)

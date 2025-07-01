@@ -153,11 +153,11 @@ class FedDynNew(Algorithm):
             if param.requires_grad:
                 self.server_momentum[name] = torch.zeros_like(param.data)
 
-    def configure_optimizer(self, model: nn.Module) -> torch.optim.Optimizer:
+    def configure_optimizer(self) -> torch.optim.Optimizer:
         """
         SGD optimizer for local updates.
         """
-        return torch.optim.SGD(model.parameters(), lr=self.lr)
+        return torch.optim.SGD(self.local_model.parameters(), lr=self.lr)
 
     def train_step(self, batch: Any, batch_idx: int) -> Tuple[torch.Tensor, int]:
         """
@@ -225,9 +225,6 @@ class FedDynNew(Algorithm):
 
         # Step 2: Calculate data proportion for weighted aggregation
         data_proportion = self.round_total_samples / total_samples
-        print(
-            f"FedDyn Round {round_idx}: Processed {self.round_total_samples}/{total_samples} samples (weight: {data_proportion:.4f})"
-        )
 
         # Step 3: Scale model parameters by data proportion
         utils.scale_params(self.local_model, data_proportion)
