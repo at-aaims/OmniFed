@@ -13,7 +13,7 @@
 # limitations under the License.
 
 import copy
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 import torch
 from torch import nn
@@ -247,3 +247,25 @@ def apply_model_delta(
                 )
 
             param.add_(delta, alpha=scale)
+
+
+def calculate_batch_size(batch: Any) -> int:
+    """
+    Extract number of samples from batch for metrics tracking.
+    Handles common PyTorch batch formats automatically.
+
+    Override for custom batch structures.
+    """
+    if isinstance(batch, torch.Tensor):
+        return batch.size(0)
+
+    if isinstance(batch, (tuple, list)) and len(batch) > 0:
+        # Try first element
+        first = batch[0]
+        if isinstance(first, torch.Tensor):
+            return first.size(0)
+
+    if hasattr(batch, "__len__"):
+        return len(batch)
+
+    raise ValueError(f"Cannot estimate batch size for type {type(batch)}")

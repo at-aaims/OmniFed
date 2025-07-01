@@ -15,6 +15,7 @@
 import logging
 import time
 from abc import ABC, abstractmethod
+
 from typing import Any, Optional
 
 import rich.repr
@@ -43,44 +44,47 @@ class Algorithm(ABC):
         Initialize the Algorithm instance.
 
         Args:
-            model: The neural network model for this algorithm instance
-            communicator: The communicator for federated operations
+            local_model: The neural network model for this algorithm instance
+            comm: The communicator for federated operations
         """
         # Core federated learning components
         self.local_model: nn.Module = local_model
         self.comm: Communicator = comm
 
-        # Active execution context
-        self._round_optimizer: Optional[torch.optim.Optimizer] = None
-        self._round_metrics: Optional[RoundMetrics] = None
-        self._round_total_samples: int = 0
+        # Round state - properly initialized
+        self._optimizer: Optional[torch.optim.Optimizer] = None
+        self._metrics: Optional[RoundMetrics] = None
+        self._total_samples: int = 0
 
     # =============================================================================
     # PROPERTIES
     # =============================================================================
 
     @property
-    def round_optimizer(self) -> torch.optim.Optimizer:
-        """Current optimizer (only available during computation)."""
-        if self._round_optimizer is None:
-            raise RuntimeError("optimizer only available during active computation")
-        return self._round_optimizer
+    def optimizer(self) -> torch.optim.Optimizer:
+        """Current optimizer - created lazily when first accessed."""
+        if self._optimizer is None:
+            self._optimizer = self.configure_optimizer()
+        return self._optimizer
 
     @property
-    def round_metrics(self) -> RoundMetrics:
-        """Current metrics manager (only available during computation)."""
-        if self._round_metrics is None:
-            raise RuntimeError("metrics only available during active computation")
-        return self._round_metrics
+    def metrics(self) -> RoundMetrics:
+        """Current round metrics - created on first access."""
+        if self._metrics is None:
+            self._metrics = RoundMetrics()
+        return self._metrics
 
     @property
-    def round_total_samples(self) -> int:
+    def total_samples(self) -> int:
         """Total samples processed in current round."""
-        if self._round_total_samples < 0:
-            raise ValueError("round_total_samples is negative")
-        return self._round_total_samples
+        return self._total_samples
 
-    # =============================================================================
+    def reset_round_state(self) -> None:
+        """Reset state for a new round - called by framework."""
+        self._optimizer = None
+        self._metrics = None
+        self._total_samples = 0
+
     # =============================================================================
 
     @abstractmethod
@@ -89,16 +93,6 @@ class Algorithm(ABC):
         Configure optimizer for the given model.
         """
         pass
-
-    def round_init(self) -> None:
-        """
-        Initialize algorithm state for a new federated round.
-
-        Sets up execution context.
-        """
-        self._round_optimizer = self.configure_optimizer()
-        self._round_total_samples = 0
-        self._round_metrics = RoundMetrics()
 
     # =============================================================================
     # TRAINING LOGIC
@@ -139,13 +133,13 @@ class Algorithm(ABC):
             self.epoch_end(epoch_idx)
             epoch_time = time.time() - epoch_start_time
 
-            self.round_metrics.update_mean("time/epoch", epoch_time)
+            self.metrics.update_mean("time/epoch", epoch_time)
 
             print(
                 f"Round {round_idx + 1} | Epoch {epoch_idx + 1}/{max_epochs} |",
                 {
                     k: round(v, 3) if isinstance(v, float) else v
-                    for k, v in self.round_metrics.to_dict().items()
+                    for k, v in self.metrics.to_dict().items()
                 },
                 flush=True,
             )
@@ -193,9 +187,9 @@ class Algorithm(ABC):
             batch_time = time.time() - batch_start_time
 
             # ---
-            self.round_metrics.update_mean("time/step_data", data_time)
-            self.round_metrics.update_mean("time/step_compute", compute_time)
-            self.round_metrics.update_mean("time/step", batch_time)
+            self.metrics.update_mean("time/step_data", data_time)
+            self.metrics.update_mean("time/step_compute", compute_time)
+            self.metrics.update_mean("time/step", batch_time)
 
     def train_batch(self, batch: Any, batch_idx: int) -> None:
         """
@@ -210,19 +204,19 @@ class Algorithm(ABC):
         # Forward pass hook (implemented by subclasses)
         loss, batch_size = self.train_step(batch, batch_idx)
         # Automatic sample tracking
-        self._round_total_samples += batch_size
-        self.round_metrics.update_sum("data/samples", batch_size)
-        self.round_metrics.update_sum("data/batches", 1)
+        self._total_samples = self.total_samples + batch_size
+        self.metrics.update_sum("data/samples", batch_size)
+        self.metrics.update_sum("data/batches", 1)
 
         # Automatic loss tracking
-        self.round_metrics.update_mean("loss/compute", loss.detach().item(), batch_size)
+        self.metrics.update_mean("loss/compute", loss.detach().item(), batch_size)
 
-        self.round_optimizer.zero_grad()
+        self.optimizer.zero_grad()
         # Backward pass hook
         self.backward_pass(loss, batch_idx)
 
         # Automatic gradient tracking
-        self.round_metrics.update_mean(
+        self.metrics.update_mean(
             "compute/grad_norm", utils.get_grad_norm(self.local_model)
         )
 
@@ -270,7 +264,7 @@ class Algorithm(ABC):
         - Per-parameter learning rates: apply different step sizes to different layers
         - Momentum modifications: adjust momentum based on training progress
         """
-        self.round_optimizer.step()
+        self.optimizer.step()
 
     # =============================================================================
     # LIFECYCLE HOOKS
@@ -357,27 +351,6 @@ class Algorithm(ABC):
     # =============================================================================
     # MISC UTILITY METHODS
     # =============================================================================
-
-    def calculate_batch_size(self, batch: Any) -> int:
-        """
-        Extract number of samples from batch for metrics tracking.
-        Handles common PyTorch batch formats automatically.
-
-        Override for custom batch structures.
-        """
-        if isinstance(batch, torch.Tensor):
-            return batch.size(0)
-
-        if isinstance(batch, (tuple, list)) and len(batch) > 0:
-            # Try first element
-            first = batch[0]
-            if isinstance(first, torch.Tensor):
-                return first.size(0)
-
-        if hasattr(batch, "__len__"):
-            return len(batch)
-
-        raise ValueError(f"Cannot estimate batch size for type {type(batch)}")
 
     def transfer_batch_to_device(self, batch: Any, device: torch.device) -> Any:
         """

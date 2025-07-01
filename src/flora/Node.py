@@ -172,8 +172,6 @@ class Node:
         print("Setup: initializing communication backend", flush=True)
         self.comm.setup()
 
-        # TODO: there's probably a better place for this
-        # self.model.to(self.device) # TODO: too many initialization function, confusing with round_init. is this necessary even?
         # summary(self.model, verbose=1)
 
     def execute_round(self, round_idx: int) -> dict[str, float]:
@@ -190,21 +188,21 @@ class Node:
         print(f"Round {round_idx} START", flush=True)
         round_start_time = time.time()
 
-        # 1: Algorithm round initialization
-        self.algo.round_init()
+        # Reset round state (simple and explicit)
+        self.algo.reset_round_state()
+
+        # 1. Synchronization - receive global model
+        self.algo.round_start(round_idx)
+
+        # 2. Initialize round metrics
         metrics: dict[str, float] = dict(round_idx=round_idx)
         metrics["model/param_norm_start"] = alg_utils.get_param_norm(
             self.algo.local_model
         )
 
-        # ---
-        self.algo.round_start(round_idx)
-
-        # ---
+        # 3. Local training
         if self.datamodule is not None and self.datamodule.train is not None:
             print(f"Starting local training on {len(self.datamodule.train)} batches")
-
-            # Execute local training rounds
             self.algo.train_round(
                 self.datamodule.train,
                 round_idx,
@@ -214,16 +212,16 @@ class Node:
         else:
             print("WARN: No local training data available, skipping local training")
 
-        # ---
+        # 4. Post-training metrics
         metrics["model/param_norm_end"] = alg_utils.get_param_norm(
             self.algo.local_model
         )
 
-        # ---
+        # 5. Aggregation
         self.algo.round_end(round_idx)
 
-        # Collect all metrics from algorithm execution
-        metrics.update(self.algo.round_metrics.to_dict())
+        # 6. Collect all metrics from algorithm execution
+        metrics.update(self.algo.metrics.to_dict())
         metrics["time/round"] = time.time() - round_start_time
 
         print(
