@@ -14,9 +14,9 @@
 
 import copy
 from typing import Any, Dict, List, Optional
-
 import torch
 from torch import nn
+import hashlib
 
 
 def get_param_norm(model: nn.Module) -> float:
@@ -269,3 +269,27 @@ def calculate_batch_size(batch: Any) -> int:
         return len(batch)
 
     raise ValueError(f"Cannot estimate batch size for type {type(batch)}")
+
+
+def hash_model_params(model: nn.Module) -> str:
+    """
+    Generate deterministic hash of model parameters for exact change detection.
+
+    Useful for verifying that FL synchronization and aggregation actually occurred.
+    More precise than parameter norms - catches any parameter change.
+
+    Args:
+        model: Model to compute parameter hash for
+
+    Returns:
+        Hexadecimal hash string representing current parameter state
+    """
+
+    # Concatenate all parameter tensors
+    param_bytes = b""
+    for p in model.parameters():
+        if p.requires_grad:
+            param_bytes += p.data.cpu().numpy().tobytes()
+
+    # Generate deterministic hash
+    return hashlib.sha256(param_bytes).hexdigest()[:16]  # First 16 chars for brevity

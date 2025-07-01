@@ -188,14 +188,14 @@ class FedPerNew(Algorithm):
         loss = torch.nn.functional.cross_entropy(outputs, targets)
         return loss, inputs.size(0)
 
-    def round_start(self, round_idx: int) -> None:
+    def sync(self, round_idx: int) -> None:
         """
         Synchronize the local model with the global base model at the start of each round.
         The personal head remains local and is not synchronized.
         """
         self.local_model = self.comm.broadcast(self.local_model, src=0)
 
-    def round_end(self, round_idx: int) -> None:
+    def aggregate(self, round_idx: int) -> None:
         """
         FedPer aggregates only non-personal parameters (base model)
         Personal layers (head/classifier) remain local for personalization

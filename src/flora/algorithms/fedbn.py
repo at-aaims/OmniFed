@@ -157,7 +157,7 @@ class FedBNNew(Algorithm):
         loss = torch.nn.functional.cross_entropy(outputs, targets)
         return loss, inputs.size(0)
 
-    def round_start(self, round_idx: int) -> None:
+    def sync(self, round_idx: int) -> None:
         """
         Synchronize the local model with the global model at the start of each round, preserving local batch normalization statistics.
         """
@@ -178,7 +178,7 @@ class FedBNNew(Algorithm):
             if self._is_bn_layer(name) and name in local_bn_params:
                 param.data.copy_(local_bn_params[name])
 
-    def round_end(self, round_idx: int) -> None:
+    def aggregate(self, round_idx: int) -> None:
         """
         Aggregate only non-batch normalization parameters across clients and update the local model.
         """

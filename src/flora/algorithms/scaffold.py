@@ -225,7 +225,7 @@ class ScaffoldNew(Algorithm):
         self.optimizer.step()
         self.optimizer_steps += 1
 
-    def round_start(self, round_idx: int) -> None:
+    def sync(self, round_idx: int) -> None:
         """
         Synchronize the local model with the global model at the start of each round and reset optimizer step count.
         """
@@ -242,7 +242,7 @@ class ScaffoldNew(Algorithm):
             if param.grad is not None and name in self.server_cv:
                 param.grad.add_(self.server_cv[name] - self.client_cv[name])
 
-    def round_end(self, round_idx: int) -> None:
+    def aggregate(self, round_idx: int) -> None:
         """
         Aggregate model deltas and control variate deltas, then update global model and server control variates.
         """

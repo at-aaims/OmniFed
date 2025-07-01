@@ -188,7 +188,7 @@ class FedNovaNew(Algorithm):
         loss = torch.nn.functional.cross_entropy(outputs, targets)
         return loss, inputs.size(0)
 
-    def round_start(self, round_idx: int) -> None:
+    def sync(self, round_idx: int) -> None:
         """
         Synchronize the local model with the global model at the start of each round.
         """
@@ -217,7 +217,7 @@ class FedNovaNew(Algorithm):
         alpha *= lr
         return alpha
 
-    def round_end(self, round_idx: int) -> None:
+    def aggregate(self, round_idx: int) -> None:
         """
         Apply FedNova normalized averaging and update the global model with aggregated updates.
         """

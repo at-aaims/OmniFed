@@ -270,7 +270,7 @@ class Algorithm(ABC):
     # LIFECYCLE HOOKS
     # =============================================================================
 
-    def round_start(self, round_idx: int) -> None:
+    def sync(self, round_idx: int) -> None:
         """
         Called at the start of each federated round before local training.
 
@@ -283,7 +283,7 @@ class Algorithm(ABC):
         """
         pass
 
-    def round_end(self, round_idx: int) -> None:
+    def aggregate(self, round_idx: int) -> None:
         """
         Called at the end of each federated round after local training.
 

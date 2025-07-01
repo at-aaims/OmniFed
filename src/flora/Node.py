@@ -191,36 +191,65 @@ class Node:
         # Reset round state (simple and explicit)
         self.algo.reset_round_state()
 
-        # 1. Synchronization - receive global model
-        self.algo.round_start(round_idx)
-
-        # 2. Initialize round metrics
+        # Model state before any synchronization
         metrics: dict[str, float] = dict(round_idx=round_idx)
-        metrics["model/param_norm_start"] = alg_utils.get_param_norm(
-            self.algo.local_model
+        metrics["pnorm/before_sync"] = alg_utils.get_param_norm(self.algo.local_model)
+        # Round Start Logic: e.g., Synchronization
+        self.algo.sync(round_idx)
+        metrics["pnorm/after_sync"] = alg_utils.get_param_norm(self.algo.local_model)
+        metrics["pnorm/sync_delta"] = (
+            metrics["pnorm/after_sync"] - metrics["pnorm/before_sync"]
         )
+        if metrics["pnorm/sync_delta"] <= 1e-6:
+            print(
+                f"WARN: Model param norm did not significantly change after synchronization in round {round_idx} "
+                f"(Δ={metrics['pnorm/sync_delta']:.6f})"
+            )
 
-        # 3. Local training
+        # 4. Local training
         if self.datamodule is not None and self.datamodule.train is not None:
             print(f"Starting local training on {len(self.datamodule.train)} batches")
+            # Pre-training metrics: Model state before local training
+            metrics["pnorm/before_train_round"] = alg_utils.get_param_norm(
+                self.algo.local_model
+            )
+            # Execute local training round
             self.algo.train_round(
                 self.datamodule.train,
                 round_idx,
                 self.max_epochs,
                 self.device,
             )
+            # Post-training metrics: Model state after local training
+            metrics["pnorm/after_train_round"] = alg_utils.get_param_norm(
+                self.algo.local_model
+            )
+            metrics["pnorm/train_round_delta"] = (
+                metrics["pnorm/after_train_round"] - metrics["pnorm/before_train_round"]
+            )
+            if metrics["pnorm/train_round_delta"] <= 1e-6:
+                print(
+                    f"WARN: Model param norm did not significantly change after local training in round {round_idx} "
+                    f"(Δ={metrics['pnorm/train_delta']:.6f})"
+                )
         else:
             print("WARN: No local training data available, skipping local training")
 
-        # 4. Post-training metrics
-        metrics["model/param_norm_end"] = alg_utils.get_param_norm(
-            self.algo.local_model
+        # Round End Logic: e.g. Aggregation
+        metrics["pnorm/before_agg"] = alg_utils.get_param_norm(self.algo.local_model)
+        self.algo.aggregate(round_idx)
+
+        metrics["pnorm/after_agg"] = alg_utils.get_param_norm(self.algo.local_model)
+        metrics["pnorm/agg_delta"] = (
+            metrics["pnorm/after_agg"] - metrics["pnorm/before_agg"]
         )
+        if metrics["pnorm/agg_delta"] <= 1e-6:
+            print(
+                f"WARN: Model param norm did not significantly change after aggregation in round {round_idx} "
+                f"(Δ={metrics['pnorm/agg_delta']:.6f})"
+            )
 
-        # 5. Aggregation
-        self.algo.round_end(round_idx)
-
-        # 6. Collect all metrics from algorithm execution
+        # Collect all metrics from algorithm execution
         metrics.update(self.algo.metrics.to_dict())
         metrics["time/round"] = time.time() - round_start_time
 

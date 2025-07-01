@@ -290,7 +290,7 @@ class MOONNew(Algorithm):
 
         return total_loss, inputs.size(0)
 
-    def round_start(self, round_idx: int) -> None:
+    def sync(self, round_idx: int) -> None:
         """
         Synchronize the local model with the global model at the start of each round.
         """
@@ -304,7 +304,7 @@ class MOONNew(Algorithm):
         self.global_model.load_state_dict(self.local_model.state_dict())
         self.global_model.eval()
 
-    def round_end(self, round_idx: int) -> None:
+    def aggregate(self, round_idx: int) -> None:
         """
         Aggregate model parameters across clients and update the local model, maintaining a history of previous models for contrastive learning.
         """
