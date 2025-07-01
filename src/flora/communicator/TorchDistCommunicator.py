@@ -13,7 +13,7 @@
 # limitations under the License.
 
 import datetime
-from typing import Union
+from typing import Union, Dict
 
 import torch
 import torch.distributed as dist
@@ -148,6 +148,10 @@ class TorchDistCommunicator(Communicator):
             for _, p in msg.named_parameters():
                 if p.requires_grad:
                     dist.broadcast(p.data, src=src)
+        elif isinstance(msg, dict):
+            # Handle Dict[str, torch.Tensor] for parameter deltas, control variates, etc.
+            for tensor in msg.values():
+                dist.broadcast(tensor, src=src)
         else:
             dist.broadcast(msg, src=src)
         return msg
@@ -172,6 +176,12 @@ class TorchDistCommunicator(Communicator):
                 if not p.requires_grad:
                     continue
                 tensor = p.data if communicate_params else p.grad
+                dist.all_reduce(tensor, op=dist.ReduceOp.SUM)
+                if compute_mean:
+                    tensor.div_(self.world_size)
+        elif isinstance(msg, dict):
+            # Handle Dict[str, torch.Tensor] for parameter deltas, control variates, etc.
+            for name, tensor in msg.items():
                 dist.all_reduce(tensor, op=dist.ReduceOp.SUM)
                 if compute_mean:
                     tensor.div_(self.world_size)

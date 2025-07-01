@@ -13,15 +13,24 @@
 # limitations under the License.
 
 import copy
+from typing import Any
 
 import torch
+from torch import nn
 
 from src.flora.communicator import Communicator
 from src.flora.helper.node_config import NodeConfig
 from src.flora.helper.training_params import FedProxTrainingParameters
 
+from . import utils
+from .BaseAlgorithm import Algorithm
+
 
 class FedProx:
+    """
+    NOTE: Original implementation kept for reference purposes
+    """
+
     def __init__(
         self,
         model: torch.nn.Module,
@@ -91,3 +100,98 @@ class FedProx:
         else:
             while True:
                 self.train_loop()
+
+
+# ======================================================================================
+
+
+class FedProxNew(Algorithm):
+    """
+    FedProx algorithm implementation.
+
+    FedProx extends FedAvg by adding a proximal term to the loss, which helps stabilize training in heterogeneous environments.
+    The proximal term penalizes deviation from the global model during local updates.
+    """
+
+    def __init__(
+        self,
+        local_model: nn.Module,
+        comm: Communicator,
+        lr: float = 0.01,
+        mu: float = 0.01,
+    ):
+        super().__init__(local_model, comm)
+        self.lr = lr
+        self.mu = mu
+
+        # ---
+        self.global_model = copy.deepcopy(local_model)
+
+    def configure_optimizer(self, model: nn.Module) -> torch.optim.Optimizer:
+        """
+        SGD optimizer for local updates.
+        """
+        return torch.optim.SGD(model.parameters(), lr=self.lr)
+
+    def train_step(self, batch: Any, batch_idx: int) -> tuple[torch.Tensor, int]:
+        """
+        Forward pass and compute the FedProx loss for a single batch.
+        """
+        inputs, targets = batch
+        outputs = self.local_model(inputs)
+        # Compute standard cross-entropy loss
+        loss = torch.nn.functional.cross_entropy(outputs, targets)
+        # Add proximal term to penalize deviation from the global model
+        prox_term = 0.0
+        for (name, param), (_, global_param) in zip(
+            self.local_model.named_parameters(), self.global_model.named_parameters()
+        ):
+            if param.requires_grad:
+                prox_term += ((param - global_param).pow(2)).sum()
+        loss += (self.mu / 2) * prox_term
+        return loss, inputs.size(0)
+
+    def round_start(self, round_idx: int) -> None:
+        """
+        Synchronize the local model with the global model at the start of each round.
+        """
+        # Receive the latest global model from the server
+        self.local_model = self.comm.broadcast(
+            self.local_model,
+            src=0,
+        )
+        # Update the reference global model
+        self.global_model.load_state_dict(self.local_model.state_dict())
+
+    def round_end(self, round_idx: int) -> None:
+        """
+        Aggregate model parameters across clients and update the local model.
+        """
+        # Aggregate sample counts from all clients to determine total data processed
+        total_samples = self.comm.aggregate(
+            torch.tensor([self.round_total_samples], dtype=torch.float32),
+            communicate_params=False,
+            compute_mean=False,
+        ).item()
+
+        if total_samples <= 0:
+            print(
+                "WARN: No samples processed in this round... possible client failure or aggregation error?"
+            )
+            return
+
+        # Calculate the proportion of data this client contributed
+        data_proportion = self.round_total_samples / total_samples
+        print(
+            f"FedProx Round {round_idx}: Processed {self.round_total_samples}/{total_samples} samples (weight: {data_proportion:.4f})"
+        )
+
+        # Scale model parameters by the data proportion for weighted aggregation
+        utils.scale_params(self.local_model, data_proportion)
+
+        # Aggregate weighted model parameters from all clients
+        self.local_model = self.comm.aggregate(
+            self.local_model,
+            communicate_params=True,
+            compute_mean=False,
+        )

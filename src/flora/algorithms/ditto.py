@@ -13,12 +13,17 @@
 # limitations under the License.
 
 import copy
+from typing import Any
 
 import torch
+import torch.nn as nn
 
 from src.flora.communicator import Communicator
 from src.flora.helper.node_config import NodeConfig
 from src.flora.helper.training_params import DittoTrainingParameters
+
+from . import utils
+from .BaseAlgorithm import Algorithm
 
 
 class Ditto:
@@ -123,3 +128,110 @@ class Ditto:
         else:
             while True:
                 self.train_loop()
+
+
+# ======================================================================================
+
+
+class DittoNew(Algorithm):
+    """
+    Ditto algorithm implementation for personalized federated learning.
+
+    Ditto maintains both a global model (shared across clients) and a local personal model.
+    The personal model is trained with a proximal regularization term to stay close to the global model.
+    """
+
+    def __init__(
+        self,
+        local_model: nn.Module,
+        comm: Communicator,
+        lr: float = 0.01,
+        global_lr: float = 0.01,
+        ditto_lambda: float = 0.1,
+    ):
+        super().__init__(local_model, comm)
+        self.lr = lr
+        self.global_lr = global_lr
+        self.ditto_lambda = ditto_lambda
+
+        # ---
+        self.global_model = copy.deepcopy(local_model)
+
+        self.global_optimizer = torch.optim.SGD(
+            self.global_model.parameters(), lr=self.global_lr
+        )
+
+    def configure_optimizer(self, model: nn.Module) -> torch.optim.Optimizer:
+        """
+        SGD optimizer for local updates.
+        """
+        return torch.optim.SGD(model.parameters(), lr=self.lr)
+
+    def train_step(self, batch: Any, batch_idx: int) -> tuple[torch.Tensor, int]:
+        """
+        Perform dual training: update both global model and personal model.
+        """
+        inputs, targets = batch
+        batch_size = inputs.size(0)
+
+        # Step 1: Update global model with standard loss
+        global_outputs = self.global_model(inputs)
+        global_loss = nn.functional.cross_entropy(global_outputs, targets)
+
+        self.global_optimizer.zero_grad()
+        global_loss.backward()
+        self.global_optimizer.step()
+
+        # Step 2: Update personal model with proximal regularization
+        personal_outputs = self.local_model(inputs)
+        personal_loss = nn.functional.cross_entropy(personal_outputs, targets)
+
+        # Add proximal regularization term
+        proximal_reg = 0.0
+        for personal_param, global_param in zip(
+            self.local_model.parameters(), self.global_model.parameters()
+        ):
+            proximal_reg += torch.sum((personal_param - global_param.detach()) ** 2)
+
+        total_loss = personal_loss + 0.5 * self.ditto_lambda * proximal_reg
+
+        return total_loss, batch_size
+
+    def round_start(self, round_idx: int) -> None:
+        """
+        Synchronize the global model at the start of each round.
+        """
+        self.global_model = self.comm.broadcast(self.global_model, src=0)
+
+    def round_end(self, round_idx: int) -> None:
+        """
+        Aggregate global models across clients. Personal models remain local.
+        """
+        # Aggregate sample counts
+        total_samples = self.comm.aggregate(
+            torch.tensor([self.round_total_samples], dtype=torch.float32),
+            communicate_params=False,
+            compute_mean=False,
+        ).item()
+
+        if total_samples <= 0:
+            print(
+                "WARN: No samples processed in this round... possible client failure or aggregation error?"
+            )
+            return
+
+        # Calculate data proportion for weighted aggregation
+        data_proportion = self.round_total_samples / total_samples
+        print(
+            f"Ditto Round {round_idx}: Processed {self.round_total_samples}/{total_samples} samples (weight: {data_proportion:.4f})"
+        )
+
+        # Scale global model parameters by data proportion
+        utils.scale_params(self.global_model, data_proportion)
+
+        # Aggregate global models (personal models remain local)
+        self.global_model = self.comm.aggregate(
+            self.global_model,
+            communicate_params=True,
+            compute_mean=False,
+        )

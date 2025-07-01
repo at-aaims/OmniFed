@@ -86,7 +86,7 @@ class CentralizedTopology(Topology):
                     comm_cfg=comm_cfg,
                     model_cfg=model_cfg,
                     algo_cfg=algo_cfg,
-                    data_cfg=data_cfg,  # TODO: Remove data from aggregator nodes
+                    data_cfg=data_cfg,  # TODO: Aggregators may not hold data
                     rank=rank,
                     world_size=self.num_nodes,
                 )

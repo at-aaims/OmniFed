@@ -13,16 +13,25 @@
 # limitations under the License.
 
 import copy
+from typing import Any, Dict, Tuple
 
 import torch
+import torch.nn as nn
 
 from src.flora.communicator import Communicator
 from src.flora.helper.node_config import NodeConfig
 from src.flora.helper.training_params import FedNovaTrainingParameters
 
+from . import utils
+from .BaseAlgorithm import Algorithm
+
 
 class FedNova:
-    """Implementation of Federated Normalized Averaging or FedNova"""
+    """
+    Implementation of Federated Normalized Averaging or FedNova
+
+    NOTE: Original implementation kept for reference purposes
+    """
 
     def __init__(
         self,
@@ -33,11 +42,14 @@ class FedNova:
         train_params: FedNovaTrainingParameters,
     ):
         """
-        :param model: model to train
-        :param data: data to train
-        :param communicator: communicator object
-        :param total_clients: total number of clients / world size
-        :param train_params: training hyperparameters
+        Initialize FedNova algorithm instance.
+
+        Args:
+            model (torch.nn.Module): Model to train.
+            train_data (torch.utils.data.DataLoader): Local training data.
+            communicator (Communicator): Communication interface.
+            total_clients (int): Number of clients in the federation.
+            train_params (FedNovaTrainingParameters): Training hyperparameters.
         """
         self.model = model
         self.train_data = train_data
@@ -131,3 +143,124 @@ class FedNova:
         else:
             while True:
                 self.train_loop()
+
+
+# ======================================================================================
+
+
+class FedNovaNew(Algorithm):
+    """
+    Implementation of Federated Normalized Averaging (FedNova).
+
+    FedNova normalizes local updates to address objective inconsistency in federated learning,
+    accounting for varying numbers of local steps and learning dynamics across clients.
+    """
+
+    def __init__(
+        self,
+        local_model: nn.Module,
+        comm: Communicator,
+        lr: float = 0.01,
+        weight_decay: float = 0.0,
+    ):
+        super().__init__(local_model, comm)
+        self.lr = lr
+        self.weight_decay = weight_decay
+
+        # ---
+        self.global_model = copy.deepcopy(local_model)
+        self.local_steps_this_round: int = 0
+
+    def configure_optimizer(self, model: nn.Module) -> torch.optim.Optimizer:
+        """
+        SGD optimizer with weight decay.
+        """
+        return torch.optim.SGD(
+            model.parameters(), lr=self.lr, weight_decay=self.weight_decay
+        )
+
+    def train_step(self, batch: Any, batch_idx: int) -> Tuple[torch.Tensor, int]:
+        """
+        Perform a forward pass and compute cross-entropy loss for a batch.
+        """
+        inputs, targets = batch
+        outputs = self.local_model(inputs)
+        loss = torch.nn.functional.cross_entropy(outputs, targets)
+        return loss, inputs.size(0)
+
+    def round_start(self, round_idx: int) -> None:
+        """
+        Synchronize the local model with the global model at the start of each round.
+        """
+        # Receive the latest global model from the server
+        self.local_model = self.comm.broadcast(self.local_model, src=0)
+        self.global_model.load_state_dict(self.local_model.state_dict())
+        self.local_steps_this_round = 0
+
+    def optimizer_step(self, batch_idx: int) -> None:
+        """
+        Perform an optimizer step and increment the local step counter for normalization.
+        """
+        self.round_optimizer.step()
+        self.local_steps_this_round += 1
+
+    def _compute_alpha(self, lr: float, local_steps: int) -> float:
+        """
+        Compute the normalization coefficient alpha.
+        """
+        if local_steps <= 0:
+            return lr
+        momentum_term = 1 - lr * self.weight_decay
+        alpha = 0.0
+        for j in range(local_steps):
+            alpha += momentum_term**j
+        alpha *= lr
+        return alpha
+
+    def round_end(self, round_idx: int) -> None:
+        """
+        Apply FedNova normalized averaging and update the global model with aggregated updates.
+        """
+        lr = self.round_optimizer.param_groups[0]["lr"]
+        alpha = self._compute_alpha(lr, self.local_steps_this_round)
+
+        # Compute normalized parameter deltas for each trainable parameter
+        normalized_deltas: Dict[str, torch.Tensor] = {}
+        for name, param in self.local_model.named_parameters():
+            if param.requires_grad:
+                global_param = dict(self.global_model.named_parameters())[name]
+                normalized_deltas[name] = (global_param.data - param.data) / alpha
+
+        # Aggregate sample counts from all clients to determine total data processed
+        total_samples = self.comm.aggregate(
+            torch.tensor([self.round_total_samples], dtype=torch.float32),
+            communicate_params=False,
+            compute_mean=False,
+        ).item()
+
+        if total_samples <= 0:
+            print(
+                "WARN: No samples processed in this round... possible client failure or aggregation error?"
+            )
+            return
+
+        # Calculate the proportion of data this client contributed
+        data_proportion = self.round_total_samples / total_samples
+        print(
+            f"FedNova Round {round_idx}: Processed {self.round_total_samples}/{total_samples} samples (weight: {data_proportion:.4f}), alpha: {alpha:.6f}"
+        )
+
+        # Scale normalized deltas by the data proportion for weighted aggregation
+        for name, delta in normalized_deltas.items():
+            delta.mul_(data_proportion)
+
+        # Aggregate normalized deltas across all clients
+        aggregated_deltas = self.comm.aggregate(
+            msg=normalized_deltas, compute_mean=False
+        )
+
+        # Apply the aggregated normalized updates to the global model parameters
+        utils.apply_model_delta(self.global_model, aggregated_deltas, scale=lr)
+
+        # Update the local model to match the updated global model
+        self.local_model = copy.deepcopy(self.global_model)

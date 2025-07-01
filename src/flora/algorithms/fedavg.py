@@ -12,18 +12,24 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import torch
+from typing import Any, Tuple
 
-from src.flora.communicator import Communicator
+import torch
+from torch import nn
+
 from src.flora.helper.node_config import NodeConfig
 from src.flora.helper.training_params import FedAvgTrainingParameters
+
+from ..communicator.BaseCommunicator import Communicator
+from . import utils
+from .BaseAlgorithm import Algorithm
 
 
 class FederatedAveraging:
     """
     Implementation of Federated Averaging
 
-    TODO: Deprecate this implementation and remove once all algorithms are migrated to the new API.
+    NOTE: Original implementation kept for reference purposes
     """
 
     def __init__(
@@ -99,3 +105,80 @@ class FederatedAveraging:
         else:
             while True:
                 self.train_loop()
+
+
+# ======================================================================================
+
+
+class FedAvgNew(Algorithm):
+    """
+    Federated Averaging (FedAvg) algorithm implementation.
+
+    FedAvg performs standard federated learning by averaging model parameters across clients after local training rounds.
+    Only model parameters are aggregated; all clients synchronize with the global model at the start of each round.
+    """
+
+    def __init__(
+        self,
+        local_model: nn.Module,
+        comm: Communicator,
+        lr: float = 0.01,
+    ):
+        super().__init__(local_model, comm)
+        self.lr = lr
+
+    def configure_optimizer(self, model: nn.Module) -> torch.optim.Optimizer:
+        """
+        SGD optimizer for local updates.
+        """
+        return torch.optim.SGD(model.parameters(), lr=self.lr)
+
+    def train_step(self, batch: Any, batch_idx: int) -> Tuple[torch.Tensor, int]:
+        """
+        Forward pass and compute the cross-entropy loss for a batch.
+        """
+        inputs, targets = batch
+        outputs = self.local_model(inputs)
+        loss = nn.functional.cross_entropy(outputs, targets)
+        batch_size = inputs.size(0)
+        return loss, batch_size
+
+    def round_start(self, round_idx: int) -> None:
+        """
+        Synchronize the local model with the global model at the start of each round.
+        """
+        # Receive the latest global model from the server (rank 0)
+        self.local_model = self.comm.broadcast(self.local_model, src=0)
+
+    def round_end(self, round_idx: int) -> None:
+        """
+        Aggregate model parameters across clients and update the local model with the weighted average.
+        """
+        # Aggregate sample counts to compute the global total
+        total_samples = self.comm.aggregate(
+            torch.tensor([self.round_total_samples], dtype=torch.float32),
+            communicate_params=False,
+            compute_mean=False,
+        ).item()
+
+        if total_samples <= 0:
+            print(
+                "WARN: No samples processed in this round... possible client failure or aggregation error?"
+            )
+            return
+
+        # Calculate this client's data proportion for weighted aggregation
+        data_proportion = self.round_total_samples / total_samples
+        print(
+            f"FedAvg Round {round_idx}: Processed {self.round_total_samples}/{total_samples} samples (weight: {data_proportion:.4f})"
+        )
+
+        # Scale model parameters by data proportion before aggregation
+        utils.scale_params(self.local_model, data_proportion)
+
+        # Aggregate weighted models across all clients
+        self.local_model = self.comm.aggregate(
+            self.local_model,
+            communicate_params=True,
+            compute_mean=False,
+        )

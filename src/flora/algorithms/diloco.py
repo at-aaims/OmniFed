@@ -13,15 +13,24 @@
 # limitations under the License.
 
 import copy
+from typing import Any, Dict, Tuple
 
 import torch
+from torch import nn
 
 from src.flora.communicator import Communicator
-from src.flora.helper.training_params import DiLocoTrainingParameters
 from src.flora.helper.node_config import NodeConfig
+from src.flora.helper.training_params import DiLocoTrainingParameters
+
+from . import utils
+from .BaseAlgorithm import Algorithm
 
 
 class DiLoCo:
+    """
+    NOTE: Original implementation kept for reference purposes
+    """
+
     def __init__(
         self,
         model: torch.nn.Module,
@@ -125,3 +134,116 @@ class DiLoCo:
         else:
             while True:
                 self.train_loop()
+
+
+# ======================================================================================
+
+
+class DiLoCoNew(Algorithm):
+    """
+    Implementation of DiLoCo (Distributed Low-Communication).
+
+    DiLoCo combines local SGD with server-side momentum updates to
+    reduce communication frequency while maintaining convergence properties.
+    """
+
+    def __init__(
+        self,
+        local_model: nn.Module,
+        comm: Communicator,
+        lr: float = 0.01,
+        outer_lr: float = 0.7,
+        outer_momentum: float = 0.9,
+        inner_steps: int = 5,
+    ):
+        super().__init__(local_model, comm)
+        self.lr = lr
+        self.outer_lr = outer_lr
+        self.outer_momentum = outer_momentum
+        self.inner_steps = inner_steps
+
+        # ---
+        self.global_model = copy.deepcopy(local_model)
+
+        self.velocity: Dict[str, torch.Tensor] = {}
+        for name, param in local_model.named_parameters():
+            if param.requires_grad:
+                self.velocity[name] = torch.zeros_like(param.data)
+
+    def configure_optimizer(self, model: nn.Module) -> torch.optim.Optimizer:
+        """
+        Configure SGD optimizer for DiLoCo local updates.
+        """
+        return torch.optim.SGD(model.parameters(), lr=self.lr)
+
+    def train_step(self, batch: Any, batch_idx: int) -> Tuple[torch.Tensor, int]:
+        """
+        Forward pass and compute cross-entropy loss for a batch.
+        """
+        inputs, targets = batch
+        outputs = self.local_model(inputs)
+        loss = torch.nn.functional.cross_entropy(outputs, targets)
+        return loss, inputs.size(0)
+
+    def round_start(self, round_idx: int) -> None:
+        """
+        Synchronize the local model with the global model at the start of each round.
+        """
+        # Receive the latest global model from the server
+        self.local_model = self.comm.broadcast(self.local_model, src=0)
+        self.global_model.load_state_dict(self.local_model.state_dict())
+
+    def round_end(self, round_idx: int) -> None:
+        """
+        Apply DiLoCo outer step with momentum aggregation.
+
+        Steps:
+        1. Aggregate local model updates (delta from global model)
+        2. Apply server-side momentum update to global model
+        3. Broadcast updated global model to all clients
+        """
+        # Compute local model update (delta from global model)
+        local_deltas: Dict[str, torch.Tensor] = {}
+        for name, param in self.local_model.named_parameters():
+            if param.requires_grad and name in self.velocity:
+                global_param = dict(self.global_model.named_parameters())[name]
+                local_deltas[name] = param.data - global_param.data
+
+        # Aggregate sample counts to compute global total
+        total_samples = self.comm.aggregate(
+            torch.tensor([self.round_total_samples], dtype=torch.float32),
+            communicate_params=False,
+            compute_mean=False,
+        ).item()
+
+        if total_samples <= 0:
+            print(
+                "WARN: No samples processed in this round... possible client failure or aggregation error?"
+            )
+            return
+
+        # Calculate data proportion for weighted aggregation of deltas
+        data_proportion = self.round_total_samples / total_samples
+        print(
+            f"DiLoCo Round {round_idx}: Processed {self.round_total_samples}/{total_samples} samples (weight: {data_proportion:.4f})"
+        )
+
+        # Aggregate local deltas across all clients
+        aggregated_deltas = self.comm.aggregate(msg=local_deltas, compute_mean=True)
+
+        # Apply DiLoCo outer step with momentum using aggregated deltas
+        for name, param in self.global_model.named_parameters():
+            if (
+                param.requires_grad
+                and name in self.velocity
+                and name in aggregated_deltas
+            ):
+                # Update velocity with momentum (v = momentum * v + lr_outer * delta)
+                self.velocity[name].mul_(self.outer_momentum).add_(
+                    aggregated_deltas[name], alpha=self.outer_lr
+                )
+                # Update global model parameters (param += v)
+                param.data.add_(self.velocity[name])
+
+        # Update local model to match global model
+        self.local_model = copy.deepcopy(self.global_model)

@@ -1,15 +1,14 @@
 defaults:
-    - _self_
-    - model: simple_cnn
-    - data: mnist
-    - topology: centralized
-
+  - _self_
+  - model: simple_cnn
+  - data: mnist
+  - topology: centralized
 
 model: # overrides the default simple_cnn model
   backbone:
-    in_channels: 1       # e.g. MNIST has 1 channel
+    in_channels: 1 # e.g. MNIST has 1 channel
   head:
-    num_classes: 10      # 10 digits
+    num_classes: 10 # 10 digits
 
 data: # overrides the default mnist datamodule
   train:
@@ -25,8 +24,7 @@ comm:
   timeout: 20
 
 algo:
-  _target_: src.flora.algorithms.FedAvg
-  local_epochs: 2
+  _target_: src.flora.algorithms.FedAvgNew
   lr: 0.01
 
 topology: # overrides the default centralized topology

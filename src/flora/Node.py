@@ -12,8 +12,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import time
 from enum import Enum
-from typing import Any, Dict, Optional, Set
+from typing import Any, Optional, Set
 
 import ray
 import torch
@@ -21,6 +22,7 @@ from hydra.utils import instantiate
 from omegaconf import DictConfig
 from torch import nn
 
+from .algorithms import utils as alg_utils
 from .algorithms.BaseAlgorithm import Algorithm
 from .communicator.BaseCommunicator import Communicator
 from .dataset.DataModule import DataModule
@@ -67,7 +69,8 @@ class Node:
         comm_cfg: DictConfig,
         algo_cfg: DictConfig,
         model_cfg: DictConfig,
-        data_cfg: DictConfig,
+        data_cfg: Optional[DictConfig] = None,
+        max_epochs: int = 1,  # TODO: think if this is the best place for this (take into consideration the Hydra config and user experience)
         rank: Optional[int] = None,
         world_size: Optional[int] = None,
         device: str = "auto",
@@ -76,125 +79,152 @@ class Node:
         print(f"{self.__class__.__name__} {id} init...")
         self.id: str = id
         self.roles: Set[NodeRole] = roles
+        self.max_epochs: int = max_epochs
 
-        # ---
+        # Distributed computing context
         self.rank: Optional[int] = rank
         self.world_size: Optional[int] = world_size
-
         self.device: torch.device = self.select_device(device, rank=rank)
 
-        # ---
-        # Instantiate Components
+        # Communication backend instantiation
         self.comm: Communicator = instantiate(
             comm_cfg,
             rank=rank,
             world_size=world_size,
         )
 
-        self.model: nn.Module = instantiate(model_cfg)
-        self.data: DataModule = instantiate(data_cfg)
+        # PyTorch model
+        self.local_model: nn.Module = instantiate(model_cfg)
 
+        # Data module (optional - certain roles may not hold local data)
+        self.datamodule: Optional[DataModule] = None
+        if data_cfg is not None:
+            self.datamodule = instantiate(data_cfg)
+
+        # Federated learning algorithm (handles computation logic)
         self.algo: Algorithm = instantiate(
-            algo_cfg,
-            comm=self.comm,
-            model=self.model,
+            algo_cfg, local_model=self.local_model, comm=self.comm
         )
 
     def __repr__(self) -> str:
+        """
+        String representation showing node ID and capabilities.
+
+        Returns:
+            Formatted string with node ID and role list
+        """
         role_names = [role.value for role in self.roles]
-        return f"{self.id}: {role_names}"
+        return f"Node {self.id}: {role_names}"
 
     @staticmethod
     def select_device(device_hint: str, rank: Optional[int] = None) -> torch.device:
         """
-        Setup device with local GPU detection and round-robin assignment.
+        Select and configure compute device for this node.
+
+        Supports automatic GPU detection with round-robin assignment based on rank.
+        Falls back to CPU if no GPUs are available.
 
         # TODO: Round-robin GPU assignment assumes all nodes are on the same machine, which may not be true for multi-node setups.
         # TODO: If some nodes lack GPUs, we may need smarter logic for heterogeneous environments.
         # TODO: Potentially move into a NodeResources mixin in the future.
 
         Args:
-            device_hint: Device hint ("auto", "cpu", "cuda", "cuda:0", etc.)
+            device_hint: Device specification ("auto", "cpu", "cuda", "cuda:0", etc.)
+            rank: Process rank for round-robin GPU assignment (optional)
 
         Returns:
-            Configured torch device
+            Configured PyTorch device for computation
         """
 
         if device_hint == "auto":
             local_gpu_count = torch.cuda.device_count()
             if local_gpu_count > 0:
-                # Use provided rank if available; otherwise, default to 0 and warn.
+                # Use provided rank for round-robin GPU assignment
                 if rank is None:
                     print(
-                        "WARN: No rank provided; defaulting to 0 for device assignment."
+                        "WARN: No rank provided for device assignment, defaulting to GPU 0"
                     )
                     rank = 0
 
-                assigned_gpu = rank % local_gpu_count
-                device_str = f"cuda:{assigned_gpu}"
-                print(f"Auto-detected {local_gpu_count} local GPUs, using {device_str}")
+                assigned_gpu_id = rank % local_gpu_count
+                device_str = f"cuda:{assigned_gpu_id}"
+                print(
+                    f"Device auto-selection: {local_gpu_count} GPUs detected, assigned {device_str} (rank {rank})"
+                )
                 return torch.device(device_str)
 
-            print("No local GPUs detected, using CPU")
+            print("Device auto-selection: No GPUs detected, using CPU")
             return torch.device("cpu")
 
-        print(f"Using explicit device {device_hint}")
+        print(f"Device explicit: Using {device_hint}")
         return torch.device(device_hint)
 
-    def setup(self, **kwargs: Any) -> None:
-        """Instantiate all dependencies with full runtime context."""
-        print(f"setup: {kwargs}", flush=True)
+    def setup(self) -> None:
+        """
+        Initialize node dependencies and prepare for federated learning execution.
+
+        Sets up communication backend and prepares all components for distributed training.
+        Called once before federated learning begins.
+        """
+        print("Setup: initializing communication backend", flush=True)
         self.comm.setup()
 
         # TODO: there's probably a better place for this
-        self.model.to(self.device)
+        # self.model.to(self.device) # TODO: too many initialization function, confusing with round_init. is this necessary even?
         # summary(self.model, verbose=1)
 
-    def execute_round(self, round_num: int) -> Dict[str, Any]:
+    def execute_round(self, round_idx: int) -> dict[str, float]:
         """
-        Train the model for one round using the configured algorithm.
+        Execute federated learning round with algorithm-controlled communication.
+        Node provides communication infrastructure, Algorithm controls federated lifecycle.
 
         Args:
-            round_num: Current training round number
+            round_idx: Current training round number
 
         Returns:
             Dictionary with training metrics and results
         """
-        print(f"execute_round: round_num={round_num}")
-        results: Dict[str, Any] = dict()
+        print(f"Round {round_idx} START", flush=True)
+        round_start_time = time.time()
 
-        results.update(
-            self.algo.on_round_start(
-                round_num,
-                results,
-            )
-            or {}
+        # 1: Algorithm round initialization
+        self.algo.round_init()
+        metrics: dict[str, float] = dict(round_idx=round_idx)
+        metrics["model/param_norm_start"] = alg_utils.get_param_norm(
+            self.algo.local_model
         )
 
-        # Basic Role-based delegation
-        # TODO: Implement more complex role-based delegation logic that can generalize to any topology, algorithm, and configuration.
-        # if NodeRole.TRAINER in self.roles:
-        #     # Trainer nodes perform local training
-        #     if self.data is None:
-        #         raise ValueError(
-        #             f"Expected Node {self.id} to have data for training, but no data module was provided."
-        #         )
+        # ---
+        self.algo.round_start(round_idx)
 
-        results.update(
+        # ---
+        if self.datamodule is not None and self.datamodule.train is not None:
+            print(f"Starting local training on {len(self.datamodule.train)} batches")
+
+            # Execute local training rounds
             self.algo.train_round(
-                round_num=round_num,
-                dataloader=self.data.train,
-                metrics=results,
+                self.datamodule.train,
+                round_idx,
+                self.max_epochs,
+                self.device,
             )
-            or {}
+            print(
+                f"Completed local training ({self.algo.round_total_samples} samples processed)"
+            )
+        else:
+            print("WARN: No local training data available, skipping local training")
+
+        # ---
+        metrics["model/param_norm_end"] = alg_utils.get_param_norm(
+            self.algo.local_model
         )
 
-        results.update(
-            self.algo.on_round_end(
-                round_num,
-                results,
-            )
-            or {}
-        )
+        # ---
+        self.algo.round_end(round_idx)
 
-        return results
+        # Collect all metrics from algorithm execution
+        metrics.update(self.algo.round_metrics.compute_all())
+        metrics["time/round"] = time.time() - round_start_time
+
+        print(f"Round {round_idx} END | {metrics}", flush=True)
+        return metrics

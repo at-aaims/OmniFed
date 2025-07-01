@@ -13,4 +13,4 @@
 # limitations under the License.
 
 from .BaseAlgorithm import Algorithm
-from .FedAvg import FedAvg
+from .fedavg import FedAvgNew

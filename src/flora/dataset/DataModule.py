@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import Optional
+from typing import Any, Optional
 from torch.utils.data import DataLoader
 
 
@@ -27,9 +27,9 @@ class DataModule:
 
     def __init__(
         self,
-        train: DataLoader,
-        val: Optional[DataLoader] = None,
-        test: Optional[DataLoader] = None,
+        train: Optional[DataLoader[Any]] = None,
+        val: Optional[DataLoader[Any]] = None,
+        test: Optional[DataLoader[Any]] = None,
     ):
         """
         Initializes the DataModule with train, validation, and test DataLoaders.
@@ -40,11 +40,13 @@ class DataModule:
         """
         print(f"{self.__class__.__name__} init...")
 
-        self.train: DataLoader = train
-        self.val: Optional[DataLoader] = val
-        self.test: Optional[DataLoader] = test
+        self.train: Optional[DataLoader[Any]] = train
+        self.val: Optional[DataLoader[Any]] = val
+        self.test: Optional[DataLoader[Any]] = test
 
+        if self.train is None:
+            print("NOTE: Training DataLoader is not provided.")
         if self.val is None:
-            print("Warning: Validation DataLoader is not provided.")
+            print("NOTE: Validation DataLoader is not provided.")
         if self.test is None:
-            print("Warning: Test DataLoader is not provided.")
+            print("NOTE: Test DataLoader is not provided.")
