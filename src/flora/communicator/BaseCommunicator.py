@@ -13,7 +13,7 @@
 # limitations under the License.
 
 from abc import ABC, abstractmethod
-from typing import Union, TypeVar
+from typing import Union, TypeVar, Dict
 
 import rich.repr
 import torch
@@ -33,7 +33,7 @@ class Communicator(ABC):
     - Abstractions should be topology-agnostic
     """
 
-    MsgT = TypeVar("MsgT", nn.Module, torch.Tensor)
+    MsgT = TypeVar("MsgT", nn.Module, torch.Tensor, Dict[str, torch.Tensor])
 
     @abstractmethod
     def setup(self):

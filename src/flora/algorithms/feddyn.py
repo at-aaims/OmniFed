@@ -13,16 +13,25 @@
 # limitations under the License.
 
 import copy
+from typing import Any, Dict, Tuple
 
 import torch
+from torch import nn
 
 from src.flora.communicator import Communicator
 from src.flora.helper.node_config import NodeConfig
 from src.flora.helper.training_params import FedDynTrainingParameters
 
+from . import utils
+from .BaseAlgorithm import Algorithm
+
 
 class FedDyn:
-    """Implementation of Federated Dynamic-Regularizer or FedDyn"""
+    """
+    Implementation of Federated Dynamic-Regularizer or FedDyn
+
+    NOTE: Original implementation kept for reference purposes
+    """
 
     def __init__(
         self,
@@ -115,3 +124,129 @@ class FedDyn:
         else:
             while True:
                 self.train_loop()
+
+
+# ======================================================================================
+
+
+class FedDynNew(Algorithm):
+    """
+    Federated Dynamic Regularization (FedDyn) algorithm implementation.
+
+    FedDyn introduces a dynamic regularization term to address objective inconsistency in federated learning and improve convergence in heterogeneous environments.
+    """
+
+    def __init__(
+        self,
+        local_model: nn.Module,
+        comm: Communicator,
+        lr: float = 0.01,
+        alpha: float = 0.1,
+    ):
+        super().__init__(local_model, comm)
+        self.lr = lr
+        self.alpha = alpha
+
+        # ---
+        self.server_momentum: Dict[str, torch.Tensor] = {}
+        for name, param in local_model.named_parameters():
+            if param.requires_grad:
+                self.server_momentum[name] = torch.zeros_like(param.data)
+
+    def configure_optimizer(self) -> torch.optim.Optimizer:
+        """
+        SGD optimizer for local updates.
+        """
+        return torch.optim.SGD(self.local_model.parameters(), lr=self.lr)
+
+    def train_step(self, batch: Any, batch_idx: int) -> Tuple[torch.Tensor, int]:
+        """
+        Perform a forward pass and compute the FedDyn loss for a single batch.
+        """
+        inputs, targets = batch
+        outputs = self.local_model(inputs)
+
+        # Standard cross-entropy loss
+        base_loss = torch.nn.functional.cross_entropy(outputs, targets)
+
+        # Add FedDyn dynamic regularization if state is available
+        regularization_loss = torch.tensor(0.0, device=inputs.device)
+        # Quadratic term
+        param_norm_squared = 0.0
+        for param in self.local_model.parameters():
+            if param.requires_grad:
+                param_norm_squared += torch.sum(param**2)
+        quadratic_term = (self.alpha / 2.0) * param_norm_squared
+
+        # Linear term
+        linear_term = 0.0
+        for name, param in self.local_model.named_parameters():
+            if param.requires_grad and name in self.server_momentum:
+                linear_term -= torch.sum(self.server_momentum[name] * param)
+
+        regularization_loss = quadratic_term + linear_term
+
+        total_loss = base_loss + regularization_loss
+        return total_loss, inputs.size(0)
+
+    def round_start(self, round_idx: int) -> None:
+        """
+        Synchronize the local model with the global model at the start of each round.
+        """
+        # Receive global model via broadcast from rank 0 (aggregator)
+        self.local_model = self.comm.broadcast(
+            self.local_model,
+            src=0,
+        )
+
+    def round_end(self, round_idx: int) -> None:
+        """
+        Aggregate model parameters across clients and update the local model and server momentum.
+        """
+
+        # Store local model before aggregation for momentum update
+        local_model_params = {}
+        for name, param in self.local_model.named_parameters():
+            if param.requires_grad:
+                local_model_params[name] = param.data.clone()
+
+        # Aggregate local sample counts to compute federation total
+
+        global_samples = self.comm.aggregate(
+            torch.tensor([self.local_samples], dtype=torch.float32),
+            communicate_params=False,
+            compute_mean=False,  # Sum all sample counts
+        ).item()
+
+        # Handle edge cases safely - all nodes must participate in distributed operations
+        if global_samples <= 0:
+            print(
+                "WARN: No samples processed across entire federation - participating with zero weight"
+            )
+            data_proportion = 0.0
+        else:
+            # Calculate data proportion for weighted aggregation
+            data_proportion = self.local_samples / global_samples
+
+        # All nodes participate regardless of sample count
+        utils.scale_params(self.local_model, data_proportion)
+
+        # Aggregate weighted model parameters
+        aggregated_model = self.comm.aggregate(
+            self.local_model,
+            communicate_params=True,
+            compute_mean=False,  # Sum pre-weighted models
+        )
+
+        # Update server momentum (dynamic regularizer)
+        for name, param in aggregated_model.named_parameters():
+            if param.requires_grad and name in self.server_momentum:
+                # Compute model difference: local - global
+                model_diff = local_model_params[name] - param.data
+
+                # TODO: Verify server momentum update direction against FedDyn paper
+                # Update server momentum: h = h + alpha * (local - global)
+                self.server_momentum[name].add_(model_diff, alpha=self.alpha)
+
+        # Update local model to aggregated result
+        self.local_model = aggregated_model

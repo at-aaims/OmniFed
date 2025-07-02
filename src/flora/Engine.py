@@ -50,8 +50,8 @@ class Engine:
         ray.init(
             ignore_reinit_error=True,
             log_to_driver=True,  # NOTE: when false, Task and Actor logs are not copied to the driver stdout.
-            logging_level=logging.INFO,  # TODO: Tie this to Hydra's logging level
-            namespace="federated_learning",
+            # logging_level=logging.INFO,  # TODO: Tie this to Hydra's logging level
+            # namespace="federated_learning",
         )
         # ---
         self.cfg: DictConfig = cfg
@@ -80,15 +80,12 @@ class Engine:
 
             summaries = []
             for round_idx in range(self.global_rounds):
-                round_num = round_idx + 1
-                utils.log_sep(f"Round {round_num}/{self.global_rounds}")
+                utils.log_sep(f"Round {round_idx + 1}/{self.global_rounds}")
                 _t_start_round = time.time()
 
                 results_futures = []
                 for node in self.topology:
-                    future = node.execute_round.remote(
-                        round_num,
-                    )
+                    future = node.execute_round.remote(round_idx)
                     results_futures.append(future)
 
                 results = ray.get(results_futures)
@@ -104,16 +101,14 @@ class Engine:
                 # ---
                 summaries.append(
                     {
-                        "round_num": round_num,
+                        "round_idx": round_idx,
                         "duration": _t_round,
                         "total_count": _ct_total,
                         "success_count": _ct_success,
                         "success_rate": _success_rate,
                     }
                 )
-
-                # Round summary
-                print(f"Round Complete | {summaries[-1]}")
+                print(f"Round Complete | {summaries[-1]}", flush=True)
 
             utils.log_sep("FL Rounds End", color="blue")
 

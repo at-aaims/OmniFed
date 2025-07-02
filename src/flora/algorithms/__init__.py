@@ -13,4 +13,14 @@
 # limitations under the License.
 
 from .BaseAlgorithm import Algorithm
-from .FedAvg import FedAvg
+from .diloco import DiLoCoNew
+from .ditto import DittoNew
+from .fedavg import FedAvgNew
+from .fedbn import FedBNNew
+from .feddyn import FedDynNew
+from .fedmom import FedMomNew
+from .fednova import FedNovaNew
+from .fedper import FedPerNew
+from .fedprox import FedProxNew
+from .moon import MOONNew
+from .scaffold import ScaffoldNew

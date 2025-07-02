@@ -13,16 +13,25 @@
 # limitations under the License.
 
 import copy
+from typing import Any, Dict, Tuple
 
 import torch
+import torch.nn as nn
 
 from src.flora.communicator import Communicator
 from src.flora.helper.node_config import NodeConfig
 from src.flora.helper.training_params import FedMomTrainingParameters
 
+from . import utils
+from .BaseAlgorithm import Algorithm
+
 
 class FederatedMomentum:
-    """Implementation of Federated Momentum or FedMom"""
+    """
+    Implementation of Federated Momentum or FedMom
+
+    NOTE: Original implementation kept for reference purposes
+    """
 
     def __init__(
         self,
@@ -122,3 +131,104 @@ class FederatedMomentum:
         else:
             while True:
                 self.train_loop()
+
+
+# ======================================================================================
+
+
+class FedMomNew(Algorithm):
+    """
+    Federated Momentum (FedMom) algorithm implementation.
+
+    FedMom applies momentum to the aggregation of model updates, improving convergence and stability in federated learning.
+    """
+
+    def __init__(
+        self,
+        local_model: nn.Module,
+        comm: Communicator,
+        lr: float = 0.01,
+        momentum: float = 0.9,
+    ):
+        super().__init__(local_model, comm)
+        self.lr = lr
+        self.momentum = momentum
+
+        # ---
+        self.global_model = copy.deepcopy(local_model)
+
+        # Initialize velocity (server-side momentum) to zero
+        self.velocity: Dict[str, torch.Tensor] = {}
+        for name, param in local_model.named_parameters():
+            if param.requires_grad:
+                self.velocity[name] = torch.zeros_like(param.data)
+
+    def configure_optimizer(self) -> torch.optim.Optimizer:
+        """
+        Configure the SGD optimizer for local model updates.
+        """
+        return torch.optim.SGD(self.local_model.parameters(), lr=self.lr)
+
+    def train_step(self, batch: Any, batch_idx: int) -> Tuple[torch.Tensor, int]:
+        """
+        Perform a forward pass and compute the loss for a single batch.
+        """
+        inputs, targets = batch
+        outputs = self.local_model(inputs)
+        loss = torch.nn.functional.cross_entropy(outputs, targets)
+        return loss, inputs.size(0)
+
+    def round_start(self, round_idx: int) -> None:
+        """
+        Synchronize the local model with the global model at the start of each round.
+        """
+        # Receive global model via broadcast from rank 0 (server)
+        self.local_model = self.comm.broadcast(self.local_model, src=0)
+        # Update global model reference
+        self.global_model.load_state_dict(self.local_model.state_dict())
+
+    def round_end(self, round_idx: int) -> None:
+        """
+        Aggregate model parameters across clients using momentum and update the local model.
+        """
+        # Compute local parameter delta from global model
+        local_deltas: Dict[str, torch.Tensor] = {}
+        for name, param in self.local_model.named_parameters():
+            if param.requires_grad:
+                global_param = dict(self.global_model.named_parameters())[name]
+                # Delta = global - local (original uses global - local for momentum direction)
+                local_deltas[name] = global_param.data - param.data
+
+        # Aggregate local sample counts to compute federation total
+
+        global_samples = self.comm.aggregate(
+            torch.tensor([self.local_samples], dtype=torch.float32),
+            communicate_params=False,
+            compute_mean=False,
+        ).item()
+
+        # Handle edge cases safely - all nodes must participate in distributed operations
+        if global_samples <= 0:
+            print(
+                "WARN: No samples processed across entire federation - participating with zero weight"
+            )
+            data_proportion = 0.0
+        else:
+            # Calculate data proportion for weighted aggregation of deltas
+            data_proportion = self.local_samples / global_samples
+
+        # Scale local deltas by data proportion
+        for name in local_deltas:
+            local_deltas[name].mul_(data_proportion)
+
+        # Apply server-side momentum to aggregated deltas
+        for name, param in self.global_model.named_parameters():
+            if param.requires_grad and name in self.velocity:
+                # Update velocity with momentum using in-place operations
+                self.velocity[name].mul_(self.momentum).add_(local_deltas[name])
+
+                # Update global model parameters using alpha argument
+                param.data.sub_(self.velocity[name], alpha=self.lr)
+
+        # Update local model to match updated global model
+        self.local_model = copy.deepcopy(self.global_model)
