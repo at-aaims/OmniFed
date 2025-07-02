@@ -16,7 +16,7 @@ import torch
 import torchvision
 import torchvision.transforms as transforms
 
-from src.flora.datasets.image_classification import SplitData, UnsplitData, set_seed
+from ..utils import SplitData, UnsplitData, set_seed
 
 # TODO: adjust num_workers in torch.utils.data.DataLoader based on total threads available on a client
 
