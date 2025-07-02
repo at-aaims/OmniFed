@@ -213,12 +213,13 @@ class Node:
             metrics["pnorm/before_train_round"] = alg_utils.get_param_norm(
                 self.algo.local_model
             )
+            # Centralized device management: ensure model is on compute device
+            self.algo.local_model.to(self.device)
             # Execute local training round
             self.algo.train_round(
                 self.datamodule.train,
                 round_idx,
                 self.max_epochs,
-                self.device,
             )
             # Post-training metrics: Model state after local training
             metrics["pnorm/after_train_round"] = alg_utils.get_param_norm(

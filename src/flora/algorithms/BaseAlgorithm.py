@@ -103,7 +103,6 @@ class Algorithm(ABC):
         dataloader: DataLoader[Any],
         round_idx: int,
         max_epochs: int,
-        device: torch.device,
     ):
         """
         Execute federated round computation across multiple epochs.
@@ -116,10 +115,7 @@ class Algorithm(ABC):
         - Learning rate schedules: step schedulers between epochs
         - Cross-epoch state: maintain state across epochs (e.g., momentum buffers)
         """
-        device_prev = next(self.local_model.parameters()).device
-
         self.local_model.train()
-        self.local_model.to(device)
 
         for epoch_idx in range(max_epochs):
             # Epoch timing
@@ -143,8 +139,6 @@ class Algorithm(ABC):
                 },
                 flush=True,
             )
-
-        self.local_model.to(device_prev)
 
     def train_epoch(self, dataloader: DataLoader[Any], epoch_idx: int) -> None:
         """
