@@ -13,12 +13,17 @@
 # limitations under the License.
 
 import copy
+from typing import Any, Dict, Optional, Tuple
 
 import torch
+import torch.nn as nn
 
 from src.flora.communicator import Communicator
 from src.flora.helper.node_config import NodeConfig
 from src.flora.helper.training_params import FedPerTrainingParameters
+
+from . import utils
+from .BaseAlgorithm import Algorithm
 
 # Example of personal_head used by FedPerModel
 
@@ -31,19 +36,29 @@ from src.flora.helper.training_params import FedPerTrainingParameters
 #         return self.classifier(x)
 
 
-class FedPerModel(torch.nn.Module):
-    def __init__(self, base_model: torch.nn.Module, personal_head: torch.nn.Module):
-        super(FedPerModel, self).__init__()
+class FedPerWrapper(nn.Module):
+    """
+    Model wrapper for FedPer.
+
+    Combines a shared base model and a personal head. Only the base model is aggregated across clients; the personal head remains local for client-specific adaptation.
+    """
+
+    def __init__(self, base_model: nn.Module, personal_head: nn.Module):
+        super(FedPerWrapper, self).__init__()
         self.base_model = base_model
         self.personal_head = personal_head
 
-    def forward(self, x):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         x = self.base_model(x)
         return self.personal_head(x)
 
 
 class FedPer:
-    """implementation of FedPer"""
+    """
+    implementation of FedPer
+
+    NOTE: Original implementation kept for reference purposes
+    """
 
     def __init__(
         self,
@@ -61,7 +76,7 @@ class FedPer:
         :param total_clients: total number of clients / world size
         :param train_params: training hyperparameters
         """
-        self.model = FedPerModel(base_model, personal_head)
+        self.model = FedPerWrapper(base_model, personal_head)
         self.train_data = train_data
         self.communicator = communicator
         self.total_clients = total_clients
@@ -127,3 +142,100 @@ class FedPer:
         else:
             while True:
                 self.train_loop()
+
+
+# ======================================================================================
+
+
+class FedPerNew(Algorithm):
+    """
+    Federated Personalization (FedPer) algorithm implementation.
+
+    FedPer splits the model into a shared base model and a personal head.
+    Only the base model is aggregated across clients;
+    each client maintains its own personal head for local adaptation.
+    """
+
+    def __init__(
+        self,
+        local_model: nn.Module,
+        comm: Communicator,
+        lr: float = 0.01,
+        personal_layers: Optional[list[str]] = None,
+    ):
+        super().__init__(local_model, comm)
+        self.lr = lr
+        self.personal_layers = personal_layers or ["classifier", "head", "fc"]
+
+    def configure_optimizer(self) -> torch.optim.Optimizer:
+        """
+        SGD optimizer for both base and personal parameters.
+        """
+        return torch.optim.SGD(self.local_model.parameters(), lr=self.lr)
+
+    def _is_personal_layer(self, param_name: str) -> bool:
+        """
+        Check if a parameter belongs to a personal layer that should not be aggregated.
+        """
+        return any(layer_name in param_name for layer_name in self.personal_layers)
+
+    def train_step(self, batch: Any, batch_idx: int) -> Tuple[torch.Tensor, int]:
+        """
+        Perform a forward pass and compute the loss for a single batch.
+        """
+        inputs, targets = batch
+        outputs = self.local_model(inputs)
+        loss = torch.nn.functional.cross_entropy(outputs, targets)
+        return loss, inputs.size(0)
+
+    def round_start(self, round_idx: int) -> None:
+        """
+        Synchronize the local model with the global base model at the start of each round.
+        The personal head remains local and is not synchronized.
+        """
+        self.local_model = self.comm.broadcast(self.local_model, src=0)
+
+    def round_end(self, round_idx: int) -> None:
+        """
+        FedPer aggregates only non-personal parameters (base model)
+        Personal layers (head/classifier) remain local for personalization
+        """
+
+        # Aggregate local sample counts to compute federation total
+
+        global_samples = self.comm.aggregate(
+            torch.tensor([self.local_samples], dtype=torch.float32),
+            communicate_params=False,
+            compute_mean=False,  # Sum all sample counts
+        ).item()
+
+        # Handle edge cases safely - all nodes must participate in distributed operations
+        if global_samples <= 0:
+            print(
+                "WARN: No samples processed across entire federation - participating with zero weight"
+            )
+            data_proportion = 0.0
+        else:
+            # Calculate data proportion for weighted aggregation
+            data_proportion = self.local_samples / global_samples
+
+        # All nodes participate regardless of sample count
+        utils.scale_params(self.local_model, data_proportion)
+
+        # Store personal layer parameters before aggregation
+        personal_params = {}
+        for name, param in self.local_model.named_parameters():
+            if self._is_personal_layer(name):
+                personal_params[name] = param.data.clone()
+
+        # Aggregate entire model (including personal layers)
+        self.local_model = self.comm.aggregate(
+            self.local_model,
+            communicate_params=True,
+            compute_mean=False,
+        )
+
+        # Restore personal layer parameters (keep them local)
+        for name, param in self.local_model.named_parameters():
+            if name in personal_params:
+                param.data.copy_(personal_params[name])

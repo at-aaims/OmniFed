@@ -17,7 +17,8 @@ import hydra
 from omegaconf import DictConfig, OmegaConf
 
 from src.flora import utils
-from src.flora.Engine import Engine
+from src.flora import Engine
+
 
 from rich.pretty import pprint
 
@@ -28,12 +29,12 @@ from rich.pretty import pprint
 def main(cfg: DictConfig) -> None:
     import logging
 
-    utils.setup_rich_logging()
+    # utils.setup_rich_logging()
     # NOTE: migrate to logging soon (this is currently unused)
     logger = logging.getLogger(__name__)
 
     utils.log_sep("FLORA Federated Learning Framework", color="blue")
-
+    print("Configuration:")
     pprint(
         OmegaConf.to_container(
             cfg,

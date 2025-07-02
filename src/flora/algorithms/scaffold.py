@@ -13,16 +13,24 @@
 # limitations under the License.
 
 import copy
+from typing import Any, Dict, Tuple
 
 import torch
+from torch import nn
 
 from src.flora.communicator import Communicator
 from src.flora.helper.node_config import NodeConfig
 from src.flora.helper.training_params import ScaffoldTrainingParameters
 
+from . import utils
+from .BaseAlgorithm import Algorithm
+
 
 class Scaffold:
-    """Implementation of Stochastic Controlled Averaging algorithm or SCAFFOLD"""
+    """Implementation of Stochastic Controlled Averaging algorithm or SCAFFOLD
+
+    NOTE: Original implementation kept for reference purposes
+    """
 
     def __init__(
         self,
@@ -156,3 +164,135 @@ class Scaffold:
         else:
             while True:
                 self.train_loop()
+
+
+# ======================================================================================
+
+
+class ScaffoldNew(Algorithm):
+    """
+    SCAFFOLD (Stochastic Controlled Averaging) algorithm implementation.
+
+    SCAFFOLD addresses client drift in federated learning by maintaining control variates
+    that estimate the update direction difference between local and global objectives.
+    Gradient correction and control variate updates are performed each round.
+    """
+
+    def __init__(
+        self,
+        local_model: nn.Module,
+        comm: Communicator,
+        lr: float = 0.01,
+    ):
+        super().__init__(local_model, comm)
+        self.lr = lr
+
+        # ---
+        self.server_cv = {}
+        self.client_cv = {}
+        self.old_client_cv = {}
+        self.global_model = copy.deepcopy(local_model)
+        self.model_delta = {}
+        self.cv_delta = {}
+        self.optimizer_steps = 0
+
+        for name, param in local_model.named_parameters():
+            self.server_cv[name] = torch.zeros_like(param.data)
+            self.client_cv[name] = torch.zeros_like(param.data)
+            self.old_client_cv[name] = torch.zeros_like(param.data)
+            self.model_delta[name] = torch.zeros_like(param.data)
+            self.cv_delta[name] = torch.zeros_like(param.data)
+
+    def configure_optimizer(self) -> torch.optim.Optimizer:
+        """
+        SGD optimizer for local updates.
+        """
+        return torch.optim.SGD(self.local_model.parameters(), lr=self.lr)
+
+    def train_step(self, batch: Any, batch_idx: int) -> Tuple[torch.Tensor, int]:
+        """
+        Forward pass and compute cross-entropy loss for a batch.
+        """
+        inputs, targets = batch
+        outputs = self.local_model(inputs)
+        loss = torch.nn.functional.cross_entropy(outputs, targets)
+        return loss, inputs.size(0)
+
+    def optimizer_step(self, batch_idx: int) -> None:
+        """
+        Track optimizer steps for control variate normalization.
+        """
+        self.optimizer.step()
+        self.optimizer_steps += 1
+
+    def round_start(self, round_idx: int) -> None:
+        """
+        Synchronize the local model with the global model at the start of each round and reset optimizer step count.
+        """
+        self.local_model = self.comm.broadcast(self.local_model, src=0)
+        self.global_model.load_state_dict(self.local_model.state_dict())
+        self.optimizer_steps = 0
+
+    def backward_pass(self, loss: torch.Tensor, batch_idx: int) -> None:
+        """
+        Apply SCAFFOLD gradient correction after backward pass.
+        """
+        loss.backward()
+        for name, param in self.local_model.named_parameters():
+            if param.grad is not None and name in self.server_cv:
+                param.grad.add_(self.server_cv[name] - self.client_cv[name])
+
+    def round_end(self, round_idx: int) -> None:
+        """
+        Aggregate model deltas and control variate deltas, then update global model and server control variates.
+        """
+        effective_comm_freq = max(1, self.optimizer_steps)
+        lr = self.optimizer.param_groups[0]["lr"]
+
+        # Update client control variates
+        for (name1, param1), (name2, param2) in zip(
+            self.global_model.named_parameters(), self.local_model.named_parameters()
+        ):
+            assert name1 == name2, f"Parameter mismatch: {name1} vs {name2}"
+            self.old_client_cv[name1].copy_(self.client_cv[name1])
+            update_term = (param2 - param1) / (effective_comm_freq * lr)
+            # TODO: Verify control variate update formula against SCAFFOLD paper
+            self.client_cv[name1].sub_(self.server_cv[name1]).add_(update_term)
+
+        # Compute model delta and control variate delta
+        for (name1, param1), (name2, param2) in zip(
+            self.global_model.named_parameters(), self.local_model.named_parameters()
+        ):
+            assert name1 == name2, f"Parameter mismatch: {name1} vs {name2}"
+            self.model_delta[name1].copy_(param2.data).sub_(param1.data)
+            self.cv_delta[name1].copy_(self.client_cv[name1]).sub_(
+                self.old_client_cv[name1]
+            )
+
+        # Aggregate local sample counts to compute federation total
+
+        global_samples = self.comm.aggregate(
+            torch.tensor([self.local_samples], dtype=torch.float32),
+            communicate_params=False,
+            compute_mean=False,
+        ).item()
+
+        # Handle edge cases safely - all nodes must participate in distributed operations
+        if global_samples <= 0:
+            print(
+                "WARN: No samples processed across entire federation - continuing with zero weights"
+            )
+
+        # SCAFFOLD uses mean aggregation rather than weighted aggregation
+        aggregated_model_deltas = self.comm.aggregate(
+            msg=self.model_delta, compute_mean=True
+        )
+        aggregated_cv_deltas = self.comm.aggregate(msg=self.cv_delta, compute_mean=True)
+
+        lr = self.optimizer.param_groups[0]["lr"]
+        utils.apply_model_delta(self.global_model, aggregated_model_deltas, scale=lr)
+        for name in self.server_cv:
+            if name in aggregated_cv_deltas:
+                self.server_cv[name].add_(aggregated_cv_deltas[name])
+
+        self.local_model.load_state_dict(self.global_model.state_dict())

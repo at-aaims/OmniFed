@@ -109,7 +109,8 @@ class TorchDistCommunicator(Communicator):
         #     return
 
         print(
-            f"setup: rank={self.rank}, world_size={self.world_size}, init_method={self.init_method}, backend={self.backend}, master_addr={self.master_addr}, master_port={self.master_port}, sharedfile={self.sharedfile}"
+            f"setup: rank={self.rank}, world_size={self.world_size}, init_method={self.init_method}, backend={self.backend}, master_addr={self.master_addr}, master_port={self.master_port}, sharedfile={self.sharedfile}",
+            flush=True,
         )
 
         if self.init_method == "tcp":
@@ -140,12 +141,16 @@ class TorchDistCommunicator(Communicator):
         :param id: node id which initiates the broadcast
         :return: returns the broadcasted message
         """
-        print(f"Broadcast from rank {src} to all ranks | {type(msg)}")
+        print(f"Broadcast from rank {src} to all ranks | {type(msg)}", flush=True)
 
         if isinstance(msg, nn.Module):
             for _, p in msg.named_parameters():
                 if p.requires_grad:
                     dist.broadcast(p.data, src=src)
+        elif isinstance(msg, dict):
+            # Handle Dict[str, torch.Tensor] for parameter deltas, control variates, etc.
+            for tensor in msg.values():
+                dist.broadcast(tensor, src=src)
         else:
             dist.broadcast(msg, src=src)
         return msg
@@ -162,7 +167,8 @@ class TorchDistCommunicator(Communicator):
         :return: aggregated message
         """
         print(
-            f"Aggregate from all ranks | {type(msg)} communicate_params={communicate_params} compute_mean={compute_mean}"
+            f"Aggregate from all ranks | {type(msg)} communicate_params={communicate_params} compute_mean={compute_mean}",
+            flush=True,
         )
 
         if isinstance(msg, nn.Module):
@@ -170,6 +176,12 @@ class TorchDistCommunicator(Communicator):
                 if not p.requires_grad:
                     continue
                 tensor = p.data if communicate_params else p.grad
+                dist.all_reduce(tensor, op=dist.ReduceOp.SUM)
+                if compute_mean:
+                    tensor.div_(self.world_size)
+        elif isinstance(msg, dict):
+            # Handle Dict[str, torch.Tensor] for parameter deltas, control variates, etc.
+            for name, tensor in msg.items():
                 dist.all_reduce(tensor, op=dist.ReduceOp.SUM)
                 if compute_mean:
                     tensor.div_(self.world_size)
@@ -192,7 +204,8 @@ class TorchDistCommunicator(Communicator):
         :return: the sending message
         """
         print(
-            f"Send to rank {dst} | {type(msg)} communicate_params={communicate_params}"
+            f"Send to rank {dst} | {type(msg)} communicate_params={communicate_params}",
+            flush=True,
         )
 
         if isinstance(msg, nn.Module):
@@ -219,7 +232,8 @@ class TorchDistCommunicator(Communicator):
         :return: the receiving message
         """
         print(
-            f"Receive from rank {src} | {type(msg)} communicate_params={communicate_params}"
+            f"Receive from rank {src} | {type(msg)} communicate_params={communicate_params}",
+            flush=True,
         )
 
         if isinstance(msg, nn.Module):
@@ -247,7 +261,8 @@ class TorchDistCommunicator(Communicator):
         :return: either nested list of layerwise model data collected from clients or a simple list of gathered data
         """
         print(
-            f"Collect from all ranks | {type(msg)} communicate_params={communicate_params}"
+            f"Collect from all ranks | {type(msg)} communicate_params={communicate_params}",
+            flush=True,
         )
 
         collected = []
