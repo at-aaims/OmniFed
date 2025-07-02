@@ -81,7 +81,7 @@ class CentralizedTopology(Topology):
 
             if rank == 0:
                 node = Node.options(**node_rayopts).remote(
-                    id=f"S{rank}",
+                    id=f"Server{rank}",
                     # roles={NodeRole.AGGREGATOR},
                     comm_cfg=comm_cfg,
                     model_cfg=model_cfg,
@@ -92,7 +92,7 @@ class CentralizedTopology(Topology):
                 )
             else:
                 node = Node.options(**node_rayopts).remote(
-                    id=f"C{rank}",
+                    id=f"Client{rank}",
                     # roles={NodeRole.TRAINER},
                     comm_cfg=comm_cfg,
                     model_cfg=model_cfg,

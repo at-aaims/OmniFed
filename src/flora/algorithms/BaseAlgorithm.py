@@ -202,11 +202,11 @@ class Algorithm(ABC):
         loss, batch_size = self.train_step(batch, batch_idx)
         # Automatic sample tracking
         self._local_samples = self.local_samples + batch_size
-        self.metrics.update_sum("data/samples", batch_size)
-        self.metrics.update_sum("data/batches", 1)
+        self.metrics.update_sum("train/num_samples", batch_size)
+        self.metrics.update_sum("train/num_batches", 1)
 
         # Automatic loss tracking
-        self.metrics.update_mean("loss/compute", loss.detach().item(), batch_size)
+        self.metrics.update_mean("train/loss", loss.detach().item(), batch_size)
 
         self.optimizer.zero_grad()
         # Backward pass hook
@@ -214,7 +214,7 @@ class Algorithm(ABC):
 
         # Automatic gradient tracking
         self.metrics.update_mean(
-            "compute/grad_norm", utils.get_grad_norm(self.local_model)
+            "train/grad_norm", utils.get_grad_norm(self.local_model)
         )
 
         # Optimizer step hook

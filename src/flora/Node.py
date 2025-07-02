@@ -96,6 +96,10 @@ class Node:
         # PyTorch model
         self.local_model: nn.Module = instantiate(model_cfg)
 
+        # DEBUG: Model hash immediately after instantiation
+        initial_hash = alg_utils.hash_model_params(self.local_model)
+        print(f"Model hash after instantiation: {initial_hash}")
+
         # Data module (optional - certain roles may not hold local data)
         self.datamodule: Optional[DataModule] = None
         if data_cfg is not None:
@@ -193,61 +197,84 @@ class Node:
 
         # Model state before any synchronization
         metrics: dict[str, float] = dict(round_idx=round_idx)
+
+        # Capture before-sync state
+        hash_before_sync = alg_utils.hash_model_params(self.algo.local_model)
         metrics["pnorm/before_sync"] = alg_utils.get_param_norm(self.algo.local_model)
+        
         # Round Start Logic: e.g., Synchronization
         self.algo.round_start(round_idx)
+        
+        # Capture after-sync state and show transition
+        hash_after_sync = alg_utils.hash_model_params(self.algo.local_model)
         metrics["pnorm/after_sync"] = alg_utils.get_param_norm(self.algo.local_model)
         metrics["pnorm/sync_delta"] = (
             metrics["pnorm/after_sync"] - metrics["pnorm/before_sync"]
         )
-        if metrics["pnorm/sync_delta"] <= 1e-6:
-            print(
-                f"WARN: Model param norm did not significantly change after synchronization in round {round_idx} "
-                f"(Δ={metrics['pnorm/sync_delta']:.6f})"
-            )
+        
+        # Consolidated round_start transition print
+        sync_changed = hash_before_sync != hash_after_sync
+        print(f"ROUND_START: {hash_before_sync[:8]} → {hash_after_sync[:8]} | "
+              f"norm: {metrics['pnorm/before_sync']:.4f} → {metrics['pnorm/after_sync']:.4f} "
+              f"(Δ={metrics['pnorm/sync_delta']:.6f}) | "
+              f"{'CHANGED' if sync_changed else 'UNCHANGED'}")
 
         # 4. Local training
         if self.datamodule is not None and self.datamodule.train is not None:
-            # Pre-training metrics: Model state before local training
+            # Capture before-training state
+            hash_before_train = alg_utils.hash_model_params(self.algo.local_model)
             metrics["pnorm/before_train_round"] = alg_utils.get_param_norm(
                 self.algo.local_model
             )
+            
             # Centralized device management: ensure model is on compute device
             self.algo.local_model.to(self.device)
+            
             # Execute local training round
             self.algo.train_round(
                 self.datamodule.train,
                 round_idx,
                 self.max_epochs,
             )
-            # Post-training metrics: Model state after local training
+            
+            # Capture after-training state and show transition
+            hash_after_train = alg_utils.hash_model_params(self.algo.local_model)
             metrics["pnorm/after_train_round"] = alg_utils.get_param_norm(
                 self.algo.local_model
             )
             metrics["pnorm/train_round_delta"] = (
                 metrics["pnorm/after_train_round"] - metrics["pnorm/before_train_round"]
             )
-            if metrics["pnorm/train_round_delta"] <= 1e-6:
-                print(
-                    f"WARN: Model param norm did not significantly change after local training in round {round_idx} "
-                    f"(Δ={metrics['pnorm/train_delta']:.6f})"
-                )
+            
+            # Consolidated train_round transition print
+            train_changed = hash_before_train != hash_after_train
+            print(f"TRAIN_ROUND: {hash_before_train[:8]} → {hash_after_train[:8]} | "
+                  f"norm: {metrics['pnorm/before_train_round']:.4f} → {metrics['pnorm/after_train_round']:.4f} "
+                  f"(Δ={metrics['pnorm/train_round_delta']:.6f}) | "
+                  f"{'CHANGED' if train_changed else 'UNCHANGED'}")
         else:
             print("WARN: No local training data available, skipping local training")
 
-        # Round End Logic: e.g. Aggregation
+        # Capture before-aggregation state
+        hash_before_agg = alg_utils.hash_model_params(self.algo.local_model)
         metrics["pnorm/before_agg"] = alg_utils.get_param_norm(self.algo.local_model)
+
+        # Round End Logic: e.g. Aggregation
         self.algo.round_end(round_idx)
 
+        # Capture after-aggregation state and show transition
+        hash_after_agg = alg_utils.hash_model_params(self.algo.local_model)
         metrics["pnorm/after_agg"] = alg_utils.get_param_norm(self.algo.local_model)
         metrics["pnorm/agg_delta"] = (
             metrics["pnorm/after_agg"] - metrics["pnorm/before_agg"]
         )
-        if metrics["pnorm/agg_delta"] <= 1e-6:
-            print(
-                f"WARN: Model param norm did not significantly change after aggregation in round {round_idx} "
-                f"(Δ={metrics['pnorm/agg_delta']:.6f})"
-            )
+        
+        # Consolidated round_end transition print
+        agg_changed = hash_before_agg != hash_after_agg
+        print(f"ROUND_END: {hash_before_agg[:8]} → {hash_after_agg[:8]} | "
+              f"norm: {metrics['pnorm/before_agg']:.4f} → {metrics['pnorm/after_agg']:.4f} "
+              f"(Δ={metrics['pnorm/agg_delta']:.6f}) | "
+              f"{'CHANGED' if agg_changed else 'UNCHANGED'}")
 
         # Collect all metrics from algorithm execution
         metrics.update(self.algo.metrics.to_dict())
