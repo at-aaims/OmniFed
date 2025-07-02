@@ -26,7 +26,7 @@ def run_client(client_id, delay=0):
 
     print(f"Starting client {client_id}...")
     try:
-        process = subprocess.Popen([sys.executable, "grpc_client.py", client_id])
+        process = subprocess.Popen([sys.executable, "test_grpc_client.py", client_id])
         process.wait()  # Wait for client to finish
         print(f"Client {client_id} completed")
     except Exception as e:
@@ -43,7 +43,7 @@ def main():
     # Check if required files exist
     required_files = [
         "grpc_server.py",
-        "grpc_client.py",
+        "test_grpc_client.py",
         "grpc_communicator_pb2.py",
         "grpc_communicator_pb2_grpc.py",
     ]
