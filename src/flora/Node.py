@@ -189,7 +189,7 @@ class Node:
         Returns:
             Dictionary with training metrics and results
         """
-        print(f"Round {round_idx} START", flush=True)
+        print(f"Round {round_idx + 1} START", flush=True)
         round_start_time = time.time()
 
         # Reset round state (simple and explicit)
@@ -281,7 +281,7 @@ class Node:
         metrics["time/round"] = time.time() - round_start_time
 
         print(
-            f"Round {round_idx} END |",
+            f"Round {round_idx + 1} END |",
             {k: round(v, 2) if isinstance(v, float) else v for k, v in metrics.items()},
             flush=True,
         )

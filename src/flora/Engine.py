@@ -80,7 +80,7 @@ class Engine:
 
             summaries = []
             for round_idx in range(self.global_rounds):
-                # utils.log_sep(f"Round {round_idx + 1}/{self.global_rounds}")
+                utils.log_sep(f"Round {round_idx + 1}/{self.global_rounds}")
                 _t_start_round = time.time()
 
                 results_futures = []
