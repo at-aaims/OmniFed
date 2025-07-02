@@ -201,39 +201,41 @@ class FedPerNew(Algorithm):
         Personal layers (head/classifier) remain local for personalization
         """
 
-        # Step 1: Aggregate sample counts to compute global total
-        total_samples = self.comm.aggregate(
-            torch.tensor([self.total_samples], dtype=torch.float32),
+        # Aggregate local sample counts to compute federation total
+
+        global_samples = self.comm.aggregate(
+            torch.tensor([self.local_samples], dtype=torch.float32),
             communicate_params=False,
             compute_mean=False,  # Sum all sample counts
         ).item()
 
-        if total_samples <= 0:
+        # Handle edge cases safely - all nodes must participate in distributed operations
+        if global_samples <= 0:
             print(
-                "WARN: No samples processed in this round... possible client failure or aggregation error?"
+                "WARN: No samples processed across entire federation - participating with zero weight"
             )
-            return
+            data_proportion = 0.0
+        else:
+            # Calculate data proportion for weighted aggregation
+            data_proportion = self.local_samples / global_samples
 
-        # Step 2: Calculate data proportion for weighted aggregation
-        data_proportion = self.total_samples / total_samples
-
-        # Step 3: Scale model parameters by data proportion
+        # All nodes participate regardless of sample count
         utils.scale_params(self.local_model, data_proportion)
 
-        # Step 4: Store personal layer parameters before aggregation
+        # Store personal layer parameters before aggregation
         personal_params = {}
         for name, param in self.local_model.named_parameters():
             if self._is_personal_layer(name):
                 personal_params[name] = param.data.clone()
 
-        # Step 5: Aggregate entire model (including personal layers)
+        # Aggregate entire model (including personal layers)
         self.local_model = self.comm.aggregate(
             self.local_model,
             communicate_params=True,
             compute_mean=False,
         )
 
-        # Step 6: Restore personal layer parameters (keep them local)
+        # Restore personal layer parameters (keep them local)
         for name, param in self.local_model.named_parameters():
             if name in personal_params:
                 param.data.copy_(personal_params[name])

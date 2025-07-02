@@ -210,33 +210,35 @@ class FedDynNew(Algorithm):
             if param.requires_grad:
                 local_model_params[name] = param.data.clone()
 
-        # Step 1: Aggregate sample counts to compute global total
-        total_samples = self.comm.aggregate(
-            torch.tensor([self.total_samples], dtype=torch.float32),
+        # Aggregate local sample counts to compute federation total
+
+        global_samples = self.comm.aggregate(
+            torch.tensor([self.local_samples], dtype=torch.float32),
             communicate_params=False,
             compute_mean=False,  # Sum all sample counts
         ).item()
 
-        if total_samples <= 0:
+        # Handle edge cases safely - all nodes must participate in distributed operations
+        if global_samples <= 0:
             print(
-                "WARN: No samples processed in this round... possible client failure or aggregation error?"
+                "WARN: No samples processed across entire federation - participating with zero weight"
             )
-            return
+            data_proportion = 0.0
+        else:
+            # Calculate data proportion for weighted aggregation
+            data_proportion = self.local_samples / global_samples
 
-        # Step 2: Calculate data proportion for weighted aggregation
-        data_proportion = self.total_samples / total_samples
-
-        # Step 3: Scale model parameters by data proportion
+        # All nodes participate regardless of sample count
         utils.scale_params(self.local_model, data_proportion)
 
-        # Step 4: Aggregate weighted model parameters
+        # Aggregate weighted model parameters
         aggregated_model = self.comm.aggregate(
             self.local_model,
             communicate_params=True,
             compute_mean=False,  # Sum pre-weighted models
         )
 
-        # Step 5: Update server momentum (dynamic regularizer)
+        # Update server momentum (dynamic regularizer)
         for name, param in aggregated_model.named_parameters():
             if param.requires_grad and name in self.server_momentum:
                 # Compute model difference: local - global

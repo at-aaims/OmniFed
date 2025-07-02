@@ -188,35 +188,37 @@ class FedBNNew(Algorithm):
             if self._is_bn_layer(name):
                 local_bn_params[name] = param.data.clone()
 
-        # Step 1: Aggregate sample counts to compute global total
-        total_samples = self.comm.aggregate(
-            torch.tensor([self.total_samples], dtype=torch.float32),
+        # Aggregate local sample counts to compute federation total
+
+        global_samples = self.comm.aggregate(
+            torch.tensor([self.local_samples], dtype=torch.float32),
             communicate_params=False,
             compute_mean=False,  # Sum all sample counts
         ).item()
 
-        if total_samples <= 0:
+        # Handle edge cases safely - all nodes must participate in distributed operations
+        if global_samples <= 0:
             print(
-                "WARN: No samples processed in this round... possible client failure or aggregation error?"
+                "WARN: No samples processed across entire federation - participating with zero weight"
             )
-            return
+            data_proportion = 0.0
+        else:
+            # Calculate data proportion for weighted aggregation
+            data_proportion = self.local_samples / global_samples
 
-        # Step 2: Calculate data proportion for weighted aggregation
-        data_proportion = self.total_samples / total_samples
-
-        # Step 3: Scale only non-BN parameters by data proportion
+        # Scale only non-BN parameters by data proportion (all nodes participate)
         for name, param in self.local_model.named_parameters():
             if not self._is_bn_layer(name):
                 param.data.mul_(data_proportion)
 
-        # Step 4: Aggregate weighted model parameters
+        # Aggregate weighted model parameters
         self.local_model = self.comm.aggregate(
             self.local_model,
             communicate_params=True,
             compute_mean=False,  # Sum pre-weighted models
         )
 
-        # Step 5: Restore local BN parameters
+        # Restore local BN parameters
         for name, param in self.local_model.named_parameters():
             if self._is_bn_layer(name) and name in local_bn_params:
                 param.data.copy_(local_bn_params[name])

@@ -209,20 +209,21 @@ class DiLoCoNew(Algorithm):
                 global_param = dict(self.global_model.named_parameters())[name]
                 local_deltas[name] = param.data - global_param.data
 
-        # Aggregate sample counts to compute global total
-        total_samples = self.comm.aggregate(
-            torch.tensor([self.total_samples], dtype=torch.float32),
+        # Aggregate local sample counts to compute federation total
+
+        global_samples = self.comm.aggregate(
+            torch.tensor([self.local_samples], dtype=torch.float32),
             communicate_params=False,
             compute_mean=False,
         ).item()
 
-        if total_samples <= 0:
+        # Handle edge cases safely - all nodes must participate in distributed operations
+        if global_samples <= 0:
             print(
-                "WARN: No samples processed in this round... possible client failure or aggregation error?"
+                "WARN: No samples processed across entire federation - continuing with mean aggregation"
             )
-            return
 
-        # Aggregate local deltas across all clients
+        # DiLoCo uses mean aggregation rather than weighted aggregation
         aggregated_deltas = self.comm.aggregate(msg=local_deltas, compute_mean=True)
 
         # Apply DiLoCo outer step with momentum using aggregated deltas

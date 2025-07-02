@@ -199,21 +199,23 @@ class FedMomNew(Algorithm):
                 # Delta = global - local (original uses global - local for momentum direction)
                 local_deltas[name] = global_param.data - param.data
 
-        # Aggregate sample counts to compute global total
-        total_samples = self.comm.aggregate(
-            torch.tensor([self.total_samples], dtype=torch.float32),
+        # Aggregate local sample counts to compute federation total
+
+        global_samples = self.comm.aggregate(
+            torch.tensor([self.local_samples], dtype=torch.float32),
             communicate_params=False,
             compute_mean=False,
         ).item()
 
-        if total_samples <= 0:
+        # Handle edge cases safely - all nodes must participate in distributed operations
+        if global_samples <= 0:
             print(
-                "WARN: No samples processed in this round... possible client failure or aggregation error?"
+                "WARN: No samples processed across entire federation - participating with zero weight"
             )
-            return
-
-        # Calculate data proportion for weighted aggregation of deltas
-        data_proportion = self.total_samples / total_samples
+            data_proportion = 0.0
+        else:
+            # Calculate data proportion for weighted aggregation of deltas
+            data_proportion = self.local_samples / global_samples
 
         # Scale local deltas by data proportion
         for name in local_deltas:

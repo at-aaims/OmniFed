@@ -54,7 +54,7 @@ class Algorithm(ABC):
         # Round state - properly initialized
         self._optimizer: Optional[torch.optim.Optimizer] = None
         self._metrics: Optional[RoundMetrics] = None
-        self._total_samples: int = 0
+        self._local_samples: int = 0
 
     # =============================================================================
     # PROPERTIES
@@ -75,15 +75,15 @@ class Algorithm(ABC):
         return self._metrics
 
     @property
-    def total_samples(self) -> int:
-        """Total samples processed in current round."""
-        return self._total_samples
+    def local_samples(self) -> int:
+        """Local samples processed by this node in current round - this node's contribution."""
+        return self._local_samples
 
     def reset_round_state(self) -> None:
         """Reset state for a new round - called by framework."""
         self._optimizer = None
         self._metrics = None
-        self._total_samples = 0
+        self._local_samples = 0
 
     # =============================================================================
 
@@ -198,7 +198,7 @@ class Algorithm(ABC):
         # Forward pass hook (implemented by subclasses)
         loss, batch_size = self.train_step(batch, batch_idx)
         # Automatic sample tracking
-        self._total_samples = self.total_samples + batch_size
+        self._local_samples = self.local_samples + batch_size
         self.metrics.update_sum("data/samples", batch_size)
         self.metrics.update_sum("data/batches", 1)
 
