@@ -195,7 +195,7 @@ class Node:
         metrics: dict[str, float] = dict(round_idx=round_idx)
         metrics["pnorm/before_sync"] = alg_utils.get_param_norm(self.algo.local_model)
         # Round Start Logic: e.g., Synchronization
-        self.algo.sync(round_idx)
+        self.algo.round_start(round_idx)
         metrics["pnorm/after_sync"] = alg_utils.get_param_norm(self.algo.local_model)
         metrics["pnorm/sync_delta"] = (
             metrics["pnorm/after_sync"] - metrics["pnorm/before_sync"]
@@ -237,7 +237,7 @@ class Node:
 
         # Round End Logic: e.g. Aggregation
         metrics["pnorm/before_agg"] = alg_utils.get_param_norm(self.algo.local_model)
-        self.algo.aggregate(round_idx)
+        self.algo.round_end(round_idx)
 
         metrics["pnorm/after_agg"] = alg_utils.get_param_norm(self.algo.local_model)
         metrics["pnorm/agg_delta"] = (

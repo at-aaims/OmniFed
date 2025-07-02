@@ -197,13 +197,13 @@ class DittoNew(Algorithm):
 
         return total_loss, batch_size
 
-    def sync(self, round_idx: int) -> None:
+    def round_start(self, round_idx: int) -> None:
         """
         Synchronize the global model at the start of each round.
         """
         self.global_model = self.comm.broadcast(self.global_model, src=0)
 
-    def aggregate(self, round_idx: int) -> None:
+    def round_end(self, round_idx: int) -> None:
         """
         Aggregate global models across clients. Personal models remain local.
         """

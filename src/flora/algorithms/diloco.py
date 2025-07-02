@@ -185,7 +185,7 @@ class DiLoCoNew(Algorithm):
         loss = torch.nn.functional.cross_entropy(outputs, targets)
         return loss, inputs.size(0)
 
-    def sync(self, round_idx: int) -> None:
+    def round_start(self, round_idx: int) -> None:
         """
         Synchronize the local model with the global model at the start of each round.
         """
@@ -193,7 +193,7 @@ class DiLoCoNew(Algorithm):
         self.local_model = self.comm.broadcast(self.local_model, src=0)
         self.global_model.load_state_dict(self.local_model.state_dict())
 
-    def aggregate(self, round_idx: int) -> None:
+    def round_end(self, round_idx: int) -> None:
         """
         Apply DiLoCo outer step with momentum aggregation.
 

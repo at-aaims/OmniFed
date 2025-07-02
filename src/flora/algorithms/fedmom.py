@@ -178,7 +178,7 @@ class FedMomNew(Algorithm):
         loss = torch.nn.functional.cross_entropy(outputs, targets)
         return loss, inputs.size(0)
 
-    def sync(self, round_idx: int) -> None:
+    def round_start(self, round_idx: int) -> None:
         """
         Synchronize the local model with the global model at the start of each round.
         """
@@ -187,7 +187,7 @@ class FedMomNew(Algorithm):
         # Update global model reference
         self.global_model.load_state_dict(self.local_model.state_dict())
 
-    def aggregate(self, round_idx: int) -> None:
+    def round_end(self, round_idx: int) -> None:
         """
         Aggregate model parameters across clients using momentum and update the local model.
         """

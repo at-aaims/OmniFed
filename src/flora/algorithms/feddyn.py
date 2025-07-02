@@ -189,7 +189,7 @@ class FedDynNew(Algorithm):
         total_loss = base_loss + regularization_loss
         return total_loss, inputs.size(0)
 
-    def sync(self, round_idx: int) -> None:
+    def round_start(self, round_idx: int) -> None:
         """
         Synchronize the local model with the global model at the start of each round.
         """
@@ -199,7 +199,7 @@ class FedDynNew(Algorithm):
             src=0,
         )
 
-    def aggregate(self, round_idx: int) -> None:
+    def round_end(self, round_idx: int) -> None:
         """
         Aggregate model parameters across clients and update the local model and server momentum.
         """
