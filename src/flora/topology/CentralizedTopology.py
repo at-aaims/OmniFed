@@ -20,7 +20,7 @@ import torch
 from omegaconf import DictConfig
 
 from .. import utils
-from ..Node import Node, NodeRole
+from ..Node import Node
 from .BaseTopology import Topology
 
 # ======================================================================================

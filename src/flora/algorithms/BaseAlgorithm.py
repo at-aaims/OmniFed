@@ -22,7 +22,6 @@ import rich.repr
 import torch
 from torch import nn
 from torch.utils.data import DataLoader
-
 from ..communicator.BaseCommunicator import Communicator
 from ..helper.RoundMetrics import RoundMetrics
 from . import utils
@@ -118,6 +117,10 @@ class Algorithm(ABC):
         self.local_model.train()
 
         for epoch_idx in range(max_epochs):
+            print(
+                f"Round {round_idx + 1} | Epoch {epoch_idx + 1}/{max_epochs} START",
+                flush=True,
+            )
             # Epoch timing
             epoch_start_time = time.time()
             self.epoch_start(epoch_idx)
@@ -132,9 +135,9 @@ class Algorithm(ABC):
             self.metrics.update_mean("time/epoch", epoch_time)
 
             print(
-                f"Round {round_idx + 1} | Epoch {epoch_idx + 1}/{max_epochs} |",
+                f"Round {round_idx + 1} | Epoch {epoch_idx + 1}/{max_epochs} END |",
                 {
-                    k: round(v, 3) if isinstance(v, float) else v
+                    k: round(v, 2) if isinstance(v, float) else v
                     for k, v in self.metrics.to_dict().items()
                 },
                 flush=True,

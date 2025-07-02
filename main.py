@@ -29,7 +29,7 @@ from rich.pretty import pprint
 def main(cfg: DictConfig) -> None:
     import logging
 
-    utils.setup_rich_logging()
+    # utils.setup_rich_logging()
     # NOTE: migrate to logging soon (this is currently unused)
     logger = logging.getLogger(__name__)
 

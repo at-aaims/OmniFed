@@ -28,21 +28,21 @@ from .communicator.BaseCommunicator import Communicator
 from .dataset.DataModule import DataModule
 
 
-class NodeRole(Enum):
-    """
-    Defines the fundamental capabilities of a Node participant in the federation.
+# class NodeRole(Enum):
+#     """
+#     Defines the fundamental capabilities of a Node participant in the federation.
 
-    Each role represents a specific capability.
-    Nodes can have multiple roles to express their full set of capabilities.
-    """
+#     Each role represents a specific capability.
+#     Nodes can have multiple roles to express their full set of capabilities.
+#     """
 
-    AGGREGATOR = "Aggregator"  # Aggregates updates from other nodes
-    TRAINER = "Trainer"  # Performs local training
+#     AGGREGATOR = "Aggregator"  # Aggregates updates from other nodes
+#     TRAINER = "Trainer"  # Performs local training
 
-    # Future additions??
-    # COORDINATOR = "coordinator"  # Coordinates communication/scheduling
-    # RELAY = "relay"             # Forwards messages between nodes
-    # VALIDATOR = "validator"      # Validates updates or models
+#     # Future additions??
+#     # COORDINATOR = "coordinator"  # Coordinates communication/scheduling
+#     # RELAY = "relay"             # Forwards messages between nodes
+#     # VALIDATOR = "validator"      # Validates updates or models
 
 
 @ray.remote
@@ -208,7 +208,6 @@ class Node:
 
         # 4. Local training
         if self.datamodule is not None and self.datamodule.train is not None:
-            print(f"Starting local training on {len(self.datamodule.train)} batches")
             # Pre-training metrics: Model state before local training
             metrics["pnorm/before_train_round"] = alg_utils.get_param_norm(
                 self.algo.local_model
@@ -256,7 +255,7 @@ class Node:
 
         print(
             f"Round {round_idx} END |",
-            {k: round(v, 3) if isinstance(v, float) else v for k, v in metrics.items()},
+            {k: round(v, 2) if isinstance(v, float) else v for k, v in metrics.items()},
             flush=True,
         )
         return metrics

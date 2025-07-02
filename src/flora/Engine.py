@@ -50,8 +50,8 @@ class Engine:
         ray.init(
             ignore_reinit_error=True,
             log_to_driver=True,  # NOTE: when false, Task and Actor logs are not copied to the driver stdout.
-            logging_level=logging.INFO,  # TODO: Tie this to Hydra's logging level
-            namespace="federated_learning",
+            # logging_level=logging.INFO,  # TODO: Tie this to Hydra's logging level
+            # namespace="federated_learning",
         )
         # ---
         self.cfg: DictConfig = cfg

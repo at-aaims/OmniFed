@@ -50,3 +50,26 @@ class DataModule:
             print("NOTE: Validation DataLoader is not provided.")
         if self.test is None:
             print("NOTE: Test DataLoader is not provided.")
+
+        # ---
+        print(self)
+
+    def __str__(self) -> str:
+        """
+        Returns a compact, single-line string representation of the DataModule.
+        """
+
+        def loader_info(name, loader):
+            if loader is not None:
+                num_samples = len(loader.dataset) if hasattr(loader, "dataset") else "?"
+                batch_size = loader.batch_size if hasattr(loader, "batch_size") else "?"
+                return f"{name}: {num_samples} samples, batch_size={batch_size}"
+            else:
+                return f"{name}: None"
+
+        return (
+            f"{self.__class__.__name__}("
+            f"{loader_info('train', self.train)} | "
+            f"{loader_info('val', self.val)} | "
+            f"{loader_info('test', self.test)})"
+        )
