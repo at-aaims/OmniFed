@@ -80,27 +80,19 @@ class CentralizedTopology(Topology):
                 node_rayopts["num_gpus"] = 1.0 / self.num_nodes
 
             if rank == 0:
-                node = Node.options(**node_rayopts).remote(
-                    id=f"Server{rank}",
-                    # roles={NodeRole.AGGREGATOR},
-                    comm_cfg=comm_cfg,
-                    model_cfg=model_cfg,
-                    algo_cfg=algo_cfg,
-                    data_cfg=data_cfg,  # TODO: Aggregators may not hold data
-                    rank=rank,
-                    world_size=self.num_nodes,
-                )
+                node_id = f"R{rank}-SERVER"
             else:
-                node = Node.options(**node_rayopts).remote(
-                    id=f"Client{rank}",
-                    # roles={NodeRole.TRAINER},
-                    comm_cfg=comm_cfg,
-                    model_cfg=model_cfg,
-                    algo_cfg=algo_cfg,
-                    data_cfg=data_cfg,  # TODO: Only trainers should hold data
-                    rank=rank,
-                    world_size=self.num_nodes,
-                )
+                node_id = f"R{rank}-Client"  # Purposefully using different casing for log readability
+
+            node = Node.options(**node_rayopts).remote(
+                id=node_id,
+                comm_cfg=comm_cfg,
+                model_cfg=model_cfg,
+                algo_cfg=algo_cfg,
+                data_cfg=data_cfg,
+                rank=rank,
+                world_size=self.num_nodes,
+            )
 
             nodes.append(node)
 

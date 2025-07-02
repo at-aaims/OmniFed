@@ -69,7 +69,7 @@ class Node:
         comm_cfg: DictConfig,
         algo_cfg: DictConfig,
         model_cfg: DictConfig,
-        data_cfg: Optional[DictConfig] = None,
+        data_cfg: DictConfig,
         max_epochs: int = 1,  # TODO: think if this is the best place for this (take into consideration the Hydra config and user experience)
         rank: Optional[int] = None,
         world_size: Optional[int] = None,
@@ -82,7 +82,7 @@ class Node:
         self.max_epochs: int = max_epochs
 
         # Distributed computing context
-        self.rank: Optional[int] = rank
+        self.local_rank: Optional[int] = rank
         self.world_size: Optional[int] = world_size
         self.device: torch.device = self.select_device(device, rank=rank)
 
@@ -100,10 +100,8 @@ class Node:
         initial_hash = alg_utils.hash_model_params(self.local_model)
         print(f"Model hash after instantiation: {initial_hash}")
 
-        # Data module (optional - certain roles may not hold local data)
-        self.datamodule: Optional[DataModule] = None
-        if data_cfg is not None:
-            self.datamodule = instantiate(data_cfg)
+        # Data module
+        self.datamodule: DataModule = instantiate(data_cfg)
 
         # Federated learning algorithm (handles computation logic)
         self.algo: Algorithm = instantiate(
@@ -121,7 +119,7 @@ class Node:
         """
         # role_names = [role.value for role in self.roles]
         # return f"Node {self.id}: {role_names}"
-        return f"{self.id}"
+        return self.id
 
     @staticmethod
     def select_device(device_hint: str, rank: Optional[int] = None) -> torch.device:
@@ -166,6 +164,19 @@ class Node:
         print(f"Device explicit: Using {device_hint}")
         return torch.device(device_hint)
 
+    def should_train(self) -> bool:
+        """
+        Determine if this node should perform training based on its role.
+
+        In centralized topology:
+        - Rank 0 (Server/Aggregator): No training, only aggregation
+        - Rank 1+ (Client/Trainer): Performs local training
+
+        Returns:
+            True if node should train, False if it should skip training
+        """
+        return self.local_rank != 0
+
     def setup(self) -> None:
         """
         Initialize node dependencies and prepare for federated learning execution.
@@ -200,81 +211,100 @@ class Node:
 
         # Capture before-sync state
         hash_before_sync = alg_utils.hash_model_params(self.algo.local_model)
-        metrics["pnorm/before_sync"] = alg_utils.get_param_norm(self.algo.local_model)
-        
+        metrics["param_norm/before_sync"] = alg_utils.get_param_norm(
+            self.algo.local_model
+        )
+
         # Round Start Logic: e.g., Synchronization
         self.algo.round_start(round_idx)
-        
+
         # Capture after-sync state and show transition
         hash_after_sync = alg_utils.hash_model_params(self.algo.local_model)
-        metrics["pnorm/after_sync"] = alg_utils.get_param_norm(self.algo.local_model)
-        metrics["pnorm/sync_delta"] = (
-            metrics["pnorm/after_sync"] - metrics["pnorm/before_sync"]
+        metrics["param_norm/after_sync"] = alg_utils.get_param_norm(
+            self.algo.local_model
         )
-        
+        metrics["param_norm/sync_delta"] = (
+            metrics["param_norm/after_sync"] - metrics["param_norm/before_sync"]
+        )
+
         # Consolidated round_start transition print
         sync_changed = hash_before_sync != hash_after_sync
-        print(f"ROUND_START: {hash_before_sync[:8]} → {hash_after_sync[:8]} | "
-              f"norm: {metrics['pnorm/before_sync']:.4f} → {metrics['pnorm/after_sync']:.4f} "
-              f"(Δ={metrics['pnorm/sync_delta']:.6f}) | "
-              f"{'CHANGED' if sync_changed else 'UNCHANGED'}")
+        print(
+            f"ROUND_START: {hash_before_sync[:8]} → {hash_after_sync[:8]} | "
+            f"norm: {metrics['param_norm/before_sync']:.4f} → {metrics['param_norm/after_sync']:.4f} "
+            f"(Δ={metrics['param_norm/sync_delta']:.6f}) | "
+            f"{'CHANGED' if sync_changed else 'UNCHANGED'}"
+        )
 
-        # 4. Local training
-        if self.datamodule is not None and self.datamodule.train is not None:
+        # 4. Local training (only for trainer nodes)
+        if self.should_train():
+            if self.datamodule.train is None:
+                raise ValueError(
+                    "ERROR: Node is configured to train but no training DataLoader is provided."
+                )
             # Capture before-training state
             hash_before_train = alg_utils.hash_model_params(self.algo.local_model)
-            metrics["pnorm/before_train_round"] = alg_utils.get_param_norm(
+            metrics["param_norm/before_train_round"] = alg_utils.get_param_norm(
                 self.algo.local_model
             )
-            
+
             # Centralized device management: ensure model is on compute device
             self.algo.local_model.to(self.device)
-            
+
             # Execute local training round
             self.algo.train_round(
                 self.datamodule.train,
                 round_idx,
                 self.max_epochs,
             )
-            
+
             # Capture after-training state and show transition
             hash_after_train = alg_utils.hash_model_params(self.algo.local_model)
-            metrics["pnorm/after_train_round"] = alg_utils.get_param_norm(
+            metrics["param_norm/after_train_round"] = alg_utils.get_param_norm(
                 self.algo.local_model
             )
-            metrics["pnorm/train_round_delta"] = (
-                metrics["pnorm/after_train_round"] - metrics["pnorm/before_train_round"]
+            metrics["param_norm/train_round_delta"] = (
+                metrics["param_norm/after_train_round"]
+                - metrics["param_norm/before_train_round"]
             )
-            
+
             # Consolidated train_round transition print
             train_changed = hash_before_train != hash_after_train
-            print(f"TRAIN_ROUND: {hash_before_train[:8]} → {hash_after_train[:8]} | "
-                  f"norm: {metrics['pnorm/before_train_round']:.4f} → {metrics['pnorm/after_train_round']:.4f} "
-                  f"(Δ={metrics['pnorm/train_round_delta']:.6f}) | "
-                  f"{'CHANGED' if train_changed else 'UNCHANGED'}")
+            print(
+                f"TRAIN_ROUND: {hash_before_train[:8]} → {hash_after_train[:8]} | "
+                f"norm: {metrics['param_norm/before_train_round']:.4f} → {metrics['param_norm/after_train_round']:.4f} "
+                f"(Δ={metrics['param_norm/train_round_delta']:.6f}) | "
+                f"{'CHANGED' if train_changed else 'UNCHANGED'}"
+            )
         else:
-            print("WARN: No local training data available, skipping local training")
+            print("SKIP TRAINING")
 
         # Capture before-aggregation state
         hash_before_agg = alg_utils.hash_model_params(self.algo.local_model)
-        metrics["pnorm/before_agg"] = alg_utils.get_param_norm(self.algo.local_model)
+        metrics["param_norm/before_agg"] = alg_utils.get_param_norm(
+            self.algo.local_model
+        )
 
         # Round End Logic: e.g. Aggregation
         self.algo.round_end(round_idx)
 
         # Capture after-aggregation state and show transition
         hash_after_agg = alg_utils.hash_model_params(self.algo.local_model)
-        metrics["pnorm/after_agg"] = alg_utils.get_param_norm(self.algo.local_model)
-        metrics["pnorm/agg_delta"] = (
-            metrics["pnorm/after_agg"] - metrics["pnorm/before_agg"]
+        metrics["param_norm/after_agg"] = alg_utils.get_param_norm(
+            self.algo.local_model
         )
-        
+        metrics["param_norm/agg_delta"] = (
+            metrics["param_norm/after_agg"] - metrics["param_norm/before_agg"]
+        )
+
         # Consolidated round_end transition print
         agg_changed = hash_before_agg != hash_after_agg
-        print(f"ROUND_END: {hash_before_agg[:8]} → {hash_after_agg[:8]} | "
-              f"norm: {metrics['pnorm/before_agg']:.4f} → {metrics['pnorm/after_agg']:.4f} "
-              f"(Δ={metrics['pnorm/agg_delta']:.6f}) | "
-              f"{'CHANGED' if agg_changed else 'UNCHANGED'}")
+        print(
+            f"ROUND_END: {hash_before_agg[:8]} → {hash_after_agg[:8]} | "
+            f"norm: {metrics['param_norm/before_agg']:.4f} → {metrics['param_norm/after_agg']:.4f} "
+            f"(Δ={metrics['param_norm/agg_delta']:.6f}) | "
+            f"{'CHANGED' if agg_changed else 'UNCHANGED'}"
+        )
 
         # Collect all metrics from algorithm execution
         metrics.update(self.algo.metrics.to_dict())

@@ -118,7 +118,7 @@ class Algorithm(ABC):
 
         for epoch_idx in range(max_epochs):
             print(
-                f"Round {round_idx + 1} | Epoch {epoch_idx + 1}/{max_epochs} START",
+                f"TRAIN_ROUND {round_idx + 1} | EPOCH {epoch_idx + 1} START",
                 flush=True,
             )
             # Epoch timing
@@ -135,7 +135,7 @@ class Algorithm(ABC):
             self.metrics.update_mean("time/epoch", epoch_time)
 
             print(
-                f"Round {round_idx + 1} | Epoch {epoch_idx + 1}/{max_epochs} END |",
+                f"TRAIN_ROUND {round_idx + 1} | EPOCH {epoch_idx + 1} END |",
                 {
                     k: round(v, 2) if isinstance(v, float) else v
                     for k, v in self.metrics.to_dict().items()
