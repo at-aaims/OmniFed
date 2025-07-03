@@ -1,6 +1,6 @@
 import torchaudio
 
-from src.flora.datasets.speech_recognition import commonVoiceData
+from . import commonVoiceData
 
 if __name__ == "__main__":
     print(torchaudio.list_audio_backends())  # Shows what's available on your system

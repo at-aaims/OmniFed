@@ -20,7 +20,7 @@
 
 import torch
 
-from src.flora.datasets.nlp import imdbReviewsData
+from . import imdbReviewsData
 
 if __name__ == "__main__":
     print(torch.__file__)
