@@ -19,7 +19,7 @@ import torch
 import torchvision.transforms as transforms
 from PIL import Image
 
-from src.flora.datasets.image_classification import set_seed
+from ..utils import set_seed
 
 # TODO: partition ISIC-Archive data into training and test sets
 

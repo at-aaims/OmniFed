@@ -22,7 +22,7 @@ import torchvision.transforms as transforms
 from torchvision.datasets import CocoDetection
 from torchvision.transforms import functional as F
 
-from src.flora.datasets.image_classification import set_seed, split_into_chunks
+from ..utils import set_seed, split_into_chunks
 
 # @FUTURE WORK: use pycocotools for non-IID distribution of this dataset
 # TODO: partition training data into unique chunks based on total number of clients (check if this works)

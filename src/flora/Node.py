@@ -25,7 +25,7 @@ from torch import nn
 from .algorithms import utils as alg_utils
 from .algorithms.BaseAlgorithm import Algorithm
 from .communicator.BaseCommunicator import Communicator
-from .dataset.DataModule import DataModule
+from .data.DataModule import DataModule
 
 
 # class NodeRole(Enum):

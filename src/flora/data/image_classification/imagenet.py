@@ -20,7 +20,7 @@ import torch
 import torchvision.transforms as transforms
 from torchvision.datasets import ImageFolder
 
-from src.flora.datasets.image_classification import set_seed, split_into_chunks
+from ..utils import set_seed, split_into_chunks
 
 # TODO: adjust num_workers in torch.utils.data.DataLoader based on total threads available on a client
 # TODO: verify training data split among clients or not (based on 'partition_dataset' argument)

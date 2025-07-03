@@ -16,7 +16,7 @@ import numpy as np
 import torch
 import torchtext
 
-from src.flora.datasets.image_classification import set_seed
+from ..utils import set_seed
 
 # TODO: fix C++ ABI mismatch between torch==2.6.0 and torchtext==0.18.0 (version mismatch between torchtext 0.17.1 also)
 
