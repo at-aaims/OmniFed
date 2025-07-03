@@ -29,6 +29,33 @@ def set_seed(seed=1234, determinism=False):
     torch.use_deterministic_algorithms(determinism)
 
 
+def split_into_chunks(dataset, client_id=0, total_clients=1):
+    """
+    :param dataset: A torchvision dataset
+    :param total_clients: total number of clients/world-size
+    :return: unique data subset for each client
+    """
+    num_samples = len(dataset)
+    chunk_size = num_samples // total_clients
+    indices = np.arange(num_samples)
+    np.random.shuffle(indices)
+
+    partitions = []
+    start_index = client_id * chunk_size
+    if client_id == total_clients - 1:
+        chunk_indices = indices[start_index:]
+    else:
+        chunk_indices = indices[start_index : start_index + chunk_size]
+
+    # Create a subset for the current chunk
+    chunk_dataset = torch.utils.data.Subset(dataset, chunk_indices)
+    partitions.append(chunk_dataset)
+    partitioned_dataset = partioneDataset(data=partitions)
+    del partitions
+
+    return partitioned_dataset
+
+
 class Partition(object):
     def __init__(self, data, index):
         self.data = data
@@ -111,30 +138,3 @@ class partioneDataset(torch.utils.data.Dataset):
         return torch.tensor(image, dtype=torch.float32), torch.tensor(
             label, dtype=torch.long
         )
-
-
-def split_into_chunks(dataset, client_id=0, total_clients=1):
-    """
-    :param dataset: A torchvision dataset
-    :param total_clients: total number of clients/world-size
-    :return: unique data subset for each client
-    """
-    num_samples = len(dataset)
-    chunk_size = num_samples // total_clients
-    indices = np.arange(num_samples)
-    np.random.shuffle(indices)
-
-    partitions = []
-    start_index = client_id * chunk_size
-    if client_id == total_clients - 1:
-        chunk_indices = indices[start_index:]
-    else:
-        chunk_indices = indices[start_index : start_index + chunk_size]
-
-    # Create a subset for the current chunk
-    chunk_dataset = torch.utils.data.Subset(dataset, chunk_indices)
-    partitions.append(chunk_dataset)
-    partitioned_dataset = partioneDataset(data=partitions)
-    del partitions
-
-    return partitioned_dataset

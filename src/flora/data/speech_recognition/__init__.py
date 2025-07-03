@@ -22,7 +22,7 @@ import torchaudio
 from torchaudio.datasets import LIBRISPEECH
 from torchaudio.transforms import Resample
 
-from src.flora.datasets.image_classification import set_seed
+from ..utils import set_seed
 
 # TODO: torchaudio backend didn't support .flac files, so install ffmpeg with 'conda install -c conda-forge ffmpeg';
 #  works with torch==2.5.1 and torchaudio==2.5.1

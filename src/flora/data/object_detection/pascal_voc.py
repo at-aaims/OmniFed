@@ -20,7 +20,7 @@ import torch
 import torchvision.transforms as transforms
 from PIL import Image
 
-from src.flora.datasets.image_classification import SplitData, UnsplitData, set_seed
+from ..utils import SplitData, UnsplitData, set_seed
 
 # Download and process PASCAL VOC-2012 dataset: https://www.kaggle.com/code/kuongan/vgg16
 
