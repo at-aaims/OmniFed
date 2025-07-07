@@ -54,6 +54,10 @@ class Algorithm(ABC):
         self._optimizer: Optional[torch.optim.Optimizer] = None
         self._metrics: Optional[RoundMetrics] = None
         self._local_samples: int = 0
+        # Round, epoch, and batch indices
+        self._round_idx: int = 0
+        self._epoch_idx: int = 0
+        self._batch_idx: int = 0
 
     # =============================================================================
     # PROPERTIES
@@ -74,15 +78,57 @@ class Algorithm(ABC):
         return self._metrics
 
     @property
+    def round_idx(self) -> int:
+        """Current federated round index with validation."""
+        return self._round_idx
+
+    @round_idx.setter
+    def round_idx(self, value: int) -> None:
+        if value < 0:
+            raise ValueError(f"round_idx must be non-negative, got {value}")
+        self._round_idx = value
+
+    @property
+    def epoch_idx(self) -> int:
+        """Current local epoch index with validation."""
+        return self._epoch_idx
+
+    @epoch_idx.setter
+    def epoch_idx(self, value: int) -> None:
+        if value < 0:
+            raise ValueError(f"epoch_idx must be non-negative, got {value}")
+        self._epoch_idx = value
+
+    @property
+    def batch_idx(self) -> int:
+        """Current local batch index with validation."""
+        return self._batch_idx
+
+    @batch_idx.setter
+    def batch_idx(self, value: int) -> None:
+        if value < 0:
+            raise ValueError(f"batch_idx must be non-negative, got {value}")
+        self._batch_idx = value
+
+    @property
     def local_samples(self) -> int:
         """Local samples processed by this node in current round - this node's contribution."""
         return self._local_samples
 
-    def reset_round_state(self) -> None:
-        """Reset state for a new round - called by framework."""
+    @local_samples.setter
+    def local_samples(self, value: int) -> None:
+        if value < 0:
+            raise ValueError(f"local_samples must be non-negative, got {value}")
+        self._local_samples = value
+
+    def round_setup(self, round_idx: int) -> None:
+        """Reset state for a new round - called by framework before round_start."""
         self._optimizer = None
         self._metrics = None
-        self._local_samples = 0
+        self.round_idx = round_idx
+        self.epoch_idx = 0
+        self.batch_idx = 0
+        self.local_samples = 0
 
     # =============================================================================
 
@@ -117,6 +163,8 @@ class Algorithm(ABC):
         self.local_model.train()
 
         for epoch_idx in range(max_epochs):
+            # Update current epoch index
+            self.epoch_idx = epoch_idx
             print(
                 f"TRAIN_ROUND {round_idx + 1} | EPOCH {epoch_idx + 1} START",
                 flush=True,
@@ -158,6 +206,8 @@ class Algorithm(ABC):
         data_iter = iter(dataloader)
 
         for batch_idx in range(len(dataloader)):
+            # Update current batch index
+            self.batch_idx = batch_idx
             # Batch timing
             batch_start_time = time.time()
             # Overridable batch start hook
@@ -201,7 +251,7 @@ class Algorithm(ABC):
         # Forward pass hook (implemented by subclasses)
         loss, batch_size = self.train_step(batch, batch_idx)
         # Automatic sample tracking
-        self._local_samples = self.local_samples + batch_size
+        self.local_samples = self.local_samples + batch_size
         self.metrics.update_sum("train/num_samples", batch_size)
         self.metrics.update_sum("train/num_batches", 1)
 

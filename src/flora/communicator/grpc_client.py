@@ -24,16 +24,20 @@ from . import grpc_communicator_pb2_grpc as flora_grpc_pb2_grpc
 
 class GrpcClient:
     def __init__(
-        self, client_id: str, master_addr: str = "127.0.0.1", master_port: int = 50051
+        self,
+        client_id: str,
+        master_addr: str,
+        master_port: int,
+        max_send_message_length: int,
+        max_receive_message_length: int,
     ):
         self.client_id = client_id
-        # self.channel = grpc.insecure_channel(master_addr+':'+str(master_port))
-        # 100MB
+        # initialize gRPC channel with configured buffer sizes
         self.channel = grpc.insecure_channel(
             master_addr + ":" + str(master_port),
             options=[
-                ("grpc.max_receive_message_length", 100 * 1024 * 1024),
-                ("grpc.max_send_message_length", 100 * 1024 * 1024),
+                ("grpc.max_receive_message_length", max_receive_message_length),
+                ("grpc.max_send_message_length", max_send_message_length),
             ],
         )
         self.stub = flora_grpc_pb2_grpc.CentralServerStub(self.channel)

@@ -34,6 +34,9 @@ class GrpcCommunicator(Communicator):
         master_addr: str = "127.0.0.1",
         master_port: int = 50051,
         accumulate_updates: bool = True,
+        max_workers: int = 10,
+        max_send_message_length: int = 100 * 1024 * 1024,  # 100 MB
+        max_receive_message_length: int = 100 * 1024 * 1024,  # 100 MB
         **kwargs,
     ):
         print(f"{self.__class__.__name__} init...")
@@ -48,6 +51,14 @@ class GrpcCommunicator(Communicator):
 
         self.accumulate_updates: bool = accumulate_updates
 
+        # ---
+        # configurable number of gRPC server threads
+        self.max_workers = max_workers
+        # configurable gRPC buffer sizes
+        self.max_send_message_length = max_send_message_length
+        self.max_receive_message_length = max_receive_message_length
+
+        # ---
         self.server: Optional[grpc.Server] = None
         self.client: Optional[GrpcClient] = None
 
@@ -55,20 +66,23 @@ class GrpcCommunicator(Communicator):
         """Initialize the gRPC communicator."""
         print(f"{self.__class__.__name__} setup...")
         if self.local_rank == 0:
-            # grpc send and receive message length max 100MB
+            # grpc send and receive message length & thread pool size from constructor args
             self.server = grpc.server(
-                futures.ThreadPoolExecutor(max_workers=10),
+                futures.ThreadPoolExecutor(max_workers=self.max_workers),
                 options=[
-                    ("grpc.max_send_message_length", 100 * 1024 * 1024),
-                    ("grpc.max_receive_message_length", 100 * 1024 * 1024),
+                    ("grpc.max_send_message_length", self.max_send_message_length),
+                    (
+                        "grpc.max_receive_message_length",
+                        self.max_receive_message_length,
+                    ),
                 ],
             )
 
             # Add the server servicer with the model
             grpc_communicator_pb2_grpc.add_CentralServerServicer_to_server(
                 CentralServerServicer(
-                    self.world_size,
                     self.model,
+                    num_clients=self.world_size,
                     accumulate_updates=self.accumulate_updates,
                 ),
                 self.server,
@@ -90,6 +104,8 @@ class GrpcCommunicator(Communicator):
             client_id="client_" + str(self.local_rank),
             master_addr=self.master_addr,
             master_port=self.master_port,
+            max_send_message_length=self.max_send_message_length,
+            max_receive_message_length=self.max_receive_message_length,
         )
 
     def broadcast(

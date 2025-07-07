@@ -13,11 +13,8 @@
 # limitations under the License.
 
 import threading
-import time
-from concurrent import futures
 from typing import Dict
 
-import grpc
 import numpy as np
 import torch
 
@@ -25,28 +22,11 @@ from . import grpc_communicator_pb2 as flora_grpc_pb2
 from . import grpc_communicator_pb2_grpc as flora_grpc_pb2_grpc
 
 
-# temp. for testing. remove later
-class SimpleModel(torch.nn.Module):
-    """Simple neural network for demonstration"""
-
-    def __init__(self, input_size=784, hidden_size=128, num_classes=10):
-        super(SimpleModel, self).__init__()
-        self.fc1 = torch.nn.Linear(input_size, hidden_size)
-        self.relu = torch.nn.ReLU()
-        self.fc2 = torch.nn.Linear(hidden_size, num_classes)
-
-    def forward(self, x):
-        x = self.fc1(x)
-        x = self.relu(x)
-        x = self.fc2(x)
-        return x
-
-
 class CentralServerServicer(flora_grpc_pb2_grpc.CentralServerServicer):
     def __init__(
         self,
-        num_clients: int,
         model: torch.nn.Module,
+        num_clients: int,
         use_compression: bool = False,
         accumulate_updates: bool = True,
         communicate_params: bool = True,
@@ -309,40 +289,3 @@ class CentralServerServicer(flora_grpc_pb2_grpc.CentralServerServicer):
                 message=f"Client {request.client_id} registered successfully",
                 total_clients=total_clients,
             )
-
-
-def start_server(model, port=50051, num_clients=3, accumulate_updates=True):
-    # max send and receive message length: 100 MB
-    server = grpc.server(
-        futures.ThreadPoolExecutor(max_workers=10),
-        options=[
-            ("grpc.max_send_message_length", 100 * 1024 * 1024),
-            ("grpc.max_receive_message_length", 100 * 1024 * 1024),
-        ],
-    )
-
-    flora_grpc_pb2_grpc.add_CentralServerServicer_to_server(
-        CentralServerServicer(
-            num_clients, model, accumulate_updates=accumulate_updates
-        ),
-        server,
-    )
-
-    listen_addr = f"[::]:{port}"
-    server.add_insecure_port(listen_addr)
-
-    print(f"Compatible Scalable Parameter server starting on {listen_addr}")
-    server.start()
-
-    try:
-        while True:
-            time.sleep(86400)
-    except KeyboardInterrupt:
-        print("Shutting down parameter server...")
-        server.stop(0)
-
-
-if __name__ == "__main__":
-    start_server(
-        model=SimpleModel(), port=50051, num_clients=3, accumulate_updates=True
-    )

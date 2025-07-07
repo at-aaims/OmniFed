@@ -2,7 +2,7 @@
 
 # Defines a reusable datamodule config using the torchvision MNIST dataset.
 
-_target_: src.flora.dataset.DataModule
+_target_: src.flora.data.DataModule
 
 # ─────────────
 
