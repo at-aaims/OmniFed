@@ -155,27 +155,25 @@ class FedAvgNew(Algorithm):
         Aggregate model parameters across clients and update the local model with the weighted average.
         """
 
-        """
-        # Aggregate local sample counts to compute federation total
-        global_samples = self.comm.aggregate(
-            torch.tensor([self.local_samples], dtype=torch.float32),
-            communicate_params=False,
-            compute_mean=False,
-        ).item()
+        # # Aggregate local sample counts to compute federation total
+        # global_samples = self.comm.aggregate(
+        #     torch.tensor([self.local_samples], dtype=torch.float32),
+        #     communicate_params=False,
+        #     compute_mean=False,
+        # ).item()
 
-        # Handle edge cases safely - all nodes must participate in distributed operations
-        if global_samples <= 0:
-            print(
-                "WARN: No samples processed across entire federation - participating with zero weight"
-            )
-            data_proportion = 0.0
-        else:
-            # Calculate this client's data proportion for weighted aggregation
-            data_proportion = self.local_samples / global_samples
+        # # Handle edge cases safely - all nodes must participate in distributed operations
+        # if global_samples <= 0:
+        #     print(
+        #         "WARN: No samples processed across entire federation - participating with zero weight"
+        #     )
+        #     data_proportion = 0.0
+        # else:
+        #     # Calculate this client's data proportion for weighted aggregation
+        #     data_proportion = self.local_samples / global_samples
 
-        # All nodes participate regardless of sample count
-        utils.scale_params(self.local_model, data_proportion)
-        """
+        # # All nodes participate regardless of sample count
+        # utils.scale_params(self.local_model, data_proportion)
 
         # Aggregate models across all clients - communicator handles weighting
         self.local_model = self.comm.aggregate(

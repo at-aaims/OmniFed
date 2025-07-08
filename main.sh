@@ -25,4 +25,4 @@ rm -rf ./outputs
 
 # =========================================
 
-python -u main.py --config-name test_mnist_fedavg1
+python -u main.py --config-name test_mnist_fedavg1 2>&1 | tee main.log
