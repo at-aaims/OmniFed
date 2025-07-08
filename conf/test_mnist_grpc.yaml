@@ -1,0 +1,6 @@
+defaults:
+  - test_mnist_base
+  - _self_
+
+comm:
+  _target_: src.flora.communicator.GrpcCommunicator

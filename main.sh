@@ -1,6 +1,13 @@
 #!/bin/bash
 
 # =========================================
+
+clear
+
+set -euo pipefail  # Exit on error, undefined variable, or failed command in a pipeline
+set -x              # Print each command before executing it (for debugging)
+
+# =========================================
 # Set debugging environment variables
 
 export PYTHONUNBUFFERED=1              # Ensure Python output isn't buffered
@@ -19,10 +26,12 @@ export HYDRA_FULL_ERROR=1              # Show full error trace for Hydra
 
 # =========================================
 
-clear
-
 rm -rf ./outputs
 
 # =========================================
 
-python -u main.py --config-name test_mnist_fedavg1 2>&1 | tee main.log
+# python -u main.py --config-name test_mnist_torchdist "$@"
+
+python -u main.py --config-name test_mnist_grpc "$@"
+
+# python -u main.py --config-name test_mnist_grpc "$@" 2>&1 | tee main.log
