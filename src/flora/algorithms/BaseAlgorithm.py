@@ -38,7 +38,7 @@ class Algorithm(ABC):
     - Automatic infrastructure: metrics, timing, device handling, sample counting
     """
 
-    def __init__(self, local_model: nn.Module, comm: Communicator):
+    def __init__(self, local_model: nn.Module, comm: Communicator, max_epochs: int):
         """
         Initialize the Algorithm instance.
 
@@ -49,6 +49,7 @@ class Algorithm(ABC):
         # Core federated learning components
         self.local_model: nn.Module = local_model
         self.comm: Communicator = comm
+        self.max_epochs: int = max_epochs
 
         # Round state - properly initialized
         self._optimizer: Optional[torch.optim.Optimizer] = None
@@ -147,7 +148,6 @@ class Algorithm(ABC):
         self,
         dataloader: DataLoader[Any],
         round_idx: int,
-        max_epochs: int,
     ):
         """
         Execute federated round computation across multiple epochs.
@@ -162,7 +162,7 @@ class Algorithm(ABC):
         """
         self.local_model.train()
 
-        for epoch_idx in range(max_epochs):
+        for epoch_idx in range(self.max_epochs):
             # Update current epoch index
             self.epoch_idx = epoch_idx
             print(

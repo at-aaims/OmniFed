@@ -140,10 +140,11 @@ class FedDynNew(Algorithm):
         self,
         local_model: nn.Module,
         comm: Communicator,
+        max_epochs: int,
         lr: float = 0.01,
         alpha: float = 0.1,
     ):
-        super().__init__(local_model, comm)
+        super().__init__(local_model, comm, max_epochs)
         self.lr = lr
         self.alpha = alpha
 

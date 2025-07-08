@@ -207,12 +207,13 @@ class MOONNew(Algorithm):
         self,
         local_model: nn.Module,
         comm: Communicator,
+        max_epochs: int,
         lr: float = 0.01,
         mu: float = 1.0,
         temperature: float = 0.5,
         num_prev_models: int = 1,
     ):
-        super().__init__(local_model, comm)
+        super().__init__(local_model, comm, max_epochs)
         self.lr = lr
         self.mu = mu
         self.temperature = temperature

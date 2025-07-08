@@ -151,12 +151,13 @@ class DiLoCoNew(Algorithm):
         self,
         local_model: nn.Module,
         comm: Communicator,
+        max_epochs: int,
         lr: float = 0.01,
         outer_lr: float = 0.7,
         outer_momentum: float = 0.9,
         inner_steps: int = 5,
     ):
-        super().__init__(local_model, comm)
+        super().__init__(local_model, comm, max_epochs)
         self.lr = lr
         self.outer_lr = outer_lr
         self.outer_momentum = outer_momentum

@@ -17,10 +17,9 @@ from typing import Union
 
 import torch
 import torch.distributed as dist
-import torch.nn as nn
+from torch import nn
 
 from .BaseCommunicator import Communicator
-
 
 # ======================================================================================
 
@@ -32,7 +31,7 @@ class TorchDistCommunicator(Communicator):
 
     def __init__(
         self,
-        rank: int,
+        local_rank: int,
         world_size: int,
         init_method: str = "tcp",
         # group_name: str = "default",
@@ -40,11 +39,11 @@ class TorchDistCommunicator(Communicator):
         master_port: str = "29500",
         backend: str = "gloo",
         sharedfile: str = "sharedfile",
-        timeout: int = 10,
+        timeout: int = 30,
         max_retries: int = 3,
     ):
         print(f"{self.__class__.__name__} init...")
-        self.rank: int = rank
+        self.local_rank: int = local_rank
         self.world_size: int = world_size
         self.init_method: str = init_method
         # self.group_name = group_name
@@ -99,7 +98,7 @@ class TorchDistCommunicator(Communicator):
 
     #     print(f"Process group initialized successfully")
 
-    def setup(self):
+    def setup(self, model: nn.Module):
         """
         Initialize PyTorch distributed process group using the selected init_method.
         """
@@ -109,7 +108,7 @@ class TorchDistCommunicator(Communicator):
         #     return
 
         print(
-            f"setup: rank={self.rank}, world_size={self.world_size}, init_method={self.init_method}, backend={self.backend}, master_addr={self.master_addr}, master_port={self.master_port}, sharedfile={self.sharedfile}",
+            f"setup: rank={self.local_rank}, world_size={self.world_size}, init_method={self.init_method}, backend={self.backend}, master_addr={self.master_addr}, master_port={self.master_port}, sharedfile={self.sharedfile}",
             flush=True,
         )
 
@@ -118,7 +117,7 @@ class TorchDistCommunicator(Communicator):
             dist.init_process_group(
                 backend=self.backend,
                 init_method=addr,
-                rank=self.rank,
+                rank=self.local_rank,
                 world_size=self.world_size,
                 timeout=self.timeout,
             )
@@ -127,7 +126,7 @@ class TorchDistCommunicator(Communicator):
             dist.init_process_group(
                 backend=self.backend,
                 init_method=addr,
-                rank=self.rank,
+                rank=self.local_rank,
                 world_size=self.world_size,
             )
 

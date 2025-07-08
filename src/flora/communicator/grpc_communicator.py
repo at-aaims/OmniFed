@@ -12,7 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import time
 from concurrent import futures
 from typing import Optional, Union
 
@@ -28,7 +27,6 @@ from .grpc_server import CentralServerServicer
 class GrpcCommunicator(Communicator):
     def __init__(
         self,
-        model: nn.Module,
         local_rank: int,
         world_size: int,
         master_addr: str = "127.0.0.1",
@@ -40,8 +38,7 @@ class GrpcCommunicator(Communicator):
         **kwargs,
     ):
         print(f"{self.__class__.__name__} init...")
-
-        self.model: nn.Module = model
+        # self.model: nn.Module = model
 
         self.local_rank: int = local_rank
         self.world_size: int = world_size
@@ -62,7 +59,9 @@ class GrpcCommunicator(Communicator):
         self.server: Optional[grpc.Server] = None
         self.client: Optional[GrpcClient] = None
 
-    def setup(self):
+        print(f"GrpcCommunicator initialized: {dict(locals())}")
+
+    def setup(self, model: nn.Module):
         """Initialize the gRPC communicator."""
         print(f"{self.__class__.__name__} setup...")
         if self.local_rank == 0:
@@ -81,7 +80,7 @@ class GrpcCommunicator(Communicator):
             # Add the server servicer with the model
             grpc_communicator_pb2_grpc.add_CentralServerServicer_to_server(
                 CentralServerServicer(
-                    self.model,
+                    model,
                     num_clients=self.world_size,
                     accumulate_updates=self.accumulate_updates,
                 ),
@@ -92,12 +91,13 @@ class GrpcCommunicator(Communicator):
             self.server.start()
 
             try:
-                while True:
-                    time.sleep(86400)
+                # while True:
+                #     time.sleep(86400)
+                # Block until the server is stopped or a KeyboardInterrupt occurs
+                self.server.wait_for_termination()
             except KeyboardInterrupt:
                 print("Shutting down parameter server...")
                 self.server.stop(0)
-
             return
 
         self.client = GrpcClient(

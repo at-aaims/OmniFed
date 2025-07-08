@@ -145,11 +145,12 @@ class DittoNew(Algorithm):
         self,
         local_model: nn.Module,
         comm: Communicator,
+        max_epochs: int,
         lr: float = 0.01,
         global_lr: float = 0.01,
         ditto_lambda: float = 0.1,
     ):
-        super().__init__(local_model, comm)
+        super().__init__(local_model, comm, max_epochs)
         self.lr = lr
         self.global_lr = global_lr
         self.ditto_lambda = ditto_lambda

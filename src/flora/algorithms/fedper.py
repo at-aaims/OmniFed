@@ -160,10 +160,11 @@ class FedPerNew(Algorithm):
         self,
         local_model: nn.Module,
         comm: Communicator,
+        max_epochs: int,
         lr: float = 0.01,
         personal_layers: Optional[list[str]] = None,
     ):
-        super().__init__(local_model, comm)
+        super().__init__(local_model, comm, max_epochs)
         self.lr = lr
         self.personal_layers = personal_layers or ["classifier", "head", "fc"]
 

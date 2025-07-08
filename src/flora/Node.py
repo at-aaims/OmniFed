@@ -70,26 +70,24 @@ class Node:
         algo_cfg: DictConfig,
         model_cfg: DictConfig,
         data_cfg: DictConfig,
-        max_epochs: int = 1,  # TODO: think if this is the best place for this (take into consideration the Hydra config and user experience)
-        rank: Optional[int] = None,
-        world_size: Optional[int] = None,
+        local_rank: int,
+        world_size: int,
         device: str = "auto",
         **kwargs: Any,
     ):
         print(f"{self.__class__.__name__} {id} init...")
         self.id: str = id
         # self.roles: Set[NodeRole] = roles
-        self.max_epochs: int = max_epochs
 
         # Distributed computing context
-        self.local_rank: Optional[int] = rank
+        self.local_rank: Optional[int] = local_rank
         self.world_size: Optional[int] = world_size
-        self.device: torch.device = self.select_device(device, rank=rank)
+        self.device: torch.device = self.select_device(device, rank=local_rank)
 
         # Communication backend instantiation
         self.comm: Communicator = instantiate(
             comm_cfg,
-            rank=rank,
+            local_rank=local_rank,
             world_size=world_size,
         )
 
@@ -176,6 +174,7 @@ class Node:
             True if node should train, False if it should skip training
         """
         return self.local_rank != 0
+        # return True
 
     def setup(self) -> None:
         """
@@ -185,7 +184,7 @@ class Node:
         Called once before federated learning begins.
         """
         print("Setup: initializing communication backend", flush=True)
-        self.comm.setup()
+        self.comm.setup(self.local_model)
 
         # summary(self.model, verbose=1)
 
@@ -255,7 +254,6 @@ class Node:
             self.algo.train_round(
                 self.datamodule.train,
                 round_idx,
-                self.max_epochs,
             )
 
             # Capture after-training state and show transition

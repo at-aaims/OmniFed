@@ -90,7 +90,7 @@ class CentralizedTopology(Topology):
                 model_cfg=model_cfg,
                 algo_cfg=algo_cfg,
                 data_cfg=data_cfg,
-                rank=rank,
+                local_rank=rank,
                 world_size=self.num_nodes,
             )
 

@@ -36,7 +36,7 @@ class Communicator(ABC):
     MsgT = TypeVar("MsgT", nn.Module, torch.Tensor, Dict[str, torch.Tensor])
 
     @abstractmethod
-    def setup(self):
+    def setup(self, model: nn.Module):
         """
         Initialize the communication layer.
         This method should be called before any communication operations.

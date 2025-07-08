@@ -15,3 +15,4 @@
 from .BaseCommunicator import Communicator
 from .DummyCommunicator import DummyCommunicator
 from .TorchDistCommunicator import TorchDistCommunicator
+from .grpc_communicator import GrpcCommunicator
