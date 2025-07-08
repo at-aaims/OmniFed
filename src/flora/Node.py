@@ -204,7 +204,7 @@ class Node:
         round_start_time = time.time()
 
         # Reset round state (simple and explicit)
-        self.algo.reset_round_state()
+        self.algo.round_setup(round_idx)
 
         # Model state before any synchronization
         metrics: dict[str, float] = dict(round_idx=round_idx)
