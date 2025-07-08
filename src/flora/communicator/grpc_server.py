@@ -105,7 +105,7 @@ class CentralServerServicer(flora_grpc_pb2_grpc.CentralServerServicer):
             client_id = request.client_id
             round_number = request.round_number
             print(
-                f"[Server] SendUpdate: client={client_id}, round={round_number}, "
+                f"SendUpdate: client={client_id}, round={round_number}, "
                 f"layers={len(request.layers)}, samples={request.number_samples}"
             )
 
@@ -138,7 +138,7 @@ class CentralServerServicer(flora_grpc_pb2_grpc.CentralServerServicer):
                 shapes = {
                     name: tuple(tensor.shape) for name, tensor in update_data.items()
                 }
-                print(f"[Server] Received update shapes from {client_id}: {shapes}")
+                print(f"Received update shapes from {client_id}: {shapes}")
 
                 if self.accumulate_updates:
                     # Updates' accumulation approach - more memory efficient
@@ -219,7 +219,7 @@ class CentralServerServicer(flora_grpc_pb2_grpc.CentralServerServicer):
                         # This gives proper weighted averaging based on data size
                         avg_update = self.accumulated_updates[name] / self.total_samples
                         print(
-                            f"[Server] Averaging {name} with total_samples={self.total_samples}, shape={tuple(avg_update.shape)}"
+                            f"Averaging {name} with total_samples={self.total_samples}, shape={tuple(avg_update.shape)}"
                         )
                     else:
                         avg_update = self.accumulated_updates[name]
@@ -227,23 +227,21 @@ class CentralServerServicer(flora_grpc_pb2_grpc.CentralServerServicer):
                     if self.communicate_params:
                         param.data = avg_update
                         print(
-                            f"[Server] Applied param.data for {name}, shape={tuple(param.data.shape)}"
+                            f"Applied param.data for {name}, shape={tuple(param.data.shape)}"
                         )
                     else:
                         param.grad = avg_update
                         print(
-                            f"[Server] Applied param.grad for {name}, shape={tuple(param.grad.shape)}"
+                            f"Applied param.grad for {name}, shape={tuple(param.grad.shape)}"
                         )
                     applied_count += 1
-            print(f"[Server] Applied updates to {applied_count} layers")
+            print(f"Applied updates to {applied_count} layers")
 
     def GetUpdatedModel(self, request, context):
         """Send current model to client using existing protobuf format"""
         client_id = request.client_id
         round_number = request.round_number
-        print(
-            f"[Server] GetUpdatedModel: client={client_id}, requested_round={round_number}"
-        )
+        print(f"GetUpdatedModel: client={client_id}, requested_round={round_number}")
 
         try:
             print(f"Client {client_id} requesting model for round {round_number}")

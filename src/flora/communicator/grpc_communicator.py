@@ -150,7 +150,7 @@ class GrpcCommunicator(Communicator):
 
             try:
                 # Get current model from server (not waiting for aggregation)
-                msg = self.client.get_averaged_model(msg=msg, communicate_params=True)
+                msg = self.client.get_global_model(msg=msg, communicate_params=True)
                 return msg
             finally:
                 # Restore original round number
@@ -207,7 +207,7 @@ class GrpcCommunicator(Communicator):
             self.client.send_update_to_server(
                 updates=updates, local_samples=local_samples
             )
-            msg = self.client.get_averaged_model(
+            msg = self.client.get_global_model(
                 msg=msg, communicate_params=communicate_params
             )
             self.client.round_number += 1

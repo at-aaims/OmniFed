@@ -32,7 +32,7 @@ class GrpcClient:
         max_send_message_length: int,
         max_receive_message_length: int,
         retry_delay: float = 5.0,
-        max_retries: int = 30,
+        max_retries: int = 10,
     ):
         print(f"{self.__class__.__name__} init...")
 
@@ -50,10 +50,13 @@ class GrpcClient:
         self.stub = flora_grpc_pb2_grpc.CentralServerStub(self.channel)
         self.round_number = 0
 
-        print(
-            f"Client {client_id} initialized, connecting to {master_addr}:{master_port}"
-        )
+        self.log(f"Initializing client, connecting to {master_addr}:{master_port}")
         self._register_with_server()
+
+    def log(self, message: str):
+        print(
+            f"[{self.__class__.__name__}] [Client {self.client_id}] [Round {self.round_number}] {message}"
+        )
 
     def _register_with_server(self):
         """Register this client with the parameter server"""
@@ -62,14 +65,14 @@ class GrpcClient:
             response = self.stub.RegisterClient(request)
 
             if response.success:
-                print(
-                    f"Successfully registered with server. Total clients: {response.total_clients}"
+                self.log(
+                    f"Registered with server. Total clients: {response.total_clients}"
                 )
             else:
-                print(f"Failed to register with server: {response.message}")
+                self.log(f"Registration failed: {response.message}")
 
         except grpc.RpcError as e:
-            print(f"Failed to connect to server: {e}")
+            self.log(f"Connection to server failed: {e}")
 
     def _model_params_to_protobuf(self, updates: Dict):
         """Convert model parameters to protobuf format"""
@@ -100,17 +103,16 @@ class GrpcClient:
             response = self.stub.SendUpdate(request)
 
             if response.success:
-                print(
-                    f"Round {self.round_number}: Update sent successfully. "
-                    f"Updates received: {response.updates_received}/{response.clients_registered}"
+                self.log(
+                    f"Update sent. Updates received: {response.updates_received}/{response.clients_registered}"
                 )
                 return True
             else:
-                print(f"Failed to send update: {response.message}")
+                self.log(f"Update failed: {response.message}")
                 return False
 
         except grpc.RpcError as e:
-            print(f"Failed to send update to server: {e}")
+            self.log(f"Update send failed: {e}")
             return False
 
     def _update_model_from_protobuf(self, communicate_params, model, proto_layers):
@@ -136,10 +138,11 @@ class GrpcClient:
 
         return model
 
-    def get_averaged_model(self, msg: torch.nn.Module, communicate_params: bool):
-        """Get averaged model from parameter server - wait indefinitely until ready"""
-        print(f"Round {self.round_number}: Waiting for averaged model from server...")
-        while True:
+    def get_global_model(self, msg: torch.nn.Module, communicate_params: bool):
+        """Get model from parameter server - retry up to max_retries times, then fail."""
+        self.log("Waiting for model from server...")
+        attempts = 0
+        while attempts < self.max_retries:
             try:
                 request = flora_grpc_pb2.GetModelRequest(
                     client_id=self.client_id, round_number=self.round_number
@@ -152,18 +155,18 @@ class GrpcClient:
                         model=msg,
                         proto_layers=response.layers,
                     )
-                    print(
-                        f"Round {self.round_number}: Received averaged model from server, layers={len(response.layers)}"
-                    )
+                    self.log(f"Model received. Layers: {len(response.layers)}")
                     return msg
                 else:
-                    # Model not ready yet, wait and try again
-                    print(
-                        f"Round {self.round_number}: Averaged model not ready, sleeping {self.retry_delay}s before retry..."
+                    self.log(
+                        f"Model not ready, retrying in {self.retry_delay}s (attempt {attempts + 1}/{self.max_retries})..."
                     )
                     time.sleep(self.retry_delay)
-
+                    attempts += 1
             except grpc.RpcError as e:
-                print(f"Failed to get averaged model (will retry): {e}")
-                time.sleep(self.retry_delay)  # Brief pause before retry on error
-                continue
+                self.log(f"Model fetch failed (will retry): {e}")
+                time.sleep(self.retry_delay)
+                attempts += 1
+        raise RuntimeError(
+            f"[{self.__class__.__name__}] [Client {self.client_id}] [Round {self.round_number}] Exceeded maximum retries ({self.max_retries}) waiting for model from server."
+        )
