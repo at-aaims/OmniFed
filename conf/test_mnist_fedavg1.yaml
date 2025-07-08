@@ -31,7 +31,7 @@ algo:
   lr: 0.01
 
 topology: # overrides the default centralized topology
-  num_nodes: 3
+  num_clients: 2 # 2 clients + 1 server = 3 total nodes
 
 # ───────────── Engine Config
 

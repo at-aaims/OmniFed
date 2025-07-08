@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import time
 from typing import Dict
 
 import grpc
@@ -30,8 +31,14 @@ class GrpcClient:
         master_port: int,
         max_send_message_length: int,
         max_receive_message_length: int,
+        retry_delay: float = 5.0,
+        max_retries: int = 30,
     ):
+        print(f"{self.__class__.__name__} init...")
+
         self.client_id = client_id
+        self.retry_delay = retry_delay
+        self.max_retries = max_retries
         # initialize gRPC channel with configured buffer sizes
         self.channel = grpc.insecure_channel(
             master_addr + ":" + str(master_port),
@@ -78,7 +85,7 @@ class GrpcClient:
 
         return proto_layers
 
-    def send_update_to_server(self, updates: Dict, batch_samples: int):
+    def send_update_to_server(self, updates: Dict, local_samples: int):
         """Send model update to parameter server"""
         try:
             proto_layers = self._model_params_to_protobuf(updates)
@@ -87,7 +94,7 @@ class GrpcClient:
                 client_id=self.client_id,
                 round_number=self.round_number,
                 layers=proto_layers,
-                number_samples=batch_samples,
+                number_samples=local_samples,
             )
 
             response = self.stub.SendUpdate(request)
@@ -146,15 +153,17 @@ class GrpcClient:
                         proto_layers=response.layers,
                     )
                     print(
-                        f"Round {self.round_number}: Received averaged model from server"
+                        f"Round {self.round_number}: Received averaged model from server, layers={len(response.layers)}"
                     )
                     return msg
                 else:
                     # Model not ready yet, wait and try again
                     print(
-                        f"Round {self.round_number}: Averaged model not ready, waiting 2 seconds..."
+                        f"Round {self.round_number}: Averaged model not ready, sleeping {self.retry_delay}s before retry..."
                     )
+                    time.sleep(self.retry_delay)
 
             except grpc.RpcError as e:
                 print(f"Failed to get averaged model (will retry): {e}")
+                time.sleep(self.retry_delay)  # Brief pause before retry on error
                 continue

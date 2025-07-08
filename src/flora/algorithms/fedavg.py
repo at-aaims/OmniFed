@@ -21,7 +21,6 @@ from src.flora.helper.node_config import NodeConfig
 from src.flora.helper.training_params import FedAvgTrainingParameters
 
 from ..communicator.BaseCommunicator import Communicator
-from . import utils
 from .BaseAlgorithm import Algorithm
 
 
@@ -155,8 +154,9 @@ class FedAvgNew(Algorithm):
         """
         Aggregate model parameters across clients and update the local model with the weighted average.
         """
-        # Aggregate local sample counts to compute federation total
 
+        """
+        # Aggregate local sample counts to compute federation total
         global_samples = self.comm.aggregate(
             torch.tensor([self.local_samples], dtype=torch.float32),
             communicate_params=False,
@@ -175,10 +175,12 @@ class FedAvgNew(Algorithm):
 
         # All nodes participate regardless of sample count
         utils.scale_params(self.local_model, data_proportion)
+        """
 
-        # Aggregate weighted models across all clients
+        # Aggregate models across all clients - communicator handles weighting
         self.local_model = self.comm.aggregate(
             self.local_model,
+            local_samples=self.local_samples,
             communicate_params=True,
             compute_mean=False,
         )

@@ -13,7 +13,7 @@
 # limitations under the License.
 
 from concurrent import futures
-from typing import Optional, Union
+from typing import Union
 
 import grpc
 import torch
@@ -35,6 +35,8 @@ class GrpcCommunicator(Communicator):
         max_workers: int = 10,
         max_send_message_length: int = 100 * 1024 * 1024,  # 100 MB
         max_receive_message_length: int = 100 * 1024 * 1024,  # 100 MB
+        retry_delay: float = 2.0,  # Seconds to wait between retries
+        max_retries: int = 30,  # Maximum number of retries before giving up
         **kwargs,
     ):
         print(f"{self.__class__.__name__} init...")
@@ -54,10 +56,13 @@ class GrpcCommunicator(Communicator):
         # configurable gRPC buffer sizes
         self.max_send_message_length = max_send_message_length
         self.max_receive_message_length = max_receive_message_length
+        # configurable retry behavior
+        self.retry_delay = retry_delay
+        self.max_retries = max_retries
 
         # ---
-        self.server: Optional[grpc.Server] = None
-        self.client: Optional[GrpcClient] = None
+        self.server = None
+        self.client = None
 
         print(f"GrpcCommunicator initialized: {dict(locals())}")
 
@@ -81,32 +86,37 @@ class GrpcCommunicator(Communicator):
             grpc_communicator_pb2_grpc.add_CentralServerServicer_to_server(
                 CentralServerServicer(
                     model,
-                    num_clients=self.world_size,
+                    num_clients=self.world_size - 1,  # Exclude server from client count
                     accumulate_updates=self.accumulate_updates,
                 ),
                 self.server,
             )
 
             self.server.add_insecure_port(f"[::]:{self.master_port}")
+            print(f"gRPC parameter server binding to [::]:{self.master_port}")
+            # Start server without blocking the calling thread
             self.server.start()
+            print("gRPC parameter server running, background threads ready")
 
-            try:
-                # while True:
-                #     time.sleep(86400)
-                # Block until the server is stopped or a KeyboardInterrupt occurs
-                self.server.wait_for_termination()
-            except KeyboardInterrupt:
-                print("Shutting down parameter server...")
-                self.server.stop(0)
-            return
+            # try:
+            #     # while True:
+            #     #     time.sleep(86400)
+            #     # Block until the server is stopped or a KeyboardInterrupt occurs
+            #     self.server.wait_for_termination()
+            # except KeyboardInterrupt:
+            #     print("Shutting down parameter server...")
+            #     self.server.stop(0)
 
-        self.client = GrpcClient(
-            client_id="client_" + str(self.local_rank),
-            master_addr=self.master_addr,
-            master_port=self.master_port,
-            max_send_message_length=self.max_send_message_length,
-            max_receive_message_length=self.max_receive_message_length,
-        )
+        else:
+            self.client = GrpcClient(
+                client_id="client_" + str(self.local_rank),
+                master_addr=self.master_addr,
+                master_port=self.master_port,
+                max_send_message_length=self.max_send_message_length,
+                max_receive_message_length=self.max_receive_message_length,
+                retry_delay=self.retry_delay,
+                max_retries=self.max_retries,
+            )
 
     def broadcast(
         self,
@@ -114,56 +124,99 @@ class GrpcCommunicator(Communicator):
         src: int = 0,
     ) -> Communicator.MsgT:
         """
-        In gRPC centralized topology, this is handled by the aggregation round.
-        Clients receive models via get_averaged_model in aggregate().
+        Get the current global model without contributing an update.
+
+        In gRPC client-server topology:
+        - Server (src=0): Returns model as-is (already has global model)
+        - Clients: Fetch current global model from server
+
+        This enables initial model synchronization and round-start model distribution.
         """
         print(f"gRPC broadcast from src={src} | {type(msg)}")
-        raise NotImplementedError()
 
-    def aggregate(
-        self,
-        msg: Union[torch.nn.Module, torch.Tensor],
-        batch_samples: int,
-        communicate_params: bool = True,
-        compute_mean: bool = True,
-    ):
-        # TODO: fix linting errors caused by function signature mismatch with base class
-
-        if isinstance(msg, torch.nn.Module):
-            # communicate either model parameters or gradients
-            if communicate_params:
-                # for weighted aggregation, summed updates are divided by total_samples on the server
-                updates = {
-                    name: torch.mul(param.data.detach(), batch_samples)
-                    for (name, param) in msg.named_parameters()
-                }
-            else:
-                # for weighted aggregation, summed updates are divided by total_samples on the server
-                updates = {
-                    name: torch.mul(param.grad.detach(), batch_samples)
-                    for (name, param) in msg.named_parameters()
-                }
-
-            # if self.local_rank != 0:
+        if self.local_rank == src:
+            # Server node: already has the global model
+            return msg
+        else:
+            # Client node: fetch current global model from server
             if self.client is None:
                 raise RuntimeError(
                     "gRPC client is not initialized. Call setup() first."
                 )
 
+            # Save current round number and use special value for broadcast
+            saved_round = self.client.round_number
+            self.client.round_number = -1  # Special value indicates broadcast request
+
+            try:
+                # Get current model from server (not waiting for aggregation)
+                msg = self.client.get_averaged_model(msg=msg, communicate_params=True)
+                return msg
+            finally:
+                # Restore original round number
+                self.client.round_number = saved_round
+
+    def aggregate(
+        self,
+        msg: Communicator.MsgT,
+        local_samples: int,
+        communicate_params: bool = True,
+        compute_mean: bool = True,
+    ) -> Communicator.MsgT:
+        """
+        Aggregate model updates across all clients.
+
+        In gRPC client-server topology:
+        - Clients: Send weighted update to server, get back aggregated model
+        - Server: No-op (aggregation happens in server servicer)
+
+        Args:
+            msg: Model, tensor, or dict to aggregate
+            communicate_params: If True, aggregate model parameters; if False, aggregate gradients
+            compute_mean: If True, compute mean (handled by server); if False, sum aggregation
+            local_samples: Number of local samples for weighted aggregation (required for models)
+        """
+        print(
+            f"gRPC aggregate | {type(msg)} communicate_params={communicate_params} compute_mean={compute_mean}"
+        )
+
+        if self.local_rank == 0:
+            # Server node: aggregation handled by server servicer, return model as-is
+            return msg
+
+        # Client node: send update and get aggregated result
+        if self.client is None:
+            raise RuntimeError("gRPC client is not initialized. Call setup() first.")
+
+        if isinstance(msg, torch.nn.Module):
+            # client-side scaling
+            # server expects weighted updates
+            # server does (sum(param * samples)) / total_samples
+            if communicate_params:
+                updates = {
+                    name: torch.mul(param.data.detach(), local_samples)
+                    for (name, param) in msg.named_parameters()
+                }
+            else:
+                updates = {
+                    name: torch.mul(param.grad.detach(), local_samples)
+                    for (name, param) in msg.named_parameters()
+                }
+
+            # Send update and get aggregated model
             self.client.send_update_to_server(
-                updates=updates, batch_samples=batch_samples
+                updates=updates, local_samples=local_samples
             )
             msg = self.client.get_averaged_model(
                 msg=msg, communicate_params=communicate_params
             )
             self.client.round_number += 1
+            return msg
 
-        else:
-            raise NotImplementedError(
-                "TODO: Handle other types than torch.nn.Module for aggregation in gRPC!!!"
-            )
-
-        return msg
+        raise NotImplementedError(
+            f"Aggregation not implemented for type {type(msg)} in gRPC communicator. "
+            f"Only torch.nn.Module is supported."
+        )
 
     def send(
         self,
@@ -197,6 +250,14 @@ class GrpcCommunicator(Communicator):
         """
         print("Closing gRPC communicator")
 
-        # TODO: implement this
+        if self.server is not None:
+            print("Stopping gRPC server...")
+            self.server.stop(grace=5)  # 5 second grace period
+            print("gRPC server stopped")
+
+        if self.client is not None:
+            print("Closing gRPC client channel...")
+            self.client.channel.close()
+            print("gRPC client channel closed")
 
         print("gRPC communicator closed")

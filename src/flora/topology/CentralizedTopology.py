@@ -36,15 +36,16 @@ class CentralizedTopology(Topology):
     - All communication flows through the aggregator
     """
 
-    def __init__(self, num_nodes: int):
+    def __init__(self, num_clients: int):
         """
         Initialize centralized topology.
 
         Args:
-            self.node_cfg (DictConfig): Default configuration for nodes
+            num_clients (int): Number of client nodes (server node is added automatically)
         """
         super().__init__()
-        self.num_nodes: int = num_nodes
+        self.num_clients: int = num_clients
+        self.num_nodes: int = num_clients + 1  # 1 server + N clients
 
     def create_nodes(
         self,
@@ -64,7 +65,7 @@ class CentralizedTopology(Topology):
             List of configured nodes
         """
         utils.log_sep("Node Creation")
-        print(f"create_nodes: num_nodes={self.num_nodes}")
+        print(f"create_nodes: num_clients={self.num_clients}, total_nodes={self.num_nodes}")
 
         nodes: List[Node] = []
 

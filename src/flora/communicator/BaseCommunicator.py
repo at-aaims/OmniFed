@@ -64,6 +64,7 @@ class Communicator(ABC):
     def aggregate(
         self,
         msg: MsgT,
+        local_samples: int,
         communicate_params: bool = True,
         compute_mean: bool = True,
     ) -> MsgT:
@@ -71,9 +72,10 @@ class Communicator(ABC):
         Aggregate an object (model or tensor) across nodes.
 
         Args:
-            obj: The object to aggregate (model or tensor)
-            mean: Whether to compute the mean (default is True)
-            num_samples: Optional number of samples for weighted aggregation
+            msg: The object to aggregate (model or tensor)
+            communicate_params: Whether to aggregate parameters (True) or gradients (False)
+            compute_mean: Whether to compute the mean (default is True)
+            local_samples: Number of local samples for weighted aggregation
         Returns:
             The aggregated object
         """

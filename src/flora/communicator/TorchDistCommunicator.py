@@ -20,6 +20,7 @@ import torch.distributed as dist
 from torch import nn
 
 from .BaseCommunicator import Communicator
+from ..algorithms import utils
 
 # ======================================================================================
 
@@ -157,12 +158,17 @@ class TorchDistCommunicator(Communicator):
     def aggregate(
         self,
         msg: Communicator.MsgT,
+        local_samples: int,
         communicate_params: bool = True,
         compute_mean: bool = True,
     ) -> Communicator.MsgT:
         """
-        :param msg: message to aggregate
+        Aggregate message across all ranks with weighted aggregation for models.
+
+        :param msg: message to aggregate (model, tensor, or dict)
+        :param local_samples: number of local samples for weighted aggregation
         :param communicate_params: collect model parameters if True, else aggregate model gradients
+        :param compute_mean: whether to compute mean (ignored for models - always uses weighted aggregation)
         :return: aggregated message
         """
         print(
@@ -171,23 +177,38 @@ class TorchDistCommunicator(Communicator):
         )
 
         if isinstance(msg, nn.Module):
+            # First collect all local_samples from all nodes to get total
+            samples_tensor = torch.tensor([local_samples], dtype=torch.float32)
+            dist.all_reduce(samples_tensor, op=dist.ReduceOp.SUM)
+            total_samples = samples_tensor.item()
+
+            # Scale local model by sample weight
+            weight = local_samples / total_samples if total_samples > 0 else 0.0
+            utils.scale_params(msg, weight)
+
+            # Aggregate scaled models
             for _, p in msg.named_parameters():
                 if not p.requires_grad:
                     continue
                 tensor = p.data if communicate_params else p.grad
                 dist.all_reduce(tensor, op=dist.ReduceOp.SUM)
-                if compute_mean:
-                    tensor.div_(self.world_size)
+                # if compute_mean:
+                #     tensor.div_(self.world_size)
+
         elif isinstance(msg, dict):
+            # TODO: we should probably handle weighting params here too
             # Handle Dict[str, torch.Tensor] for parameter deltas, control variates, etc.
-            for name, tensor in msg.items():
+            for tensor in msg.values():
                 dist.all_reduce(tensor, op=dist.ReduceOp.SUM)
                 if compute_mean:
                     tensor.div_(self.world_size)
+
         else:
+            # Handle raw tensors - no weighting
             dist.all_reduce(msg, op=dist.ReduceOp.SUM)
             if compute_mean:
                 msg.div_(self.world_size)
+
         return msg
 
     def send(
