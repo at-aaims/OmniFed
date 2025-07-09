@@ -148,10 +148,10 @@ class Scaffold:
 
                 # update the global model and server control variates
                 for name, param in self.global_model.named_parameters():
-                    param.add_(lr * avg_model_delta[name])
-                    self.server_control_variates[name].add_(
-                        avg_control_variate_delta[name]
-                    )
+                    param.data += lr * avg_model_delta[name]
+                    self.server_control_variates[name] += avg_control_variate_delta[
+                        name
+                    ]
 
                 self.model.load_state_dict(self.global_model.state_dict())
                 del avg_model_delta, avg_control_variate_delta
@@ -290,6 +290,7 @@ class ScaffoldNew(Algorithm):
         aggregated_cv_deltas = self.comm.aggregate(msg=self.cv_delta, compute_mean=True)
 
         lr = self.optimizer.param_groups[0]["lr"]
+        # add_ fn on param gave error: in-place op on variable that requires grad
         utils.apply_model_delta(self.global_model, aggregated_model_deltas, scale=lr)
         for name in self.server_cv:
             if name in aggregated_cv_deltas:
