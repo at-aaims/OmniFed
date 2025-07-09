@@ -13,6 +13,7 @@
 # limitations under the License.
 
 import datetime
+from typing import Dict
 
 import torch
 import torch.distributed as dist
@@ -90,6 +91,16 @@ class TorchMPICommunicator(Communicator):
         """
         if isinstance(msg, torch.nn.Module):
             for _, param in msg.named_parameters():
+                if not param.requires_grad:
+                    continue
+                if communicate_params:
+                    dist.all_reduce(tensor=param.data, op=dist.ReduceOp.SUM)
+                    param.data /= self.world_size if compute_mean else 1
+                else:
+                    dist.all_reduce(tensor=param.grad, op=dist.ReduceOp.SUM)
+                    param.grad /= self.world_size if compute_mean else 1
+        elif isinstance(msg, Dict):
+            for _, param in msg.items():
                 if not param.requires_grad:
                     continue
                 if communicate_params:

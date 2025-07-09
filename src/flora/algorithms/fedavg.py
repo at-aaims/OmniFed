@@ -11,6 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
 import logging
 from time import perf_counter_ns
 
@@ -56,6 +57,7 @@ class FederatedAveraging:
         self.optimizer = self.train_params.get_optimizer()
         self.comm_freq = self.train_params.get_comm_freq()
         self.loss = self.train_params.get_loss()
+        self.lr_scheduler = self.train_params.get_lr_scheduler()
         self.epochs = self.train_params.get_epochs()
         self.local_step = 0
         self.training_samples = 0
@@ -78,7 +80,9 @@ class FederatedAveraging:
         return model
 
     def train_loop(self, epoch):
+        epoch_strt = perf_counter_ns()
         for inputs, labels in self.train_data:
+            itr_strt = perf_counter_ns()
             init_time = perf_counter_ns()
             inputs, labels = inputs.to(self.device), labels.to(self.device)
             pred = self.model(inputs)
@@ -95,26 +99,33 @@ class FederatedAveraging:
                 # total samples processed across all clients
                 init_time = perf_counter_ns()
                 # batch_samples argument present only in RPC communicator currently
-                # total_samples = self.communicator.aggregate(
-                #     msg=torch.Tensor([self.training_samples]), compute_mean=False, batch_samples=inputs.size(0)
-                # )
-                total_samples = torch.Tensor([96])
+                total_samples = self.communicator.aggregate(
+                    msg=torch.Tensor([self.training_samples]), compute_mean=False
+                )
+                # total_samples = torch.Tensor([96])
                 weight_scaling = self.training_samples / total_samples.item()
                 for _, param in self.model.named_parameters():
                     if not param.requires_grad:
                         continue
                     param.data *= weight_scaling
 
+                # self.model = self.communicator.aggregate(
+                #     msg=self.model, communicate_params=True, compute_mean=False, batch_samples=inputs.size(0)
+                # )
                 self.model = self.communicator.aggregate(
-                    msg=self.model, communicate_params=True, compute_mean=False, batch_samples=inputs.size(0)
+                    msg=self.model, communicate_params=True, compute_mean=False
                 )
                 self.training_samples = 0
                 sync_time = (perf_counter_ns() - init_time) / nanosec_to_millisec
 
+            itr_time = (perf_counter_ns() - itr_strt) / nanosec_to_millisec
             logging.info(
-                f"training_metrics local_step: {self.local_step} compute_time {compute_time} ms "
-                f"sync_time: {sync_time} ms"
+                f"training_metrics local_step: {self.local_step} epoch {epoch} compute_time {compute_time} ms "
+                f"sync_time: {sync_time} ms itr_time: {itr_time} ms"
             )
+
+        epoch_time = (perf_counter_ns() - epoch_strt) / nanosec_to_millisec
+        logging.info(f"epoch completion time for epoch {epoch} is {epoch_time} ms")
 
         train_img_accuracy(
             epoch=epoch,
@@ -136,6 +147,9 @@ class FederatedAveraging:
             loss_fn=self.loss,
             iteration=self.local_step,
         )
+
+        if self.lr_scheduler is not None:
+            self.lr_scheduler.step()
 
     def train(self):
         print("going to broadcast model across clients...")

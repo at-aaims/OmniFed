@@ -28,13 +28,13 @@ import flora_grpc_pb2_grpc
 
 class CentralServerServicer(flora_grpc_pb2_grpc.CentralServerServicer):
     def __init__(
-            self,
-            num_clients: int,
-            model: torch.nn.Module,
-            use_compression: bool = True,
-            accumulate_updates: bool = True,
-            communicate_params: bool = True,
-            compute_mean: bool = True,
+        self,
+        num_clients: int,
+        model: torch.nn.Module,
+        use_compression: bool = True,
+        accumulate_updates: bool = True,
+        communicate_params: bool = True,
+        compute_mean: bool = True,
     ):
         self.num_clients = num_clients
         self.model = model
@@ -122,7 +122,8 @@ class CentralServerServicer(flora_grpc_pb2_grpc.CentralServerServicer):
                 # Only process updates for the current round
                 if round_number != self.round_in_progress:
                     print(
-                        f"Ignoring update from {client_id} for round {round_number}, current round is {self.round_in_progress}")
+                        f"Ignoring update from {client_id} for round {round_number}, current round is {self.round_in_progress}"
+                    )
                     return flora_grpc_pb2.UpdateResponse(
                         success=False,
                         message=f"Round {round_number} is not the current round ({self.round_in_progress})",
@@ -137,7 +138,9 @@ class CentralServerServicer(flora_grpc_pb2_grpc.CentralServerServicer):
                     # Updates' accumulation approach - more memory efficient
                     self._accumulate_model_updates(update_data)
                     self.update_count += 1
-                    self.total_samples += request.number_samples  # Accumulate sample count
+                    self.total_samples += (
+                        request.number_samples
+                    )  # Accumulate sample count
                     print(
                         f"Accumulated gradient from {client_id} for round {round_number}. "
                         f"Count: {self.update_count}/{self.num_clients}, "
@@ -150,13 +153,17 @@ class CentralServerServicer(flora_grpc_pb2_grpc.CentralServerServicer):
                             f"Total samples across all clients: {self.total_samples}"
                         )
                         self._apply_model_updates()
-                        print(f"DEBUG:successfully applied updates for round {round_number}")
+                        print(
+                            f"DEBUG:successfully applied updates for round {round_number}"
+                        )
 
                         # Update current round and signal completion
                         self.current_round = round_number
                         self.round_complete_event.set()  # Signal all waiting clients
 
-                        print(f"DEBUG:successfully completed round {self.current_round}")
+                        print(
+                            f"DEBUG:successfully completed round {self.current_round}"
+                        )
 
                 return flora_grpc_pb2.UpdateResponse(
                     success=True,
@@ -191,7 +198,9 @@ class CentralServerServicer(flora_grpc_pb2_grpc.CentralServerServicer):
                         # Divide by total samples instead of number of clients
                         # This gives proper weighted averaging based on data size
                         avg_update = self.accumulated_updates[name] / self.total_samples
-                        print(f"DEBUG: Averaging {name} with total_samples={self.total_samples}")
+                        print(
+                            f"DEBUG: Averaging {name} with total_samples={self.total_samples}"
+                        )
                     else:
                         avg_update = self.accumulated_updates[name]
 
@@ -213,12 +222,15 @@ class CentralServerServicer(flora_grpc_pb2_grpc.CentralServerServicer):
                 if round_number <= self.current_round:
                     # Round is already completed, send the model immediately
                     print(
-                        f"Round {round_number} already completed (current: {self.current_round}), sending model to {client_id}")
+                        f"Round {round_number} already completed (current: {self.current_round}), sending model to {client_id}"
+                    )
                     return self._send_current_model(round_number, client_id)
 
                 # Check if this round is currently in progress
                 if round_number != self.round_in_progress:
-                    print(f"Round {round_number} not in progress (current: {self.round_in_progress})")
+                    print(
+                        f"Round {round_number} not in progress (current: {self.round_in_progress})"
+                    )
                     return flora_grpc_pb2.ModelParameters(
                         round_number=round_number, layers=[], is_ready=False
                     )

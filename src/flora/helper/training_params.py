@@ -21,6 +21,7 @@ class TrainingParameters:
         self.optimizer = kwargs.get("optimizer", None)
         self.loss = kwargs.get("loss", None)
         self.epochs = kwargs.get("epochs", None)
+        self.lr_scheduler = kwargs.get("lr_scheduler", None)
 
     def get_optimizer(self):
         return self.optimizer
@@ -30,6 +31,9 @@ class TrainingParameters:
 
     def get_epochs(self):
         return self.epochs
+
+    def get_lr_scheduler(self):
+        return self.lr_scheduler
 
 
 class FedAvgTrainingParameters(TrainingParameters):

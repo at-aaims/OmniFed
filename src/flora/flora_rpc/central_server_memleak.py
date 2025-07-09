@@ -28,13 +28,13 @@ import flora_grpc_pb2_grpc
 
 class CentralServerServicer(flora_grpc_pb2_grpc.CentralServerServicer):
     def __init__(
-            self,
-            num_clients: int,
-            model: torch.nn.Module,
-            use_compression: bool = True,
-            accumulate_updates: bool = True,
-            communicate_params: bool = True,
-            compute_mean: bool = True,
+        self,
+        num_clients: int,
+        model: torch.nn.Module,
+        use_compression: bool = True,
+        accumulate_updates: bool = True,
+        communicate_params: bool = True,
+        compute_mean: bool = True,
     ):
         self.num_clients = num_clients
         self.model = model
@@ -137,7 +137,9 @@ class CentralServerServicer(flora_grpc_pb2_grpc.CentralServerServicer):
                         if round_number in self.round_ready_event:
                             self.round_ready_event[round_number].set()
 
-                        print(f"DEBUG:successfully set current round {self.current_round}")
+                        print(
+                            f"DEBUG:successfully set current round {self.current_round}"
+                        )
 
                 return flora_grpc_pb2.UpdateResponse(
                     success=True,

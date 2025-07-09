@@ -66,6 +66,9 @@ class ResNet18Object(object):
             optimizer=self.optim, milestones=milestones, gamma=self.gamma, last_epoch=-1
         )
 
+    def get_lr(self):
+        return self.lr
+
     def get_model(self):
         return self.model
 

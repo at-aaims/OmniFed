@@ -13,6 +13,7 @@
 # limitations under the License.
 
 import argparse
+import os
 
 import src.flora.helper as helper
 from src.flora.test.train_model import ModelTrainer
@@ -63,13 +64,24 @@ if __name__ == "__main__":
     parser.add_argument("--lr", type=float, default=0.01)
     parser.add_argument("--train-dir", type=str, default="~/")
     parser.add_argument("--test-dir", type=str, default="~/")
+    parser.add_argument("--algo", type=str, default="fedavg")
+    parser.add_argument("--fedprox-mu", type=float, default=0.5)
+    parser.add_argument("--fedmom-momentum", type=float, default=0.9)
+    parser.add_argument("--fednova-weight-decay", type=float, default=5e-4)
+    parser.add_argument("--diloco-outer-momentum", type=float, default=0.9)
+    parser.add_argument("--diloco-outer-lr", type=float, default=0.01)
+    parser.add_argument("--moon-num-prev-models", type=int, default=2)
+    parser.add_argument("--moon-temperature", type=float, default=0.1)
+    parser.add_argument("--moon-mu", type=float, default=0.5)
+    parser.add_argument("--ditto-regularizer", type=float, default=1.0)
+    parser.add_argument("--feddyn-regularizer-alpha", type=float, default=0.5)
 
     args = parser.parse_args()
 
-    # os.environ["MASTER_ADDR"] = args.master_addr
-    # os.environ["MASTER_PORT"] = args.master_port
-    # if args.backend == "Gloo":
-    #     os.environ["GLOO_SOCKET_IFNAME"] = 'lo0'
+    os.environ["MASTER_ADDR"] = args.master_addr
+    os.environ["MASTER_PORT"] = args.master_port
+    if args.backend == "Gloo":
+        os.environ["GLOO_SOCKET_IFNAME"] = "lo0"
 
     helper.set_seed(args.seed, determinism=False)
     ModelTrainer(args=args).start()

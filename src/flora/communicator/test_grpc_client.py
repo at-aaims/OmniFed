@@ -162,26 +162,39 @@ class CentralServerClient:
     def _update_model_from_protobuf(self, proto_layers):
         """Update model parameters from protobuf format"""
         with torch.no_grad():
-            for (name, param), layer in zip(self.model.named_parameters(), proto_layers):
+            for (name, param), layer in zip(
+                self.model.named_parameters(), proto_layers
+            ):
                 layer_name = layer.layer_name
                 if name == layer_name:
                     if self.communicate_params:
-                        param.data = torch.tensor(np.array(layer.param_update).reshape(tuple(layer.param_shape)),
-                                                  dtype=torch.float32,)
-                        print(f"on client {self.client_id} param.data {param.data} with shape {param.data.shape}")
+                        param.data = torch.tensor(
+                            np.array(layer.param_update).reshape(
+                                tuple(layer.param_shape)
+                            ),
+                            dtype=torch.float32,
+                        )
+                        print(
+                            f"on client {self.client_id} param.data {param.data} with shape {param.data.shape}"
+                        )
 
                     else:
-                        param.grad = torch.tensor(np.array(layer.param_update).reshape(tuple(layer.param_shape)),
-                                                  dtype=torch.float32,)
+                        param.grad = torch.tensor(
+                            np.array(layer.param_update).reshape(
+                                tuple(layer.param_shape)
+                            ),
+                            dtype=torch.float32,
+                        )
                         # print(f"on client {self.client_id} param.grad {param.grad} with shape {param.grad.shape}")
-
 
     def get_averaged_model(self):
         """Get averaged model from parameter server - wait indefinitely until ready"""
         print(f"Round {self.round_number}: Waiting for averaged model from server...")
         while True:
             try:
-                request = flora_grpc_pb2.GetModelRequest(client_id=self.client_id, round_number=self.round_number)
+                request = flora_grpc_pb2.GetModelRequest(
+                    client_id=self.client_id, round_number=self.round_number
+                )
 
                 response = self.stub.GetUpdatedModel(request)
 

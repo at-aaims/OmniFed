@@ -25,6 +25,7 @@ from src.flora.datasets.image_classification import cifar
 
 nanosec_to_millisec = 1e6
 
+
 class HybridTrainer(object):
     def __init__(self, args):
         self.args = args
@@ -38,17 +39,17 @@ class HybridTrainer(object):
         self.epochs = args.epochs
         self.comm_freq = args.comm_freq
 
-        self.rpc_server_addr = '127.0.0.1'
+        self.rpc_server_addr = "127.0.0.1"
         self.rpc_server_port = 50051
-        self.mpi1_addr = '127.0.0.1'
+        self.mpi1_addr = "127.0.0.1"
         self.mpi1_port = 28250
-        self.mpi2_addr = '127.0.0.1'
+        self.mpi2_addr = "127.0.0.1"
         self.mpi2_port = 28290
 
         if torch.cuda.is_available():
-            self.device = torch.device('cuda:' + str(self.global_rank))
+            self.device = torch.device("cuda:" + str(self.global_rank))
         else:
-            self.device = torch.device('cpu')
+            self.device = torch.device("cpu")
 
         logging.basicConfig(
             filename=self.logdir
@@ -80,60 +81,70 @@ class HybridTrainer(object):
         # gRPC consists of 1 server and 2 clients, so total_clients=3
         if self.global_rank == 0:
             self.mpi_comm = None
-            self.rpc_comm = rpc_comm.GrpcCommunicator(model=self.model, id=self.global_rank,
-                                                      total_clients=3,
-                                                      master_addr=self.rpc_server_addr,
-                                                      master_port=self.rpc_server_port,
-                                                      accumulate_updates=True
-                                                      )
+            self.rpc_comm = rpc_comm.GrpcCommunicator(
+                model=self.model,
+                id=self.global_rank,
+                total_clients=3,
+                master_addr=self.rpc_server_addr,
+                master_port=self.rpc_server_port,
+                accumulate_updates=True,
+            )
             logging.info("started gRPC server on global_rank 0...")
 
         elif self.global_rank == 1:
-            self.mpi_comm = torch_mpi.TorchMPICommunicator(id=self.local_rank,
-                                                           total_clients=3,
-                                                           backend=self.backend,
-                                                           master_addr=self.mpi1_addr,
-                                                           master_port=self.mpi1_port
-                                                           )
+            self.mpi_comm = torch_mpi.TorchMPICommunicator(
+                id=self.local_rank,
+                total_clients=3,
+                backend=self.backend,
+                master_addr=self.mpi1_addr,
+                master_port=self.mpi1_port,
+            )
             logging.info("started MPI process on global_rank 1...")
-            self.rpc_comm = rpc_comm.GrpcCommunicator(model=self.model, id=self.global_rank,
-                                                      total_clients=3,
-                                                      master_addr=self.rpc_server_addr,
-                                                      master_port=self.rpc_server_port,
-                                                      accumulate_updates=True
-                                                      )
+            self.rpc_comm = rpc_comm.GrpcCommunicator(
+                model=self.model,
+                id=self.global_rank,
+                total_clients=3,
+                master_addr=self.rpc_server_addr,
+                master_port=self.rpc_server_port,
+                accumulate_updates=True,
+            )
             logging.info("started gRPC client on global_rank 1...")
         elif self.global_rank == 2:
-            self.mpi_comm = torch_mpi.TorchMPICommunicator(id=self.local_rank,
-                                                           total_clients=3,
-                                                           backend=self.backend,
-                                                           master_addr=self.mpi2_addr,
-                                                           master_port=self.mpi2_port
-                                                           )
+            self.mpi_comm = torch_mpi.TorchMPICommunicator(
+                id=self.local_rank,
+                total_clients=3,
+                backend=self.backend,
+                master_addr=self.mpi2_addr,
+                master_port=self.mpi2_port,
+            )
             logging.info("started MPI process on global_rank 2...")
-            self.rpc_comm = rpc_comm.GrpcCommunicator(model=self.model, id=self.global_rank,
-                                                      total_clients=3,
-                                                      master_addr=self.rpc_server_addr,
-                                                      master_port=self.rpc_server_port,
-                                                      accumulate_updates=True
-                                                      )
+            self.rpc_comm = rpc_comm.GrpcCommunicator(
+                model=self.model,
+                id=self.global_rank,
+                total_clients=3,
+                master_addr=self.rpc_server_addr,
+                master_port=self.rpc_server_port,
+                accumulate_updates=True,
+            )
             logging.info("started gRPC client on global_rank 2...")
         elif self.global_rank == 3 or self.global_rank == 4:
-            self.mpi_comm = torch_mpi.TorchMPICommunicator(id=self.local_rank,
-                                                           total_clients=3,
-                                                           backend=self.backend,
-                                                           master_addr=self.mpi1_addr,
-                                                           master_port=self.mpi1_port
-                                                           )
+            self.mpi_comm = torch_mpi.TorchMPICommunicator(
+                id=self.local_rank,
+                total_clients=3,
+                backend=self.backend,
+                master_addr=self.mpi1_addr,
+                master_port=self.mpi1_port,
+            )
             logging.info("started MPI process on global_rank 3/4...")
             self.rpc_comm = None
         elif self.global_rank == 5 or self.global_rank == 6:
-            self.mpi_comm = torch_mpi.TorchMPICommunicator(id=self.local_rank,
-                                                           total_clients=3,
-                                                           backend=self.backend,
-                                                           master_addr=self.mpi2_addr,
-                                                           master_port=self.mpi2_port
-                                                           )
+            self.mpi_comm = torch_mpi.TorchMPICommunicator(
+                id=self.local_rank,
+                total_clients=3,
+                backend=self.backend,
+                master_addr=self.mpi2_addr,
+                master_port=self.mpi2_port,
+            )
             logging.info("started MPI process on global_rank 5/6...")
             self.rpc_comm = None
 
@@ -168,29 +179,39 @@ class HybridTrainer(object):
                 mpi_sync_time = None
                 if self.global_rank != 0:
                     init_time = perf_counter_ns()
-                    self.model = self.mpi_comm.aggregate(msg=self.model,
-                                                         communicate_params=True,
-                                                         compute_mean=False
-                                                         )
-                    mpi_sync_time = (perf_counter_ns() - init_time) / nanosec_to_millisec
+                    self.model = self.mpi_comm.aggregate(
+                        msg=self.model, communicate_params=True, compute_mean=False
+                    )
+                    mpi_sync_time = (
+                        perf_counter_ns() - init_time
+                    ) / nanosec_to_millisec
 
                 rpc_sync_time = None
                 if self.local_step % self.comm_freq == 0:
                     init_time = perf_counter_ns()
                     print("going to initial rpc call now...")
-                    if self.global_rank == 0 or self.global_rank == 1 or self.global_rank == 2:
-                        self.model = self.rpc_comm.aggregate(msg=self.model,
-                                                             communicate_params=True,
-                                                             compute_mean=False,
-                                                             batch_samples=self.training_samples
-                                                             )
+                    if (
+                        self.global_rank == 0
+                        or self.global_rank == 1
+                        or self.global_rank == 2
+                    ):
+                        self.model = self.rpc_comm.aggregate(
+                            msg=self.model,
+                            communicate_params=True,
+                            compute_mean=False,
+                            batch_samples=self.training_samples,
+                        )
                         self.training_samples = 0
-                        rpc_sync_time = (perf_counter_ns() - init_time) / nanosec_to_millisec
+                        rpc_sync_time = (
+                            perf_counter_ns() - init_time
+                        ) / nanosec_to_millisec
 
                     # perform an MPI broadcast here next to distributed cross-facility aggregated model
                     # corresponds to processes with global_rank 1 and 2
                     if self.local_rank == 0:
-                        self.model = self.mpi_comm.broadcast(msg=self.model, id=self.local_rank)
+                        self.model = self.mpi_comm.broadcast(
+                            msg=self.model, id=self.local_rank
+                        )
 
                 logging.info(
                     f"training_metrics local_step: {self.local_step} compute_time {compute_time} ms "

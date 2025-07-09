@@ -8,11 +8,13 @@ cd ../
 dir='/Users/ssq/Desktop/datasets/flora_test/'
 bsz=32
 worldsize=4
-comm='RPC'
-commfreq=5
+#comm='RPC'
+comm='Collective'
+algo='fedper'
+commfreq=10
 masteraddr='127.0.0.1'
-#masterport=28670
-masterport=50055
+masterport=28670
+#masterport=50055
 backend='Gloo'
 model='resnet18'
 dataset='cifar10'
@@ -24,7 +26,7 @@ do
   echo '###### going to launch training for rank '$rank
   python3 -m src.flora.test.launch_training --dir=$dir --bsz=$bsz --rank=$rank --world-size=$worldsize \
   --communicator=$comm --comm-freq=$commfreq --master-addr=$masteraddr --master-port=$masterport --backend=$backend \
-  --model=$model --dataset=$dataset --train-dir=$dir --test-dir=$dir &
+  --model=$model --dataset=$dataset --train-dir=$dir --test-dir=$dir --algo=$algo &
   echo "going to sleep for 5 seconds..."
-  sleep 5
+  sleep 3
 done

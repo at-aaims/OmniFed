@@ -11,3 +11,14 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
+import torch
+
+
+class SimpleFedPerHead(torch.nn.Module):
+    def __init__(self, input_dim=5408, num_classes=10):
+        super().__init__()
+        self.classifier = torch.nn.Linear(input_dim, num_classes)
+
+    def forward(self, x):
+        return self.classifier(x)

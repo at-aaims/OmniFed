@@ -30,14 +30,14 @@ import flora_grpc_pb2_grpc
 
 class CentralServerServicer(flora_grpc_pb2_grpc.CentralServerServicer):
     def __init__(
-            self,
-            num_clients: int,
-            model: torch.nn.Module,
-            use_compression: bool = True,
-            accumulate_updates: bool = True,
-            communicate_params: bool = True,
-            # communicate_params: bool = False,
-            compute_mean: bool = True,
+        self,
+        num_clients: int,
+        model: torch.nn.Module,
+        use_compression: bool = True,
+        accumulate_updates: bool = True,
+        communicate_params: bool = True,
+        # communicate_params: bool = False,
+        compute_mean: bool = True,
     ):
         self.num_clients = num_clients
         self.model = model
@@ -123,7 +123,8 @@ class CentralServerServicer(flora_grpc_pb2_grpc.CentralServerServicer):
                 # Only process updates for the current round
                 if round_number != self.round_in_progress:
                     print(
-                        f"Ignoring update from {client_id} for round {round_number}, current round is {self.round_in_progress}")
+                        f"Ignoring update from {client_id} for round {round_number}, current round is {self.round_in_progress}"
+                    )
                     return flora_grpc_pb2.UpdateResponse(
                         success=False,
                         message=f"Round {round_number} is not the current round ({self.round_in_progress})",
@@ -148,13 +149,17 @@ class CentralServerServicer(flora_grpc_pb2_grpc.CentralServerServicer):
                             f"All gradients received for round {round_number}. Applying average..."
                         )
                         self._apply_model_updates()
-                        print(f"DEBUG:successfully applied updates for round {round_number}")
+                        print(
+                            f"DEBUG:successfully applied updates for round {round_number}"
+                        )
 
                         # Update current round and signal completion
                         self.current_round = round_number
                         self.round_complete_event.set()  # Signal all waiting clients
 
-                        print(f"DEBUG:successfully completed round {self.current_round}")
+                        print(
+                            f"DEBUG:successfully completed round {self.current_round}"
+                        )
 
                 return flora_grpc_pb2.UpdateResponse(
                     success=True,
@@ -208,12 +213,15 @@ class CentralServerServicer(flora_grpc_pb2_grpc.CentralServerServicer):
                 if round_number <= self.current_round:
                     # Round is already completed, send the model immediately
                     print(
-                        f"Round {round_number} already completed (current: {self.current_round}), sending model to {client_id}")
+                        f"Round {round_number} already completed (current: {self.current_round}), sending model to {client_id}"
+                    )
                     return self._send_current_model(round_number, client_id)
 
                 # Check if this round is currently in progress
                 if round_number != self.round_in_progress:
-                    print(f"Round {round_number} not in progress (current: {self.round_in_progress})")
+                    print(
+                        f"Round {round_number} not in progress (current: {self.round_in_progress})"
+                    )
                     return flora_grpc_pb2.ModelParameters(
                         round_number=round_number, layers=[], is_ready=False
                     )
