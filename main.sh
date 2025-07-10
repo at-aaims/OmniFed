@@ -26,14 +26,20 @@ export HYDRA_FULL_ERROR=1              # Show full error trace for Hydra
 
 # =========================================
 
+# Clear Hydra outputs directory
 rm -rf ./outputs
 
 # =========================================
 
+# Compile gRPC protocol buffers
 python -m grpc_tools.protoc -I. --python_out=. --grpc_python_out=. ./src/flora/communicator/grpc_communicator.proto
 
+# Run the main script
+# NOTE: additional arguments passed to the `main.sh` script are forwarded to the Python script
 python -u main.py --config-name test_mnist_torchdist "$@"
 
 # python -u main.py --config-name test_mnist_grpc "$@"
+
+# =========================================
 
 # python -u main.py --config-name test_mnist_grpc "$@" 2>&1 | tee main.log
