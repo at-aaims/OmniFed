@@ -12,7 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from .BaseCommunicator import Communicator, ReductionType
-from .DummyCommunicator import DummyCommunicator
-from .TorchDistCommunicator import TorchDistCommunicator
-from .grpc_communicator import GrpcCommunicator
+from .SetupMixin import SetupMixin
+
+__all__ = ["SetupMixin"]

@@ -26,6 +26,7 @@ from .algorithms import utils as alg_utils
 from .algorithms.BaseAlgorithm import Algorithm
 from .communicator.BaseCommunicator import Communicator
 from .data.DataModule import DataModule
+from .mixins import SetupMixin
 
 
 # class NodeRole(Enum):
@@ -46,7 +47,7 @@ from .data.DataModule import DataModule
 
 
 @ray.remote
-class Node:
+class Node(SetupMixin):
     """
     Distributed compute node for federated learning participants.
 
@@ -75,7 +76,8 @@ class Node:
         device: str = "auto",
         **kwargs: Any,
     ):
-        print(f"{self.__class__.__name__} {id} init...")
+        super().__init__()
+        print(f"[NODE-INIT] {id}")
         self.id: str = id
         # self.roles: Set[NodeRole] = roles
 
@@ -94,14 +96,10 @@ class Node:
         # PyTorch model
         self.local_model: nn.Module = instantiate(model_cfg)
 
-        # DEBUG: Model hash immediately after instantiation
-        initial_hash = alg_utils.hash_model_params(self.local_model)
-        print(f"Model hash after instantiation: {initial_hash}")
-
         # Data module
         self.datamodule: DataModule = instantiate(data_cfg)
 
-        # Federated learning algorithm (handles computation logic)
+        # Federated learning algorithm
         self.algo: Algorithm = instantiate(
             algo_cfg,
             local_model=self.local_model,
@@ -117,50 +115,7 @@ class Node:
         """
         # role_names = [role.value for role in self.roles]
         # return f"Node {self.id}: {role_names}"
-        return self.id
-
-    @staticmethod
-    def select_device(device_hint: str, rank: Optional[int] = None) -> torch.device:
-        """
-        Select and configure compute device for this node.
-
-        Supports automatic GPU detection with round-robin assignment based on rank.
-        Falls back to CPU if no GPUs are available.
-
-        # TODO: Round-robin GPU assignment assumes all nodes are on the same machine, which may not be true for multi-node setups.
-        # TODO: If some nodes lack GPUs, we may need smarter logic for heterogeneous environments.
-        # TODO: Potentially move into a NodeResources mixin in the future.
-
-        Args:
-            device_hint: Device specification ("auto", "cpu", "cuda", "cuda:0", etc.)
-            rank: Process rank for round-robin GPU assignment (optional)
-
-        Returns:
-            Configured PyTorch device for computation
-        """
-
-        if device_hint == "auto":
-            local_gpu_count = torch.cuda.device_count()
-            if local_gpu_count > 0:
-                # Use provided rank for round-robin GPU assignment
-                if rank is None:
-                    print(
-                        "WARN: No rank provided for device assignment, defaulting to GPU 0"
-                    )
-                    rank = 0
-
-                assigned_gpu_id = rank % local_gpu_count
-                device_str = f"cuda:{assigned_gpu_id}"
-                print(
-                    f"Device auto-selection: {local_gpu_count} GPUs detected, assigned {device_str} (rank {rank})"
-                )
-                return torch.device(device_str)
-
-            print("Device auto-selection: No GPUs detected, using CPU")
-            return torch.device("cpu")
-
-        print(f"Device explicit: Using {device_hint}")
-        return torch.device(device_hint)
+        return f"{self.id}"
 
     def should_train(self) -> bool:
         """
@@ -176,15 +131,17 @@ class Node:
         return self.local_rank != 0
         # return True
 
-    def setup(self) -> None:
+    def _setup_impl(self) -> None:
         """
         Initialize node dependencies and prepare for federated learning execution.
 
         Sets up communication backend and prepares all components for distributed training.
         Called once before federated learning begins.
         """
-        print("Setup: initializing communication backend", flush=True)
-        self.comm.setup(self.local_model)
+        print("[NODE-SETUP]", flush=True)
+
+        # Initialize communication backend
+        self.comm.setup()
 
         # summary(self.model, verbose=1)
 
@@ -199,7 +156,10 @@ class Node:
         Returns:
             Dictionary with training metrics and results
         """
-        print(f"Round {round_idx + 1} START", flush=True)
+        if not self.is_ready:
+            raise RuntimeError(f"Node {self.id} not ready - call setup() first")
+
+        print(f"[ROUND-START] Round {round_idx + 1}", flush=True)
         round_start_time = time.time()
 
         # Reset round state (simple and explicit)
@@ -229,7 +189,7 @@ class Node:
         # Consolidated round_start transition print
         sync_changed = hash_before_sync != hash_after_sync
         print(
-            f"ROUND_START: {hash_before_sync[:8]} → {hash_after_sync[:8]} | "
+            f"[ROUND-SYNC] hash: {hash_before_sync[:8]} → {hash_after_sync[:8]} | "
             f"norm: {metrics['param_norm/before_sync']:.4f} → {metrics['param_norm/after_sync']:.4f} "
             f"(Δ={metrics['param_norm/sync_delta']:.6f}) | "
             f"{'CHANGED' if sync_changed else 'UNCHANGED'}"
@@ -269,13 +229,13 @@ class Node:
             # Consolidated train_round transition print
             train_changed = hash_before_train != hash_after_train
             print(
-                f"TRAIN_ROUND: {hash_before_train[:8]} → {hash_after_train[:8]} | "
+                f"[TRAIN-EXEC] hash: {hash_before_train[:8]} → {hash_after_train[:8]} | "
                 f"norm: {metrics['param_norm/before_train_round']:.4f} → {metrics['param_norm/after_train_round']:.4f} "
                 f"(Δ={metrics['param_norm/train_round_delta']:.6f}) | "
                 f"{'CHANGED' if train_changed else 'UNCHANGED'}"
             )
         else:
-            print("SKIP TRAINING")
+            print("[NODE-SKIP-TRAIN] Server node - no local training")
 
         # Capture before-aggregation state
         hash_before_agg = alg_utils.hash_model_params(self.algo.local_model)
@@ -298,7 +258,7 @@ class Node:
         # Consolidated round_end transition print
         agg_changed = hash_before_agg != hash_after_agg
         print(
-            f"ROUND_END: {hash_before_agg[:8]} → {hash_after_agg[:8]} | "
+            f"[ROUND-AGG] hash: {hash_before_agg[:8]} → {hash_after_agg[:8]} | "
             f"norm: {metrics['param_norm/before_agg']:.4f} → {metrics['param_norm/after_agg']:.4f} "
             f"(Δ={metrics['param_norm/agg_delta']:.6f}) | "
             f"{'CHANGED' if agg_changed else 'UNCHANGED'}"
@@ -309,8 +269,51 @@ class Node:
         metrics["time/round"] = time.time() - round_start_time
 
         print(
-            f"Round {round_idx + 1} END |",
+            f"[ROUND-END] Round {round_idx + 1} |",
             {k: round(v, 2) if isinstance(v, float) else v for k, v in metrics.items()},
             flush=True,
         )
         return metrics
+
+    @staticmethod
+    def select_device(device_hint: str, rank: Optional[int] = None) -> torch.device:
+        """
+        Select and configure compute device for this node.
+
+        Supports automatic GPU detection with round-robin assignment based on rank.
+        Falls back to CPU if no GPUs are available.
+
+        # TODO: Round-robin GPU assignment assumes all nodes are on the same machine, which may not be true for multi-node setups.
+        # TODO: If some nodes lack GPUs, we may need smarter logic for heterogeneous environments.
+        # TODO: Potentially move into a NodeResources mixin in the future.
+
+        Args:
+            device_hint: Device specification ("auto", "cpu", "cuda", "cuda:0", etc.)
+            rank: Process rank for round-robin GPU assignment (optional)
+
+        Returns:
+            Configured PyTorch device for computation
+        """
+
+        if device_hint == "auto":
+            local_gpu_count = torch.cuda.device_count()
+            if local_gpu_count > 0:
+                # Use provided rank for round-robin GPU assignment
+                if rank is None:
+                    print(
+                        "WARN: No rank provided for device assignment, defaulting to GPU 0"
+                    )
+                    rank = 0
+
+                assigned_gpu_id = rank % local_gpu_count
+                device_str = f"cuda:{assigned_gpu_id}"
+                print(
+                    f"[DEVICE-AUTO] {local_gpu_count} GPUs detected | assigned {device_str} | rank {rank}"
+                )
+                return torch.device(device_str)
+
+            print("Device auto-selection: No GPUs detected, using CPU")
+            return torch.device("cpu")
+
+        print(f"Device explicit: Using {device_hint}")
+        return torch.device(device_hint)

@@ -14,13 +14,15 @@
 
 from typing import Any, Tuple
 
+import rich.repr
 import torch
 from torch import nn
 
 from src.flora.helper.node_config import NodeConfig
 from src.flora.helper.training_params import FedAvgTrainingParameters
 
-from ..communicator.BaseCommunicator import Communicator
+from ..communicator import Communicator, ReductionType
+from . import utils
 from .BaseAlgorithm import Algorithm
 
 
@@ -92,7 +94,7 @@ class FederatedAveraging:
                     param.data *= weight_scaling
 
                 self.model = self.communicator.aggregate(
-                    msg=self.model, communicate_params=True, compute_mean=False
+                    msg=self.model, compute_mean=False
                 )
                 self.training_samples = 0
 
@@ -109,6 +111,7 @@ class FederatedAveraging:
 # ======================================================================================
 
 
+@rich.repr.auto
 class FedAvgNew(Algorithm):
     """
     Federated Averaging (FedAvg) algorithm implementation.
@@ -155,30 +158,24 @@ class FedAvgNew(Algorithm):
         Aggregate model parameters across clients and update the local model with the weighted average.
         """
 
-        # # Aggregate local sample counts to compute federation total
-        # global_samples = self.comm.aggregate(
-        #     torch.tensor([self.local_samples], dtype=torch.float32),
-        #     communicate_params=False,
-        #     compute_mean=False,
-        # ).item()
+        # Aggregate local sample counts to compute federation total
+        global_samples = self.comm.aggregate(
+            torch.tensor([self.local_samples], dtype=torch.float32),
+            reduction=ReductionType.SUM,
+        ).item()
 
-        # # Handle edge cases safely - all nodes must participate in distributed operations
-        # if global_samples <= 0:
-        #     print(
-        #         "WARN: No samples processed across entire federation - participating with zero weight"
-        #     )
-        #     data_proportion = 0.0
-        # else:
-        #     # Calculate this client's data proportion for weighted aggregation
-        #     data_proportion = self.local_samples / global_samples
+        # Handle edge cases safely - all nodes must participate in distributed operations
+        if global_samples <= 0:
+            data_proportion = 0.0
+        else:
+            # Calculate this client's data proportion for weighted aggregation
+            data_proportion = self.local_samples / global_samples
 
-        # # All nodes participate regardless of sample count
-        # utils.scale_params(self.local_model, data_proportion)
+        # All nodes participate regardless of sample count
+        utils.scale_params(self.local_model, data_proportion)
 
-        # Aggregate models across all clients - communicator handles weighting
+        # Aggregate models across all clients - communicator handles transport
         self.local_model = self.comm.aggregate(
             self.local_model,
-            local_samples=self.local_samples,
-            communicate_params=True,
-            compute_mean=False,
+            reduction=ReductionType.SUM,
         )

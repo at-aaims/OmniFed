@@ -15,13 +15,14 @@
 import copy
 from typing import Any, Dict, Tuple
 
+import rich.repr
 import torch
 from torch import nn
 
-from src.flora.communicator import Communicator
 from src.flora.helper.node_config import NodeConfig
 from src.flora.helper.training_params import DiLocoTrainingParameters
 
+from ..communicator import Communicator, ReductionType
 from . import utils
 from .BaseAlgorithm import Algorithm
 
@@ -90,7 +91,7 @@ class DiLoCo:
                 target_param.copy_(param1 - param2)
 
         self.diff_params = self.communicator.aggregate(
-            msg=self.diff_params, communicate_params=True, compute_mean=True
+            msg=self.diff_params, compute_mean=True
         )
 
     def _zero_velocity(self):
@@ -139,6 +140,7 @@ class DiLoCo:
 # ======================================================================================
 
 
+@rich.repr.auto
 class DiLoCoNew(Algorithm):
     """
     Implementation of DiLoCo (Distributed Low-Communication).
@@ -210,22 +212,11 @@ class DiLoCoNew(Algorithm):
                 global_param = dict(self.global_model.named_parameters())[name]
                 local_deltas[name] = param.data - global_param.data
 
-        # Aggregate local sample counts to compute federation total
-
-        global_samples = self.comm.aggregate(
-            torch.tensor([self.local_samples], dtype=torch.float32),
-            communicate_params=False,
-            compute_mean=False,
-        ).item()
-
-        # Handle edge cases safely - all nodes must participate in distributed operations
-        if global_samples <= 0:
-            print(
-                "WARN: No samples processed across entire federation - continuing with mean aggregation"
-            )
-
         # DiLoCo uses mean aggregation rather than weighted aggregation
-        aggregated_deltas = self.comm.aggregate(msg=local_deltas, compute_mean=True)
+        aggregated_deltas = self.comm.aggregate(
+            msg=local_deltas,
+            reduction=ReductionType.MEAN,
+        )
 
         # Apply DiLoCo outer step with momentum using aggregated deltas
         for name, param in self.global_model.named_parameters():

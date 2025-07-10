@@ -30,8 +30,10 @@ rm -rf ./outputs
 
 # =========================================
 
-# python -u main.py --config-name test_mnist_torchdist "$@"
+python -m grpc_tools.protoc -I. --python_out=. --grpc_python_out=. ./src/flora/communicator/grpc_communicator.proto
 
-python -u main.py --config-name test_mnist_grpc "$@"
+python -u main.py --config-name test_mnist_torchdist "$@"
+
+# python -u main.py --config-name test_mnist_grpc "$@"
 
 # python -u main.py --config-name test_mnist_grpc "$@" 2>&1 | tee main.log

@@ -63,6 +63,9 @@ def clip_grads(model: nn.Module, max_norm: float) -> float:
         model: Model to clip gradients for
         max_norm: Maximum gradient norm threshold
     """
+    print(f"[UTIL-GRAD-CLIP] max_norm={max_norm:.4f}")
+    if max_norm <= 0:
+        raise ValueError("max_norm must be positive for gradient clipping")
     return torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm).item()
 
 
@@ -74,6 +77,7 @@ def scale_grads(model: nn.Module, scale_factor: float) -> None:
         model: Model to scale gradients for
         scale_factor: Factor to scale gradients by
     """
+    print(f"[UTIL-GRAD-SCALE] scale_factor={scale_factor:.4f}")
     for param in model.parameters():
         if param.grad is not None:
             param.grad.mul_(scale_factor)
@@ -87,6 +91,7 @@ def scale_params(model: nn.Module, scale_factor: float) -> None:
         model: Model to scale parameters for
         scale_factor: Factor to scale parameters by
     """
+    print(f"[UTIL-PARAM-SCALE] scale_factor={scale_factor:.4f}")
     with torch.no_grad():
         for param in model.parameters():
             if param.requires_grad:

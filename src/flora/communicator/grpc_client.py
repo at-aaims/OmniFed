@@ -16,14 +16,23 @@ import time
 from typing import Dict
 
 import grpc
-import numpy as np
+import rich.repr
 import torch
 
-from . import grpc_communicator_pb2 as flora_grpc_pb2
-from . import grpc_communicator_pb2_grpc as flora_grpc_pb2_grpc
+from . import ReductionType, grpc_communicator_pb2
+from . import grpc_communicator_pb2_grpc
+from .protobuf_utils import tensordict_to_proto, proto_to_tensordict
 
 
+@rich.repr.auto
 class GrpcClient:
+    """
+    gRPC client for federated learning communication.
+
+    Handles server registration, broadcast state retrieval, and
+    aggregation operations with automatic retry and timeout logic.
+    """
+
     def __init__(
         self,
         client_id: str,
@@ -31,142 +40,143 @@ class GrpcClient:
         master_port: int,
         max_send_message_length: int,
         max_receive_message_length: int,
-        retry_delay: float = 5.0,
-        max_retries: int = 10,
+        retry_delay: float = 5.0,  # Seconds between retries
+        max_retries: int = 3,  # Maximum retry attempts
+        client_timeout: float = 60,  # Seconds to wait for server responses
     ):
-        print(f"{self.__class__.__name__} init...")
+        print(f"[COMM-INIT] Client | addr={master_addr}:{master_port}")
 
         self.client_id = client_id
         self.retry_delay = retry_delay
         self.max_retries = max_retries
-        # initialize gRPC channel with configured buffer sizes
-        self.channel = grpc.insecure_channel(
-            master_addr + ":" + str(master_port),
-            options=[
-                ("grpc.max_receive_message_length", max_receive_message_length),
-                ("grpc.max_send_message_length", max_send_message_length),
-            ],
-        )
-        self.stub = flora_grpc_pb2_grpc.CentralServerStub(self.channel)
-        self.round_number = 0
+        self.client_timeout = client_timeout
+        self.master_addr = master_addr
+        self.master_port = master_port
+        self.max_send_message_length = max_send_message_length
+        self.max_receive_message_length = max_receive_message_length
+        self.channel = None
+        self.stub = None
 
-        self.log(f"Initializing client, connecting to {master_addr}:{master_port}")
-        self._register_with_server()
-
-    def log(self, message: str):
-        print(
-            f"[{self.__class__.__name__}] [Client {self.client_id}] [Round {self.round_number}] {message}"
-        )
-
-    def _register_with_server(self):
-        """Register this client with the parameter server"""
-        try:
-            request = flora_grpc_pb2.ClientInfo(client_id=self.client_id)
-            response = self.stub.RegisterClient(request)
-
-            if response.success:
-                self.log(
-                    f"Registered with server. Total clients: {response.total_clients}"
-                )
-            else:
-                self.log(f"Registration failed: {response.message}")
-
-        except grpc.RpcError as e:
-            self.log(f"Connection to server failed: {e}")
-
-    def _model_params_to_protobuf(self, updates: Dict):
-        """Convert model parameters to protobuf format"""
-        proto_layers = []
-        for name, tnsr in updates.items():
-            tnsr = tnsr.cpu()
-            layer_proto = flora_grpc_pb2.LayerState(layer_name=name)
-            layer_proto.param_update.extend(tnsr.flatten().tolist())
-            layer_proto.param_shape.extend(list(tnsr.shape))
-
-            # print(f"DEBUGGING CLIENT {self.client_id} layer_proto: {layer_proto.param_update} with shape: {layer_proto.param_shape}")
-            proto_layers.append(layer_proto)
-
-        return proto_layers
-
-    def send_update_to_server(self, updates: Dict, local_samples: int):
-        """Send model update to parameter server"""
-        try:
-            proto_layers = self._model_params_to_protobuf(updates)
-
-            request = flora_grpc_pb2.ModelUpdate(
-                client_id=self.client_id,
-                round_number=self.round_number,
-                layers=proto_layers,
-                number_samples=local_samples,
-            )
-
-            response = self.stub.SendUpdate(request)
-
-            if response.success:
-                self.log(
-                    f"Update sent. Updates received: {response.updates_received}/{response.clients_registered}"
-                )
-                return True
-            else:
-                self.log(f"Update failed: {response.message}")
-                return False
-
-        except grpc.RpcError as e:
-            self.log(f"Update send failed: {e}")
-            return False
-
-    def _update_model_from_protobuf(self, communicate_params, model, proto_layers):
-        """Update model parameters from protobuf format"""
-        with torch.no_grad():
-            for (name, param), layer in zip(model.named_parameters(), proto_layers):
-                layer_name = layer.layer_name
-                if name == layer_name:
-                    if communicate_params:
-                        param.data = torch.tensor(
-                            np.array(layer.param_update).reshape(
-                                tuple(layer.param_shape)
-                            ),
-                            dtype=torch.float32,
-                        )
-                    else:
-                        param.grad = torch.tensor(
-                            np.array(layer.param_update).reshape(
-                                tuple(layer.param_shape)
-                            ),
-                            dtype=torch.float32,
-                        )
-
-        return model
-
-    def get_global_model(self, msg: torch.nn.Module, communicate_params: bool):
-        """Get model from parameter server - retry up to max_retries times, then fail."""
-        self.log("Waiting for model from server...")
-        attempts = 0
-        while attempts < self.max_retries:
+        for attempt in range(1, self.max_retries + 1):
             try:
-                request = flora_grpc_pb2.GetModelRequest(
-                    client_id=self.client_id, round_number=self.round_number
+                self.channel = grpc.insecure_channel(
+                    self.master_addr + ":" + str(self.master_port),
+                    options=[
+                        (
+                            "grpc.max_receive_message_length",
+                            self.max_receive_message_length,
+                        ),
+                        (
+                            "grpc.max_send_message_length",
+                            self.max_send_message_length,
+                        ),
+                    ],
                 )
-                response = self.stub.GetUpdatedModel(request)
+                self.stub = grpc_communicator_pb2_grpc.CentralServerStub(self.channel)
+                response = self.stub.RegisterClient(
+                    grpc_communicator_pb2.ClientInfo(client_id=self.client_id),
+                )
+                print(f"[COMM-CLIENT] Register | success={response.success}")
+                return
 
-                if response.is_ready:
-                    msg = self._update_model_from_protobuf(
-                        communicate_params=communicate_params,
-                        model=msg,
-                        proto_layers=response.layers,
-                    )
-                    self.log(f"Model received. Layers: {len(response.layers)}")
-                    return msg
-                else:
-                    self.log(
-                        f"Model not ready, retrying in {self.retry_delay}s (attempt {attempts + 1}/{self.max_retries})..."
-                    )
-                    time.sleep(self.retry_delay)
-                    attempts += 1
             except grpc.RpcError as e:
-                self.log(f"Model fetch failed (will retry): {e}")
+                if attempt >= self.max_retries:
+                    print(
+                        f"[COMM-ERROR] Connection failed | {self.max_retries} attempts"
+                    )
+                    raise e
+
+                print(
+                    f"[COMM-ERROR] Connection retry | attempt {attempt}/{self.max_retries} | {self.retry_delay}s delay"
+                )
                 time.sleep(self.retry_delay)
-                attempts += 1
-        raise RuntimeError(
-            f"[{self.__class__.__name__}] [Client {self.client_id}] [Round {self.round_number}] Exceeded maximum retries ({self.max_retries}) waiting for model from server."
-        )
+
+    def get_broadcast_state(self) -> Dict[str, torch.Tensor]:
+        """Retrieve broadcast state from server with retries."""
+        print(f"[BCAST-REQUEST] Waiting for server to broadcast model")
+
+        poll_count = 0
+        error_count = 0
+
+        while True:
+            try:
+                request = grpc_communicator_pb2.ClientInfo(client_id=self.client_id)
+                response = self.stub.GetBroadcastState(request)
+                if response.is_ready:
+                    tensordict = proto_to_tensordict(response.tensor_dict)
+                    print(f"[BCAST-RECEIVED] Got model with {len(tensordict)} tensors")
+                    return tensordict
+                poll_count += 1
+                print(
+                    f"[COMM-BCAST] Waiting | poll {poll_count} | retry in {self.retry_delay}s"
+                )
+                time.sleep(self.retry_delay)
+
+            except grpc.RpcError as e:
+                error_count += 1
+                if error_count > self.max_retries:
+                    raise RuntimeError(
+                        f"Max retries ({self.max_retries}) exceeded for broadcast state"
+                    )
+                print(
+                    f"[COMM-ERROR] Broadcast fetch | error {error_count}/{self.max_retries} | retry in {self.retry_delay}s"
+                )
+                time.sleep(self.retry_delay)
+
+    def submit_for_aggregation(
+        self, tensordict: Dict[str, torch.Tensor], reduction_type: ReductionType
+    ):
+        """Submit tensors to server for aggregation."""
+        try:
+            proto_tensordict = tensordict_to_proto(tensordict)
+            request = grpc_communicator_pb2.AggregationRequest(
+                client_id=self.client_id,
+                tensor_dict=proto_tensordict,
+                reduction_type=reduction_type.value,
+            )
+            response = self.stub.SubmitForAggregation(request)
+            if response.success:
+                print(f"[AGG-SUBMIT] Successfully sent local model to server")
+            else:
+                print(f"[COMM-ERROR] Submit failed")
+        except grpc.RpcError as e:
+            print(f"[COMM-ERROR] Submit exception | {e}")
+
+    def get_aggregation_result(self) -> Dict[str, torch.Tensor]:
+        """Retrieve aggregation result from server with timeout."""
+        print(f"[AGG-WAIT] Waiting for server to aggregate models (timeout={self.client_timeout}s)")
+
+        start_time = time.time()
+        poll_count = 0
+        error_count = 0
+
+        while True:
+            elapsed = time.time() - start_time
+            if elapsed > self.client_timeout:
+                raise RuntimeError(f"Aggregation timeout ({self.client_timeout}s)")
+            try:
+                request = grpc_communicator_pb2.ClientInfo(client_id=self.client_id)
+                response = self.stub.GetAggregationResult(request)
+                if response.is_ready:
+                    tensordict = proto_to_tensordict(response.tensor_dict)
+                    print(
+                        f"[AGG-RECEIVED] Got aggregated model with {len(tensordict)} tensors (waited {elapsed:.1f}s)"
+                    )
+                    return tensordict
+                poll_count += 1
+                remaining = self.client_timeout - elapsed
+                print(
+                    f"[COMM-AGG] Waiting | poll {poll_count} | {remaining:.1f}s remaining"
+                )
+                time.sleep(min(self.retry_delay, remaining))
+
+            except grpc.RpcError as e:
+                error_count += 1
+                if error_count > self.max_retries:
+                    raise RuntimeError(
+                        f"Max retries ({self.max_retries}) exceeded for aggregation result"
+                    )
+                print(
+                    f"[COMM-ERROR] Aggregation fetch | error {error_count}/{self.max_retries} | retry in {self.retry_delay}s"
+                )
+                time.sleep(self.retry_delay)

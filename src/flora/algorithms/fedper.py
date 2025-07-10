@@ -15,13 +15,14 @@
 import copy
 from typing import Any, Dict, Optional, Tuple
 
+import rich.repr
 import torch
 import torch.nn as nn
 
-from src.flora.communicator import Communicator
 from src.flora.helper.node_config import NodeConfig
 from src.flora.helper.training_params import FedPerTrainingParameters
 
+from ..communicator import Communicator, ReductionType
 from . import utils
 from .BaseAlgorithm import Algorithm
 
@@ -124,7 +125,6 @@ class FedPer:
 
                 self.global_model = self.communicator.aggregate(
                     msg=self.model.base_model,
-                    communicate_params=True,
                     compute_mean=False,
                 )
                 self.model.base_model.load_state_dict(
@@ -147,6 +147,7 @@ class FedPer:
 # ======================================================================================
 
 
+@rich.repr.auto
 class FedPerNew(Algorithm):
     """
     Federated Personalization (FedPer) algorithm implementation.
@@ -203,18 +204,13 @@ class FedPerNew(Algorithm):
         """
 
         # Aggregate local sample counts to compute federation total
-
         global_samples = self.comm.aggregate(
             torch.tensor([self.local_samples], dtype=torch.float32),
-            communicate_params=False,
-            compute_mean=False,  # Sum all sample counts
+            reduction=ReductionType.SUM,
         ).item()
 
         # Handle edge cases safely - all nodes must participate in distributed operations
         if global_samples <= 0:
-            print(
-                "WARN: No samples processed across entire federation - participating with zero weight"
-            )
             data_proportion = 0.0
         else:
             # Calculate data proportion for weighted aggregation
@@ -232,8 +228,7 @@ class FedPerNew(Algorithm):
         # Aggregate entire model (including personal layers)
         self.local_model = self.comm.aggregate(
             self.local_model,
-            communicate_params=True,
-            compute_mean=False,
+            reduction=ReductionType.SUM,
         )
 
         # Restore personal layer parameters (keep them local)

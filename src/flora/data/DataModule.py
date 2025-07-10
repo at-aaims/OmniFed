@@ -13,12 +13,14 @@
 # limitations under the License.
 
 from typing import Any, Optional
+import rich
 from torch.utils.data import DataLoader
-
+import rich.repr
 
 # ======================================================================================
 
 
+@rich.repr.auto
 class DataModule:
     """
     Base class for data modules in FLORA.
@@ -38,11 +40,12 @@ class DataModule:
         :param val: DataLoader for validation data
         :param test: DataLoader for test data
         """
-        print(f"{self.__class__.__name__} init...")
+        print("[DATAMODULE-INIT]")
 
         self.train: Optional[DataLoader[Any]] = train
         self.val: Optional[DataLoader[Any]] = val
         self.test: Optional[DataLoader[Any]] = test
+
 
         # if self.train is None:
         #     print("NOTE: Training DataLoader is not provided.")
@@ -52,24 +55,23 @@ class DataModule:
         #     print("NOTE: Test DataLoader is not provided.")
 
         # ---
-        print(self)
 
-    def __str__(self) -> str:
-        """
-        Returns a compact, single-line string representation of the DataModule.
-        """
+    # def __str__(self) -> str:
+    #     """
+    #     Returns a compact, single-line string representation of the DataModule.
+    #     """
 
-        def loader_info(name, loader):
-            if loader is not None:
-                num_samples = len(loader.dataset) if hasattr(loader, "dataset") else "?"
-                batch_size = loader.batch_size if hasattr(loader, "batch_size") else "?"
-                return f"{name}: {num_samples} samples, batch_size={batch_size}"
-            else:
-                return f"{name}: None"
+    #     def loader_info(name, loader):
+    #         if loader is not None:
+    #             num_samples = len(loader.dataset) if hasattr(loader, "dataset") else "?"
+    #             batch_size = loader.batch_size if hasattr(loader, "batch_size") else "?"
+    #             return f"{name}: {num_samples} samples, batch_size={batch_size}"
+    #         else:
+    #             return f"{name}: None"
 
-        return (
-            f"{self.__class__.__name__}("
-            f"{loader_info('train', self.train)} | "
-            f"{loader_info('val', self.val)} | "
-            f"{loader_info('test', self.test)})"
-        )
+    #     return (
+    #         f"{self.__class__.__name__}("
+    #         f"{loader_info('train', self.train)} | "
+    #         f"{loader_info('val', self.val)} | "
+    #         f"{loader_info('test', self.test)})"
+    #     )

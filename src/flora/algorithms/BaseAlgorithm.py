@@ -15,14 +15,16 @@
 import logging
 import time
 from abc import ABC, abstractmethod
-
 from typing import Any, Optional
 
 import rich.repr
 import torch
 from torch import nn
 from torch.utils.data import DataLoader
-from ..communicator.BaseCommunicator import Communicator
+
+from ..communicator.BaseCommunicator import Communicator, ReductionType
+from ..communicator.grpc_communicator import GrpcCommunicator
+from ..communicator.TorchDistCommunicator import TorchDistCommunicator
 from ..helper.RoundMetrics import RoundMetrics
 from . import utils
 
@@ -63,6 +65,7 @@ class Algorithm(ABC):
     # =============================================================================
     # PROPERTIES
     # =============================================================================
+
 
     @property
     def optimizer(self) -> torch.optim.Optimizer:
@@ -166,7 +169,7 @@ class Algorithm(ABC):
             # Update current epoch index
             self.epoch_idx = epoch_idx
             print(
-                f"TRAIN_ROUND {round_idx + 1} | EPOCH {epoch_idx + 1} START",
+                f"[EPOCH-START] Round {round_idx + 1} | Epoch {epoch_idx + 1}",
                 flush=True,
             )
             # Epoch timing
@@ -183,7 +186,7 @@ class Algorithm(ABC):
             self.metrics.update_mean("time/epoch", epoch_time)
 
             print(
-                f"TRAIN_ROUND {round_idx + 1} | EPOCH {epoch_idx + 1} END |",
+                f"[EPOCH-END] Round {round_idx + 1} | Epoch {epoch_idx + 1} |",
                 {
                     k: round(v, 2) if isinstance(v, float) else v
                     for k, v in self.metrics.to_dict().items()

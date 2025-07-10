@@ -15,13 +15,14 @@
 import copy
 from typing import Any, Dict, Tuple
 
+import rich.repr
 import torch
 import torch.nn as nn
 
-from src.flora.communicator import Communicator
 from src.flora.helper.node_config import NodeConfig
 from src.flora.helper.training_params import FedBNTrainingParameters
 
+from ..communicator import Communicator, ReductionType
 from . import utils
 from .BaseAlgorithm import Algorithm
 
@@ -101,7 +102,7 @@ class FederatedBatchNormalization:
 
                 # average model parameters across clients
                 self.model = self.communicator.aggregate(
-                    msg=self.model, communicate_params=True, compute_mean=False
+                    msg=self.model, compute_mean=False
                 )
 
                 # revert back to client-local values of batch normalization layers
@@ -125,6 +126,7 @@ class FederatedBatchNormalization:
 # ======================================================================================
 
 
+@rich.repr.auto
 class FedBNNew(Algorithm):
     """
     Federated Batch Normalization (FedBN) algorithm implementation.
@@ -190,18 +192,13 @@ class FedBNNew(Algorithm):
                 local_bn_params[name] = param.data.clone()
 
         # Aggregate local sample counts to compute federation total
-
         global_samples = self.comm.aggregate(
             torch.tensor([self.local_samples], dtype=torch.float32),
-            communicate_params=False,
-            compute_mean=False,  # Sum all sample counts
+            reduction=ReductionType.SUM,
         ).item()
 
         # Handle edge cases safely - all nodes must participate in distributed operations
         if global_samples <= 0:
-            print(
-                "WARN: No samples processed across entire federation - participating with zero weight"
-            )
             data_proportion = 0.0
         else:
             # Calculate data proportion for weighted aggregation
@@ -212,11 +209,10 @@ class FedBNNew(Algorithm):
             if not self._is_bn_layer(name):
                 param.data.mul_(data_proportion)
 
-        # Aggregate weighted model parameters
+        # Aggregate non-BN parameters
         self.local_model = self.comm.aggregate(
             self.local_model,
-            communicate_params=True,
-            compute_mean=False,  # Sum pre-weighted models
+            reduction=ReductionType.SUM,
         )
 
         # Restore local BN parameters

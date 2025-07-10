@@ -14,6 +14,8 @@
 
 from typing import Any, Dict, List
 
+import time
+
 import ray
 import rich.repr
 import torch
@@ -36,16 +38,18 @@ class CentralizedTopology(Topology):
     - All communication flows through the aggregator
     """
 
-    def __init__(self, num_clients: int):
+    def __init__(self, num_clients: int, init_delay: float = 1.0):
         """
         Initialize centralized topology.
 
         Args:
             num_clients (int): Number of client nodes (server node is added automatically)
+            init_delay (float): Simulated delay in seconds between node initializations (default: 0.5s)
         """
         super().__init__()
         self.num_clients: int = num_clients
         self.num_nodes: int = num_clients + 1  # 1 server + N clients
+        self.init_delay: float = init_delay
 
     def create_nodes(
         self,
@@ -64,8 +68,10 @@ class CentralizedTopology(Topology):
         Returns:
             List of configured nodes
         """
-        utils.log_sep("Node Creation")
-        print(f"create_nodes: num_clients={self.num_clients}, total_nodes={self.num_nodes}")
+        print(
+            f"[TOPOLOGY-CREATE] Creating {self.num_clients} clients + 1 server = {self.num_nodes} total nodes",
+            flush=True,
+        )
 
         nodes: List[Node] = []
 
@@ -97,16 +103,14 @@ class CentralizedTopology(Topology):
 
             nodes.append(node)
 
-        # ----------------------------------------------------------------
-        # SETUP ALL NODES
-        setup_futures = []
-        for rank, node in enumerate(nodes):
-            future = node.setup.remote(
-                # rank=rank,
-                # world_size=self.num_nodes,
-            )
-            setup_futures.append(future)
+            # Add simulated delay between node initializations
+            time.sleep(self.init_delay)
 
-        # Wait for all setups to complete
+        # ----------------------------------------------------------------
+        # SETUP ALL NODES (PARALLEL)
+
+        # Start all setups simultaneously to avoid TorchDist coordination deadlock
+        setup_futures = [node.setup.remote() for node in nodes]
         ray.get(setup_futures)
+
         return nodes

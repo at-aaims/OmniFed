@@ -23,11 +23,12 @@ from rich import box
 from rich.table import Table
 
 from . import utils
+from .mixins import SetupMixin
 from .topology.BaseTopology import Topology
 
 
 @rich.repr.auto
-class Engine:
+class Engine(SetupMixin):
     """
     Core orchestration engine for federated learning experiments.
 
@@ -45,7 +46,18 @@ class Engine:
         self,
         cfg: DictConfig,
     ):
+        super().__init__()
         utils.log_sep(f"{self.__class__.__name__} Init", color="blue")
+
+        self.cfg: DictConfig = cfg
+
+        self.topology: Topology = instantiate(self.cfg.topology)
+
+        self.global_rounds: int = cfg.global_rounds
+
+    def _setup_impl(self):
+        utils.log_sep("FLORA Engine Setup", color="blue")
+
         # Initialize Ray with more verbose logging and explicit namespace
         ray.init(
             ignore_reinit_error=True,
@@ -53,15 +65,6 @@ class Engine:
             # logging_level=logging.INFO,  # TODO: Tie this to Hydra's logging level
             # namespace="federated_learning",
         )
-        # ---
-        self.cfg: DictConfig = cfg
-
-        self.topology: Topology = instantiate(self.cfg.topology)
-
-        self.global_rounds: int = cfg.global_rounds
-
-    def setup(self):
-        utils.log_sep("FLORA Engine Setup", color="blue")
 
         self.topology.setup(
             comm_cfg=self.cfg.comm,
@@ -80,7 +83,9 @@ class Engine:
 
             summaries = []
             for round_idx in range(self.global_rounds):
-                utils.log_sep(f"Round {round_idx + 1}/{self.global_rounds}")
+                # utils.log_sep(f"Round {round_idx + 1}/{self.global_rounds}")
+                print()
+                print(f"# Round {round_idx + 1}/{self.global_rounds}", flush=True)
                 _t_start_round = time.time()
 
                 results_futures = []
@@ -94,9 +99,6 @@ class Engine:
                 _t_round = time.time() - _t_start_round
 
                 _ct_total = len(results)
-                _ct_success = len([r for r in results if r is not None])
-
-                _success_rate = (_ct_success / _ct_total) * 100
 
                 # ---
                 summaries.append(
@@ -104,11 +106,10 @@ class Engine:
                         "round_idx": round_idx,
                         "duration": _t_round,
                         "total_count": _ct_total,
-                        "success_count": _ct_success,
-                        "success_rate": _success_rate,
                     }
                 )
-                print(f"Round Complete | {summaries[-1]}", flush=True)
+                print(f"# Round Complete | {summaries[-1]}", flush=True)
+                time.sleep(3)  # Give time for logs to flush
 
             utils.log_sep("FL Rounds End", color="blue")
 

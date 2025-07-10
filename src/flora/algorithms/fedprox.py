@@ -15,13 +15,14 @@
 import copy
 from typing import Any
 
+import rich.repr
 import torch
 from torch import nn
 
-from src.flora.communicator import Communicator
 from src.flora.helper.node_config import NodeConfig
 from src.flora.helper.training_params import FedProxTrainingParameters
 
+from ..communicator import Communicator, ReductionType
 from . import utils
 from .BaseAlgorithm import Algorithm
 
@@ -88,7 +89,7 @@ class FedProx:
             self.local_step += 1
             if self.local_step % self.comm_freq == 0:
                 self.global_model = self.communicator.aggregate(
-                    msg=self.model, communicate_params=True, compute_mean=True
+                    msg=self.model, compute_mean=True
                 )
                 self.model.load_state_dict(self.global_model.state_dict())
 
@@ -105,6 +106,7 @@ class FedProx:
 # ======================================================================================
 
 
+@rich.repr.auto
 class FedProxNew(Algorithm):
     """
     FedProx algorithm implementation.
@@ -169,18 +171,13 @@ class FedProxNew(Algorithm):
         Aggregate model parameters across clients and update the local model.
         """
         # Aggregate local sample counts to compute federation total
-
         global_samples = self.comm.aggregate(
             torch.tensor([self.local_samples], dtype=torch.float32),
-            communicate_params=False,
-            compute_mean=False,
+            reduction=ReductionType.SUM,
         ).item()
 
         # Handle edge cases safely - all nodes must participate in distributed operations
         if global_samples <= 0:
-            print(
-                "WARN: No samples processed across entire federation - participating with zero weight"
-            )
             data_proportion = 0.0
         else:
             # Calculate the proportion of data this client contributed
@@ -192,6 +189,5 @@ class FedProxNew(Algorithm):
         # Aggregate weighted model parameters from all clients
         self.local_model = self.comm.aggregate(
             self.local_model,
-            communicate_params=True,
-            compute_mean=False,
+            reduction=ReductionType.SUM,
         )
