@@ -192,6 +192,7 @@ class TorchDistCommunicator(Communicator):
                     continue
                 tensor = p.data
                 dist.all_reduce(tensor, op=dist.ReduceOp.SUM)
+                # TODO: would it be equivalent to just use dist.ReduceOp.AVG here?
                 if reduction == ReductionType.MEAN:
                     tensor.div_(self.world_size)
 
@@ -199,12 +200,14 @@ class TorchDistCommunicator(Communicator):
             # Handle tensor dictionaries
             for tensor in msg.values():
                 dist.all_reduce(tensor, op=dist.ReduceOp.SUM)
+                # TODO: would it be equivalent to just use dist.ReduceOp.AVG here?
                 if reduction == ReductionType.MEAN:
                     tensor.div_(self.world_size)
 
         else:
             # Handle single tensors
             dist.all_reduce(msg, op=dist.ReduceOp.SUM)
+            # TODO: would it be equivalent to just use dist.ReduceOp.AVG here?
             if reduction == ReductionType.MEAN:
                 msg.div_(self.world_size)
 
