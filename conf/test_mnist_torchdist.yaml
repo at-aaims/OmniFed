@@ -1,3 +1,10 @@
+# ------------------------------------------------------------------------------
+# FLORA Test Configuration – MNIST with Torch Distributed Communication
+#
+# This file extends the base MNIST test configuration by overriding the
+# communication backend to use the Torch Distributed (TorchDist) protocol.
+# ------------------------------------------------------------------------------
+
 defaults:
   - test_mnist_base
   - _self_

@@ -1,3 +1,14 @@
+# ------------------------------------------------------------------------------
+# FLORA Test Configuration – Base MNIST Setup
+#
+# This configuration file provides the baseline settings for testing a simple
+# Convolutional Neural Network (CNN) on the MNIST dataset. It includes default
+# settings for the model, dataset configuration, FL topology, and FL algorithm.
+#
+# This file is intended to be extended by other configurations which override
+# the communication settings.
+# ------------------------------------------------------------------------------
+
 defaults:
   - model: simple_cnn
   - data: mnist
