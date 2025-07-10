@@ -37,6 +37,7 @@ class SetupMixin(ABC):
             self._setup_complete = False
 
         if self._setup_complete:
+            print(f"{self.__class__.__name__} is already set up. Skipping setup.")
             return
 
         self._setup_impl(*args, **kwargs)
