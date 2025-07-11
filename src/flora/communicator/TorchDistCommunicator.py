@@ -15,24 +15,30 @@
 import datetime
 from typing import Union
 
+import rich.repr
 import torch
 import torch.distributed as dist
-import torch.nn as nn
+from torch import nn
 
-from .BaseCommunicator import Communicator
-
+from .BaseCommunicator import Communicator, ReductionType
+from ..algorithms import utils
 
 # ======================================================================================
 
 
+@rich.repr.auto
 class TorchDistCommunicator(Communicator):
     """
-    PyTorch distributed communicator
+    Communicator implementation using PyTorch distributed primitives.
+
+    Provides broadcast and aggregation operations via torch.distributed
+    collective communication functions. Supports TCP and file-based
+    initialization methods with configurable backends (gloo, nccl).
     """
 
     def __init__(
         self,
-        rank: int,
+        local_rank: int,
         world_size: int,
         init_method: str = "tcp",
         # group_name: str = "default",
@@ -40,11 +46,15 @@ class TorchDistCommunicator(Communicator):
         master_port: str = "29500",
         backend: str = "gloo",
         sharedfile: str = "sharedfile",
-        timeout: int = 10,
+        timeout: int = 30,
         max_retries: int = 3,
     ):
-        print(f"{self.__class__.__name__} init...")
-        self.rank: int = rank
+        super().__init__()
+        print(
+            f"[COMM-INIT] rank={local_rank}/{world_size} | backend={backend} | addr={master_addr}:{master_port}"
+        )
+
+        self.local_rank: int = local_rank
         self.world_size: int = world_size
         self.init_method: str = init_method
         # self.group_name = group_name
@@ -55,9 +65,9 @@ class TorchDistCommunicator(Communicator):
         self.timeout: datetime.timedelta = datetime.timedelta(seconds=timeout)
         self.max_retries: int = max_retries
 
-        # Fallback if necessary
+        # Backend validation and fallback
         if self.backend == "nccl" and not torch.cuda.is_available():
-            print("NCCL backend requested but CUDA not available, falling back to gloo")
+            print("[COMM-INIT] NCCL→gloo fallback (no CUDA)")
             self.backend = "gloo"
 
     # def setup(self):
@@ -99,18 +109,16 @@ class TorchDistCommunicator(Communicator):
 
     #     print(f"Process group initialized successfully")
 
-    def setup(self):
+    def _setup_impl(self):
         """
-        Initialize PyTorch distributed process group using the selected init_method.
+        Initialize PyTorch distributed process group.
+
+        Creates the distributed process group using either TCP or file-based
+        initialization method. Required before any collective operations.
         """
-        # TODO: Check if this is already done internatlly in dist.init_process_group
-        # if dist.is_initialized():
-        #     print(f"Process group already initialized")
-        #     return
 
         print(
-            f"setup: rank={self.rank}, world_size={self.world_size}, init_method={self.init_method}, backend={self.backend}, master_addr={self.master_addr}, master_port={self.master_port}, sharedfile={self.sharedfile}",
-            flush=True,
+            f"[COMM-SETUP] rank={self.local_rank}/{self.world_size} | {self.init_method} | backend={self.backend}"
         )
 
         if self.init_method == "tcp":
@@ -118,7 +126,7 @@ class TorchDistCommunicator(Communicator):
             dist.init_process_group(
                 backend=self.backend,
                 init_method=addr,
-                rank=self.rank,
+                rank=self.local_rank,
                 world_size=self.world_size,
                 timeout=self.timeout,
             )
@@ -127,7 +135,7 @@ class TorchDistCommunicator(Communicator):
             dist.init_process_group(
                 backend=self.backend,
                 init_method=addr,
-                rank=self.rank,
+                rank=self.local_rank,
                 world_size=self.world_size,
             )
 
@@ -137,18 +145,22 @@ class TorchDistCommunicator(Communicator):
         src: int = 0,
     ) -> Communicator.MsgT:
         """
-        :param msg: message to broadcast
-        :param id: node id which initiates the broadcast
-        :return: returns the broadcasted message
+        Broadcast message from source rank to all ranks.
+
+        Args:
+            msg: Model, tensor dict, or tensor to broadcast
+            src: Source rank (default: 0)
+        Returns:
+            Broadcasted message
         """
-        print(f"Broadcast from rank {src} to all ranks | {type(msg)}", flush=True)
+        print(f"[COMM-BCAST] {type(msg).__name__} | src: {src}")
 
         if isinstance(msg, nn.Module):
             for _, p in msg.named_parameters():
                 if p.requires_grad:
                     dist.broadcast(p.data, src=src)
         elif isinstance(msg, dict):
-            # Handle Dict[str, torch.Tensor] for parameter deltas, control variates, etc.
+            # Handle tensor dictionaries
             for tensor in msg.values():
                 dist.broadcast(tensor, src=src)
         else:
@@ -158,136 +170,136 @@ class TorchDistCommunicator(Communicator):
     def aggregate(
         self,
         msg: Communicator.MsgT,
-        communicate_params: bool = True,
-        compute_mean: bool = True,
+        reduction: ReductionType,
     ) -> Communicator.MsgT:
         """
-        :param msg: message to aggregate
-        :param communicate_params: collect model parameters if True, else aggregate model gradients
-        :return: aggregated message
+        Aggregate message across all ranks using all-reduce operations.
+
+        Performs distributed summation or averaging of tensors/models.
+        Algorithms are responsible for any pre-scaling or weighting.
+
+        Args:
+            msg: Model, tensor dict, or tensor to aggregate
+            reduction: SUM or MEAN reduction operation
+        Returns:
+            Aggregated message
         """
-        print(
-            f"Aggregate from all ranks | {type(msg)} communicate_params={communicate_params} compute_mean={compute_mean}",
-            flush=True,
-        )
+        print(f"[COMM-AGG] {type(msg).__name__} | reduction: {reduction.value}")
 
         if isinstance(msg, nn.Module):
             for _, p in msg.named_parameters():
                 if not p.requires_grad:
                     continue
-                tensor = p.data if communicate_params else p.grad
+                tensor = p.data
                 dist.all_reduce(tensor, op=dist.ReduceOp.SUM)
-                if compute_mean:
+                # TODO: would it be equivalent to just use dist.ReduceOp.AVG here?
+                if reduction == ReductionType.MEAN:
                     tensor.div_(self.world_size)
+
         elif isinstance(msg, dict):
-            # Handle Dict[str, torch.Tensor] for parameter deltas, control variates, etc.
-            for name, tensor in msg.items():
+            # Handle tensor dictionaries
+            for tensor in msg.values():
                 dist.all_reduce(tensor, op=dist.ReduceOp.SUM)
-                if compute_mean:
+                # TODO: would it be equivalent to just use dist.ReduceOp.AVG here?
+                if reduction == ReductionType.MEAN:
                     tensor.div_(self.world_size)
+
         else:
+            # Handle single tensors
             dist.all_reduce(msg, op=dist.ReduceOp.SUM)
-            if compute_mean:
+            # TODO: would it be equivalent to just use dist.ReduceOp.AVG here?
+            if reduction == ReductionType.MEAN:
                 msg.div_(self.world_size)
+
         return msg
 
-    def send(
-        self,
-        msg: Communicator.MsgT,
-        dst: int,
-        communicate_params: bool = True,
-    ) -> Communicator.MsgT:
-        """
-        :param msg: message to send
-        :param id: client or server id ranging from 0 to (total_clients - 1)
-        :param communicate_params: collect model parameters if True, else aggregate model gradients
-        :return: the sending message
-        """
-        print(
-            f"Send to rank {dst} | {type(msg)} communicate_params={communicate_params}",
-            flush=True,
-        )
+    # def send(
+    #     self,
+    #     msg: Communicator.MsgT,
+    #     dst: int,
+    # ) -> Communicator.MsgT:
+    #     """
+    #     :param msg: message to send
+    #     :param id: client or server id ranging from 0 to (total_clients - 1)
+    #     :return: the sending message
+    #     """
+    #     print(
+    #         f"Send to rank {dst} | {type(msg)}",
+    #         flush=True,
+    #     )
 
-        if isinstance(msg, nn.Module):
-            for _, p in msg.named_parameters():
-                if not p.requires_grad:
-                    continue
+    #     if isinstance(msg, nn.Module):
+    #         for _, p in msg.named_parameters():
+    #             if not p.requires_grad:
+    #                 continue
 
-                tensor = p.data if communicate_params else p.grad
-                dist.send(tensor, dst=dst)
-        else:
-            dist.send(msg, dst=dst)
-        return msg
+    #             tensor = p.data
+    #             dist.send(tensor, dst=dst)
+    #     else:
+    #         dist.send(msg, dst=dst)
+    #     return msg
 
-    def receive(
-        self,
-        msg: Communicator.MsgT,
-        src: int,
-        communicate_params: bool = True,
-    ) -> Communicator.MsgT:
-        """
-        :param msg: message to receive
-        :param id: client or server id ranging from 0 to (total_clients - 1)
-        :param communicate_params: collect model parameters if True, else aggregate model gradients
-        :return: the receiving message
-        """
-        print(
-            f"Receive from rank {src} | {type(msg)} communicate_params={communicate_params}",
-            flush=True,
-        )
+    # def receive(
+    #     self,
+    #     msg: Communicator.MsgT,
+    #     src: int,
+    # ) -> Communicator.MsgT:
+    #     """
+    #     :param msg: message to receive
+    #     :param id: client or server id ranging from 0 to (total_clients - 1)
+    #     :return: the receiving message
+    #     """
+    #     print(
+    #         f"Receive from rank {src} | {type(msg)}",
+    #         flush=True,
+    #     )
 
-        if isinstance(msg, nn.Module):
-            for _, p in msg.named_parameters():
-                if not p.requires_grad:
-                    continue
+    #     if isinstance(msg, nn.Module):
+    #         for _, p in msg.named_parameters():
+    #             if not p.requires_grad:
+    #                 continue
 
-                tensor = p.data if communicate_params else p.grad
-                dist.recv(tensor, src=src)
-        else:
-            dist.recv(msg, src=src)
-        return msg
+    #             tensor = p.data
+    #             dist.recv(tensor, src=src)
+    #     else:
+    #         dist.recv(msg, src=src)
+    #     return msg
 
-    def collect(
-        self,
-        msg: Union[nn.Module, torch.Tensor, float, int],
-        communicate_params: bool = True,
-    ) -> list[tuple[int, Communicator.MsgT]]:
-        """
-         all-gather in decentralized MPI collectives
-        :param msg: message to receive
-        :param id: client_id specifying the client update comes from. redundant in MPI communication as all_gather
-        collects by rank ids
-        :param communicate_params: collect model parameters if True, else send model gradients
-        :return: either nested list of layerwise model data collected from clients or a simple list of gathered data
-        """
-        print(
-            f"Collect from all ranks | {type(msg)} communicate_params={communicate_params}",
-            flush=True,
-        )
+    # def collect(
+    #     self,
+    #     msg: Union[nn.Module, torch.Tensor, float, int],
+    # ) -> list[tuple[int, Communicator.MsgT]]:
+    #     """
+    #     all-gather in decentralized MPI collectives
+    #     :param msg: message to receive
+    #     :param id: client_id specifying the client update comes from. redundant in MPI communication as all_gather
+    #     collects by rank ids
+    #     :return: either nested list of layerwise model data collected from clients or a simple list of gathered data
+    #     """
+    #     print(
+    #         f"Collect from all ranks | {type(msg)}",
+    #         flush=True,
+    #     )
 
-        collected = []
-        if isinstance(msg, nn.Module):
-            for _, p in msg.named_parameters():
-                if not p.requires_grad:
-                    continue
-                buf = [torch.zeros_like(p.data) for _ in range(self.world_size)]
-                tensor = p.data if communicate_params else p.grad
-                dist.all_gather(buf, tensor)
-                collected.append([(r, buf[r]) for r in range(self.world_size)])
-        else:
-            base = torch.tensor(msg)
-            buf = [torch.zeros_like(base) for _ in range(self.world_size)]
-            dist.all_gather(buf, base)
-            collected = [(r, buf[r]) for r in range(self.world_size)]
-        return collected
+    #     collected = []
+    #     if isinstance(msg, nn.Module):
+    #         for _, p in msg.named_parameters():
+    #             if not p.requires_grad:
+    #                 continue
+    #             buf = [torch.zeros_like(p.data) for _ in range(self.world_size)]
+    #             tensor = p.data
+    #             dist.all_gather(buf, tensor)
+    #             collected.append([(r, buf[r]) for r in range(self.world_size)])
+    #     else:
+    #         base = torch.tensor(msg)
+    #         buf = [torch.zeros_like(base) for _ in range(self.world_size)]
+    #         dist.all_gather(buf, base)
+    #         collected = [(r, buf[r]) for r in range(self.world_size)]
+    #     return collected
 
     def close(self):
         """
-        Clean up the process group.
+        Destroy the distributed process group and clean up resources.
         """
-        # if not dist.is_initialized():
-        #     print(f"Process group not initialized, nothing to close")
-        #     return
-        print("Destroying process group")
+        print("[COMM-CLOSE]")
         dist.destroy_process_group()
-        print("Process group destroyed successfully")

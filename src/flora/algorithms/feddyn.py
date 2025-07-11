@@ -15,13 +15,14 @@
 import copy
 from typing import Any, Dict, Tuple
 
+import rich.repr
 import torch
 from torch import nn
 
-from src.flora.communicator import Communicator
 from src.flora.helper.node_config import NodeConfig
 from src.flora.helper.training_params import FedDynTrainingParameters
 
+from ..communicator import Communicator, ReductionType
 from . import utils
 from .BaseAlgorithm import Algorithm
 
@@ -111,7 +112,7 @@ class FedDyn:
                     param.data *= weight_scaling
 
                 self.global_model = self.communicator.aggregate(
-                    msg=self.model, communicate_params=True, compute_mean=False
+                    msg=self.model, compute_mean=False
                 )
                 self.model.load_state_dict(self.global_model.state_dict())
                 self.training_samples = 0
@@ -129,6 +130,7 @@ class FedDyn:
 # ======================================================================================
 
 
+@rich.repr.auto
 class FedDynNew(Algorithm):
     """
     Federated Dynamic Regularization (FedDyn) algorithm implementation.
@@ -140,10 +142,11 @@ class FedDynNew(Algorithm):
         self,
         local_model: nn.Module,
         comm: Communicator,
+        max_epochs: int,
         lr: float = 0.01,
         alpha: float = 0.1,
     ):
-        super().__init__(local_model, comm)
+        super().__init__(local_model, comm, max_epochs)
         self.lr = lr
         self.alpha = alpha
 
@@ -211,18 +214,13 @@ class FedDynNew(Algorithm):
                 local_model_params[name] = param.data.clone()
 
         # Aggregate local sample counts to compute federation total
-
         global_samples = self.comm.aggregate(
             torch.tensor([self.local_samples], dtype=torch.float32),
-            communicate_params=False,
-            compute_mean=False,  # Sum all sample counts
+            reduction=ReductionType.SUM,
         ).item()
 
         # Handle edge cases safely - all nodes must participate in distributed operations
         if global_samples <= 0:
-            print(
-                "WARN: No samples processed across entire federation - participating with zero weight"
-            )
             data_proportion = 0.0
         else:
             # Calculate data proportion for weighted aggregation
@@ -234,8 +232,7 @@ class FedDynNew(Algorithm):
         # Aggregate weighted model parameters
         aggregated_model = self.comm.aggregate(
             self.local_model,
-            communicate_params=True,
-            compute_mean=False,  # Sum pre-weighted models
+            reduction=ReductionType.SUM,
         )
 
         # Update server momentum (dynamic regularizer)

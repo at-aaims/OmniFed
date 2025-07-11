@@ -14,6 +14,7 @@
 
 from abc import ABC, abstractmethod
 
+import rich.repr
 import torch
 import torch.nn as nn
 
@@ -50,6 +51,7 @@ class BaseBackbone(nn.Module, ABC):
         pass
 
 
+@rich.repr.auto
 class ComposableModel(nn.Module):
     """
     Flexible composable model with swappable backbone and head components.

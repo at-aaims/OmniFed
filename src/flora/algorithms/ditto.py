@@ -15,13 +15,14 @@
 import copy
 from typing import Any
 
+import rich.repr
 import torch
 import torch.nn as nn
 
-from src.flora.communicator import Communicator
 from src.flora.helper.node_config import NodeConfig
 from src.flora.helper.training_params import DittoTrainingParameters
 
+from ..communicator import Communicator, ReductionType
 from . import utils
 from .BaseAlgorithm import Algorithm
 
@@ -114,7 +115,7 @@ class Ditto:
                     param.data *= weight_scaling
 
                 self.global_model = self.communicator.aggregate(
-                    msg=self.global_model, communicate_params=True, compute_mean=False
+                    msg=self.global_model, compute_mean=False
                 )
                 self.training_samples = 0
 
@@ -133,6 +134,7 @@ class Ditto:
 # ======================================================================================
 
 
+@rich.repr.auto
 class DittoNew(Algorithm):
     """
     Ditto algorithm implementation for personalized federated learning.
@@ -145,11 +147,12 @@ class DittoNew(Algorithm):
         self,
         local_model: nn.Module,
         comm: Communicator,
+        max_epochs: int,
         lr: float = 0.01,
         global_lr: float = 0.01,
         ditto_lambda: float = 0.1,
     ):
-        super().__init__(local_model, comm)
+        super().__init__(local_model, comm, max_epochs)
         self.lr = lr
         self.global_lr = global_lr
         self.ditto_lambda = ditto_lambda
@@ -208,18 +211,13 @@ class DittoNew(Algorithm):
         Aggregate global models across clients. Personal models remain local.
         """
         # Aggregate local sample counts to compute federation total
-
         global_samples = self.comm.aggregate(
             torch.tensor([self.local_samples], dtype=torch.float32),
-            communicate_params=False,
-            compute_mean=False,
+            reduction=ReductionType.SUM,
         ).item()
 
         # Handle edge cases safely - all nodes must participate in distributed operations
         if global_samples <= 0:
-            print(
-                "WARN: No samples processed across entire federation - participating with zero weight"
-            )
             data_proportion = 0.0
         else:
             # Calculate data proportion for weighted aggregation
@@ -231,6 +229,5 @@ class DittoNew(Algorithm):
         # Aggregate global models (personal models remain local)
         self.global_model = self.comm.aggregate(
             self.global_model,
-            communicate_params=True,
-            compute_mean=False,
+            reduction=ReductionType.SUM,
         )

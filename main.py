@@ -46,6 +46,7 @@ def main(cfg: DictConfig) -> None:
 
     engine = Engine(cfg)
 
+    time.sleep(1)  # NOTE: useful for debugging for now
     engine.setup()
 
     time.sleep(1)  # NOTE: useful for debugging for now

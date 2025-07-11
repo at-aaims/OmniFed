@@ -15,13 +15,14 @@
 import copy
 from typing import Any, Dict, List, Optional, Tuple, Union
 
+import rich.repr
 import torch
 import torch.nn as nn
 
-from src.flora.communicator import Communicator
 from src.flora.helper.node_config import NodeConfig
 from src.flora.helper.training_params import MOONTrainingParameters
 
+from ..communicator import Communicator, ReductionType
 from . import utils
 from .BaseAlgorithm import Algorithm
 
@@ -141,7 +142,7 @@ class Moon:
                     param.data *= weight_scaling
 
                 self.global_model = self.communicator.aggregate(
-                    msg=self.model, communicate_params=True, compute_mean=False
+                    msg=self.model, compute_mean=False
                 )
                 self.model.load_state_dict(self.global_model.state_dict())
                 self.training_samples = 0
@@ -167,6 +168,7 @@ class Moon:
 # ======================================================================================
 
 
+@rich.repr.auto
 class MOONWrapper(nn.Module):
     """
     Model wrapper for Model-Contrastive Federated Learning (MOON).
@@ -207,12 +209,13 @@ class MOONNew(Algorithm):
         self,
         local_model: nn.Module,
         comm: Communicator,
+        max_epochs: int,
         lr: float = 0.01,
         mu: float = 1.0,
         temperature: float = 0.5,
         num_prev_models: int = 1,
     ):
-        super().__init__(local_model, comm)
+        super().__init__(local_model, comm, max_epochs)
         self.lr = lr
         self.mu = mu
         self.temperature = temperature
@@ -312,15 +315,11 @@ class MOONNew(Algorithm):
 
         global_samples = self.comm.aggregate(
             torch.tensor([self.local_samples], dtype=torch.float32),
-            communicate_params=False,
-            compute_mean=False,
+            reduction=ReductionType.SUM,
         ).item()
 
         # Handle edge cases safely - all nodes must participate in distributed operations
         if global_samples <= 0:
-            print(
-                "WARN: No samples processed across entire federation - participating with zero weight"
-            )
             data_proportion = 0.0
         else:
             # Calculate data proportion for weighted aggregation
@@ -329,11 +328,10 @@ class MOONNew(Algorithm):
         # All nodes participate regardless of sample count
         utils.scale_params(self.local_model, data_proportion)
 
-        # Aggregate weighted model parameters
+        # Aggregate scaled models
         self.local_model = self.comm.aggregate(
             self.local_model,
-            communicate_params=True,
-            compute_mean=False,  # Sum pre-weighted models
+            reduction=ReductionType.SUM,
         )
 
         # Update previous model history
