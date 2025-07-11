@@ -15,14 +15,16 @@
 import logging
 import time
 from abc import ABC, abstractmethod
-
 from typing import Any, Optional
 
 import rich.repr
 import torch
 from torch import nn
 from torch.utils.data import DataLoader
-from ..communicator.BaseCommunicator import Communicator
+
+from ..communicator.BaseCommunicator import Communicator, ReductionType
+from ..communicator.grpc_communicator import GrpcCommunicator
+from ..communicator.TorchDistCommunicator import TorchDistCommunicator
 from ..helper.RoundMetrics import RoundMetrics
 from . import utils
 
@@ -38,7 +40,7 @@ class Algorithm(ABC):
     - Automatic infrastructure: metrics, timing, device handling, sample counting
     """
 
-    def __init__(self, local_model: nn.Module, comm: Communicator):
+    def __init__(self, local_model: nn.Module, comm: Communicator, max_epochs: int):
         """
         Initialize the Algorithm instance.
 
@@ -49,6 +51,7 @@ class Algorithm(ABC):
         # Core federated learning components
         self.local_model: nn.Module = local_model
         self.comm: Communicator = comm
+        self.max_epochs: int = max_epochs
 
         # Round state - properly initialized
         self._optimizer: Optional[torch.optim.Optimizer] = None
@@ -62,6 +65,7 @@ class Algorithm(ABC):
     # =============================================================================
     # PROPERTIES
     # =============================================================================
+
 
     @property
     def optimizer(self) -> torch.optim.Optimizer:
@@ -147,7 +151,6 @@ class Algorithm(ABC):
         self,
         dataloader: DataLoader[Any],
         round_idx: int,
-        max_epochs: int,
     ):
         """
         Execute federated round computation across multiple epochs.
@@ -162,11 +165,11 @@ class Algorithm(ABC):
         """
         self.local_model.train()
 
-        for epoch_idx in range(max_epochs):
+        for epoch_idx in range(self.max_epochs):
             # Update current epoch index
             self.epoch_idx = epoch_idx
             print(
-                f"TRAIN_ROUND {round_idx + 1} | EPOCH {epoch_idx + 1} START",
+                f"[EPOCH-START] Round {round_idx + 1} | Epoch {epoch_idx + 1}",
                 flush=True,
             )
             # Epoch timing
@@ -183,7 +186,7 @@ class Algorithm(ABC):
             self.metrics.update_mean("time/epoch", epoch_time)
 
             print(
-                f"TRAIN_ROUND {round_idx + 1} | EPOCH {epoch_idx + 1} END |",
+                f"[EPOCH-END] Round {round_idx + 1} | Epoch {epoch_idx + 1} |",
                 {
                     k: round(v, 2) if isinstance(v, float) else v
                     for k, v in self.metrics.to_dict().items()

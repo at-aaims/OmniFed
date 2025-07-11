@@ -13,279 +13,222 @@
 # limitations under the License.
 
 import threading
-from typing import Dict
+from collections import defaultdict
+from typing import Dict, Any
 
-import numpy as np
+import rich.repr
 import torch
 
-from . import grpc_communicator_pb2 as flora_grpc_pb2
-from . import grpc_communicator_pb2_grpc as flora_grpc_pb2_grpc
+from . import grpc_communicator_pb2
+from . import grpc_communicator_pb2_grpc
+from .protobuf_utils import tensordict_to_proto, proto_to_tensordict
 
 
-class CentralServerServicer(flora_grpc_pb2_grpc.CentralServerServicer):
+@rich.repr.auto
+class CentralServerServicer(grpc_communicator_pb2_grpc.CentralServerServicer):
+    """
+    gRPC servicer for centralized federated learning aggregation.
+
+    Manages broadcast state distribution and multi-session tensor aggregation
+    with automatic session management and client synchronization.
+    """
+
     def __init__(
         self,
-        model: torch.nn.Module,
-        num_clients: int,
-        use_compression: bool = False,
-        accumulate_updates: bool = True,
-        communicate_params: bool = True,
-        compute_mean: bool = True,
+        world_size: int,
     ):
-        self.num_clients = num_clients
-        self.model = model
-        self.accumulate_updates = accumulate_updates
-        self.communicate_params = communicate_params
-        self.compute_mean = compute_mean
+        print(f"[COMM-INIT] gRPC Server | world_size={world_size}")
+        self.world_size = world_size
 
         self.registered_clients = set()
-        self.current_round = -1  # Start with -1 so first round (0) is properly handled
         self.lock = threading.Lock()
 
-        # Single event that gets reset for each new round
-        self.round_complete_event = threading.Event()
-        self.round_in_progress = -1  # Track which round is currently being processed
-
-        # For gradient accumulation approach
-        if accumulate_updates:
-            self.accumulated_updates = {}
-            self.update_count = 0
-            self.total_samples = 0  # Sum of samples from all clients
-            self._initialize_accumulated_updates()
-
-        print(
-            f"Compatible Scalable Parameter Server initialized for {num_clients} clients"
-        )
-        print(
-            f"Compression: {use_compression}, Updates' Accumulation: {accumulate_updates}"
+        # Aggregation session management
+        self.current_aggregation_session = 0
+        self.aggregation_state: dict[int, dict[str, Any]] = defaultdict(
+            lambda: {
+                "data": {},
+                "result": None,
+                "event": threading.Event(),
+                "reduction_type": None,
+            }
         )
 
-    def _initialize_accumulated_updates(self):
-        """Initialize accumulated gradients to zero"""
-        with torch.no_grad():
-            for name, param in self.model.named_parameters():
-                self.accumulated_updates[name] = torch.zeros_like(param)
+        # Broadcast state storage
+        self._broadcast_state = {}
 
-    def _model_updates_to_protobuf_efficient(self, model_updates: Dict):
-        """Convert model parameters to protobuf format efficiently"""
-        proto_layers = []
+        print(f"[COMM-READY] Server listening for {world_size} clients")
 
-        for name, param in model_updates.items():
-            # param = param.cpu().numpy()
-            param = param.cpu()
-            layer_proto = flora_grpc_pb2.LayerState(layer_name=name)
-            if self.communicate_params:
-                layer_proto.param_update.extend(param.data.flatten().tolist())
-                layer_proto.param_shape.extend(list(param.data.shape))
-            else:
-                layer_proto.param_update.extend(param.grad.flatten().tolist())
-                layer_proto.param_shape.extend(list(param.grad.shape))
+    def get_broadcast_state(self) -> Dict[str, torch.Tensor]:
+        """Get current broadcast state with tensor cloning."""
+        with self.lock:
+            return {
+                key: tensor.clone() for key, tensor in self._broadcast_state.items()
+            }
 
-            proto_layers.append(layer_proto)
+    def set_broadcast_state(self, tensordict: Dict[str, torch.Tensor]):
+        """Set broadcast state for client retrieval."""
+        with self.lock:
+            self._broadcast_state = tensordict
+        print(f"[COMM-BCAST] Stored | {len(tensordict)} tensors")
 
-        return proto_layers
+    def perform_aggregation_if_ready(
+        self, session_state: Dict, current_session: int
+    ) -> bool:
+        """Execute aggregation when all participants ready."""
+        submitted_count = len(session_state["data"])
 
-    def _protobuf_to_model_params_efficient(self, proto_layers):
-        """Convert protobuf layers to model parameters efficiently"""
-        model_params = {}
-        for layer in proto_layers:
-            layer_name = layer.layer_name
-            model_params[layer_name] = torch.tensor(
-                np.array(layer.param_update).reshape(tuple(layer.param_shape)),
-                dtype=torch.float32,
+        print(
+            f"[AGG-STATUS] Waiting for clients ({submitted_count}/{self.world_size} ready)"
+        )
+
+        if submitted_count == self.world_size:
+            print(
+                f"[AGG-START] All {self.world_size} clients ready - beginning aggregation"
             )
 
-        return model_params
+            first_data = next(iter(session_state["data"].values()))
+            aggregated_tensors = {}
 
-    def SendUpdate(self, request, context):
-        """Receive model updates from client"""
+            with torch.no_grad():
+                for key, tensor in first_data.items():
+                    aggregated_tensors[key] = torch.zeros_like(tensor)
+
+                for client_data in session_state["data"].values():
+                    for key, tensor in client_data.items():
+                        if key in aggregated_tensors:
+                            aggregated_tensors[key] += tensor
+                reduction_type = session_state["reduction_type"]
+                if reduction_type is None:
+                    raise ValueError(
+                        f"No reduction type set for session {current_session}"
+                    )
+
+                match reduction_type:
+                    case "sum":
+                        pass
+                    case "mean":
+                        for key, tensor in aggregated_tensors.items():
+                            tensor /= self.world_size
+                    case _:
+                        raise ValueError(f"Unknown reduction type: {reduction_type}")
+
+            session_state["result"] = aggregated_tensors
+            session_state["event"].set()
+            print(
+                f"[AGG-COMPLETE] Aggregated {len(aggregated_tensors)} tensors using {reduction_type}"
+            )
+            self.current_aggregation_session += 1
+            return True
+        return False
+
+    def GetBroadcastState(self, request, context):
+        """Send broadcast state to requesting client."""
+        print(f"[BCAST-REQUEST] Client {request.client_id}")
+
+        with self.lock:
+            if self._broadcast_state:
+                proto_tensordict = tensordict_to_proto(self._broadcast_state)
+                return grpc_communicator_pb2.OperationResponse(
+                    tensor_dict=proto_tensordict, is_ready=True
+                )
+            else:
+                return grpc_communicator_pb2.OperationResponse(is_ready=False)
+
+    def _create_aggregation_result_response(self, session_id: int):
+        """Create response with aggregated tensors."""
+        if session_id in self.aggregation_state:
+            session_state = self.aggregation_state[session_id]
+            if session_state["result"] is not None:
+                aggregated_tensors = session_state["result"]
+                proto_tensordict = tensordict_to_proto(aggregated_tensors)
+                return grpc_communicator_pb2.OperationResponse(
+                    tensor_dict=proto_tensordict, is_ready=True
+                )
+        return grpc_communicator_pb2.OperationResponse(is_ready=False)
+
+    def SubmitForAggregation(self, request, context):
+        """Receive and store client tensors for aggregation."""
         with self.lock:
             client_id = request.client_id
-            round_number = request.round_number
+            current_session = self.current_aggregation_session
+            print(
+                f"[AGG-SUBMIT] Client {client_id} submitting {len(request.tensor_dict.entries)} tensors"
+            )
 
             try:
-                # Check if this is a new round
-                if round_number > self.round_in_progress:
-                    # New round started, reset the event and tracking
-                    print(f"Starting new round {round_number}")
-                    self.round_in_progress = round_number
-                    self.round_complete_event.clear()
-                    self.update_count = 0  # Reset for new round
-                    self.total_samples = 0  # Reset sample count for new round
-                    self._initialize_accumulated_updates()  # Reset accumulation
+                data = proto_to_tensordict(request.tensor_dict)
+                session_state = self.aggregation_state[current_session]
 
-                # Only process updates for the current round
-                if round_number != self.round_in_progress:
+                if session_state["reduction_type"] is None:
+                    session_state["reduction_type"] = request.reduction_type
                     print(
-                        f"Ignoring update from {client_id} for round {round_number}, current round is {self.round_in_progress}"
+                        f"[COMM-AGG] Session | {current_session} | reduction={request.reduction_type}"
                     )
-                    return flora_grpc_pb2.UpdateResponse(
-                        success=False,
-                        message=f"Round {round_number} is not the current round ({self.round_in_progress})",
-                        clients_registered=len(self.registered_clients),
-                        updates_received=self.update_count,
-                    )
-
-                # Convert protobuf to model parameters
-                update_data = self._protobuf_to_model_params_efficient(request.layers)
-
-                if self.accumulate_updates:
-                    # Updates' accumulation approach - more memory efficient
-                    self._accumulate_model_updates(update_data)
-                    self.update_count += 1
-                    self.total_samples += (
-                        request.number_samples
-                    )  # Accumulate sample count
+                elif session_state["reduction_type"] != request.reduction_type:
                     print(
-                        f"Accumulated gradient from {client_id} for round {round_number}. "
-                        f"Count: {self.update_count}/{self.num_clients}, "
-                        f"Total samples: {self.total_samples}"
+                        f"[COMM-ERROR] Reduction mismatch | expected={session_state['reduction_type']} got={request.reduction_type}"
                     )
 
-                    if self.update_count == self.num_clients:
-                        print(
-                            f"All gradients received for round {round_number}. Applying average..."
-                            f"Total samples across all clients: {self.total_samples}"
-                        )
-                        self._apply_model_updates()
-                        print(
-                            f"DEBUG:successfully applied updates for round {round_number}"
-                        )
-
-                        # Update current round and signal completion
-                        self.current_round = round_number
-                        self.round_complete_event.set()  # Signal all waiting clients
-
-                        print(
-                            f"DEBUG:successfully completed round {self.current_round}"
-                        )
-
-                return flora_grpc_pb2.UpdateResponse(
-                    success=True,
-                    message="Update received successfully",
-                    clients_registered=len(self.registered_clients),
-                    updates_received=self.update_count,
+                session_state["data"][client_id] = data
+                data_count = len(session_state["data"])
+                print(
+                    f"[AGG-COLLECT] Received from client {client_id} ({data_count}/{self.world_size} ready)"
                 )
+
+                self.perform_aggregation_if_ready(session_state, current_session)
+                return grpc_communicator_pb2.StatusResponse(success=True)
 
             except Exception as e:
-                print(f"Error processing update from {client_id}: {e}")
-                return flora_grpc_pb2.UpdateResponse(
-                    success=False,
-                    message=f"Error processing update: {str(e)}",
-                    clients_registered=len(self.registered_clients),
-                    updates_received=0,
-                )
+                print(f"[COMM-ERROR] Submit | {e}")
+                return grpc_communicator_pb2.StatusResponse(success=False)
 
-    def _accumulate_model_updates(self, update_data: Dict):
-        """Accumulate model updates from clients for better memory efficiency"""
-        print(f"DEBUG: Accumulating model updates for round {self.round_in_progress}")
-        with torch.no_grad():
-            for name, update in update_data.items():
-                if name in self.accumulated_updates:
-                    self.accumulated_updates[name] += update
-
-    def _apply_model_updates(self):
-        """Apply model updates using total sample count for proper averaging"""
-        with torch.no_grad():
-            for name, param in self.model.named_parameters():
-                if name in self.accumulated_updates:
-                    if self.compute_mean:
-                        # Divide by total samples instead of number of clients
-                        # This gives proper weighted averaging based on data size
-                        avg_update = self.accumulated_updates[name] / self.total_samples
-                        print(
-                            f"DEBUG: Averaging {name} with total_samples={self.total_samples}"
-                        )
-                    else:
-                        avg_update = self.accumulated_updates[name]
-
-                    if self.communicate_params:
-                        param.data = avg_update
-                    else:
-                        param.grad = avg_update
-
-    def GetUpdatedModel(self, request, context):
-        """Send current model to client using existing protobuf format"""
+    def GetAggregationResult(self, request, context):
+        """Send aggregation result to requesting client."""
         client_id = request.client_id
-        round_number = request.round_number
+
+        with self.lock:
+            target_session = None
+            for session_id in sorted(self.aggregation_state.keys(), reverse=True):
+                if client_id in self.aggregation_state[session_id]["data"]:
+                    target_session = session_id
+                    break
+            if target_session is None:
+                print(
+                    f"[COMM-ERROR] GetResult | client={client_id} | no submission found"
+                )
+                return grpc_communicator_pb2.OperationResponse(is_ready=False)
+
+        print(f"[AGG-REQUEST] Client {client_id} requesting aggregation result")
 
         try:
-            print(f"Client {client_id} requesting model for round {round_number}")
-
-            # Check if the requested round is already completed
+            session_state = self.aggregation_state[target_session]
             with self.lock:
-                if round_number <= self.current_round:
-                    # Round is already completed, send the model immediately
+                if session_state["result"] is not None:
+                    print(f"[AGG-SEND] Sending aggregated model to client {client_id}")
+                    return self._create_aggregation_result_response(target_session)
+
+            print(f"[AGG-WAIT] Client {client_id} waiting for aggregation to complete")
+            session_state["event"].wait()
+            print(f"[AGG-READY] Aggregation complete for client {client_id}")
+            with self.lock:
+                if session_state["result"] is not None:
                     print(
-                        f"Round {round_number} already completed (current: {self.current_round}), sending model to {client_id}"
+                        f"[AGG-SEND] Sending aggregated model to client {client_id}"
                     )
-                    return self._send_current_model(round_number, client_id)
-
-                # Check if this round is currently in progress
-                if round_number != self.round_in_progress:
-                    print(
-                        f"Round {round_number} not in progress (current: {self.round_in_progress})"
-                    )
-                    return flora_grpc_pb2.ModelParameters(
-                        round_number=round_number, layers=[], is_ready=False
-                    )
-
-            # Round is in progress, wait for it to complete
-            print(f"Client {client_id} waiting for round {round_number} to complete...")
-            # 10 second timeout
-            if self.round_complete_event.wait(timeout=10):
-                with self.lock:
-                    if round_number <= self.current_round:
-                        return self._send_current_model(round_number, client_id)
-
-            # Timeout
-            print(f"Timeout waiting for round {round_number} for client {client_id}")
-            return flora_grpc_pb2.ModelParameters(
-                round_number=round_number, layers=[], is_ready=False
-            )
+                    return self._create_aggregation_result_response(target_session)
+            return grpc_communicator_pb2.OperationResponse(is_ready=False)
 
         except Exception as e:
-            print(f"Error sending model to {client_id}: {e}")
-            return flora_grpc_pb2.ModelParameters(
-                round_number=round_number, layers=[], is_ready=False
-            )
-
-    def _send_current_model(self, round_number, client_id):
-        """Helper method to send the current model"""
-        if self.accumulated_updates is not None:
-            model_updates = {}
-            for name, param in self.model.named_parameters():
-                if self.communicate_params:
-                    model_updates[name] = param.data
-                else:
-                    model_updates[name] = param.grad
-
-            # Convert to protobuf format
-            proto_layers = self._model_updates_to_protobuf_efficient(model_updates)
-            print(f"Sending current model to {client_id} for round {round_number}")
-
-            return flora_grpc_pb2.ModelParameters(
-                round_number=round_number,
-                layers=proto_layers,
-                is_ready=True,
-            )
-
-        return flora_grpc_pb2.ModelParameters(
-            round_number=round_number, layers=[], is_ready=False
-        )
+            print(f"[COMM-ERROR] GetResult | {e}")
+            return grpc_communicator_pb2.OperationResponse(is_ready=False)
 
     def RegisterClient(self, request, context):
-        """Register a new client"""
+        """Register client and track connection count."""
         with self.lock:
             self.registered_clients.add(request.client_id)
             total_clients = len(self.registered_clients)
-
             print(
-                f"Client {request.client_id} registered. Total clients: {total_clients}"
+                f"[COMM-REGISTER] Client registered | {total_clients}/{self.world_size} total"
             )
-
-            return flora_grpc_pb2.RegistrationResponse(
-                success=True,
-                message=f"Client {request.client_id} registered successfully",
-                total_clients=total_clients,
-            )
+            return grpc_communicator_pb2.StatusResponse(success=True)

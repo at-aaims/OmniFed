@@ -18,60 +18,57 @@ package src.flora.communicator;
 
 // Service definition for central aggregation server
 service CentralServer {
-    // send updates to server
-    rpc SendUpdate(ModelUpdate) returns (UpdateResponse);
+    // Get current broadcast state from server
+    rpc GetBroadcastState(ClientInfo) returns (OperationResponse);
 
-    // Get updated model from server
-    rpc GetUpdatedModel(GetModelRequest) returns (ModelParameters);
+    // Submit tensors to server for aggregation
+    rpc SubmitForAggregation(AggregationRequest) returns (StatusResponse);
+
+    // Get aggregated tensor result from server
+    rpc GetAggregationResult(ClientInfo) returns (OperationResponse);
 
     // Register client with server
-    rpc RegisterClient(ClientInfo) returns (RegistrationResponse);
+    rpc RegisterClient(ClientInfo) returns (StatusResponse);
 }
 
-// Model update from client sending either parameters or gradients and number of training samples processed
-message ModelUpdate {
-    string client_id = 1;
-    int32 round_number = 2;
-    repeated LayerState layers = 3;
-    int32 number_samples = 4;
+// Generic empty request
+message EmptyRequest {
 }
 
-// Model state (params or grads) on a layer-wise basis
-message LayerState {
-    string layer_name = 1;
-    repeated float param_update = 2;
-    repeated int32 param_shape = 3;
-}
-
-// Complete model parameters
-message ModelParameters {
-    int32 round_number = 1;
-    repeated LayerState layers = 2;
-    bool is_ready = 3;
-}
-
-// Response after sending update
-message UpdateResponse {
-    bool success = 1;
-    string message = 2;
-    int32 clients_registered = 3;
-    int32 updates_received = 4;
-}
-
-// Request for getting averaged model
-message GetModelRequest {
-    string client_id = 1;
-    int32 round_number = 2;
-}
-
-// Client registration info
+// Generic client identification request
 message ClientInfo {
     string client_id = 1;
 }
 
-// Registration response
-message RegistrationResponse {
+// Generic tensor submission request
+message AggregationRequest {
+    string client_id = 1;
+    TensorDict tensor_dict = 2;
+    string reduction_type = 3;  // "sum" or "mean"
+}
+
+// Generic tensor response (used for both broadcast and aggregation results)
+message OperationResponse {
+    TensorDict tensor_dict = 1;
+    bool is_ready = 2;
+}
+
+// Generic status response
+message StatusResponse {
     bool success = 1;
-    string message = 2;
-    int32 total_clients = 3;
+    // All logging fields removed - use server-side logging instead
+}
+
+// Container for multiple tensor entries
+message TensorDict {
+    repeated TensorEntry entries = 1;
+}
+
+// Single tensor with metadata for exact reconstruction
+message TensorEntry {
+    string key = 1;               // Tensor identifier (e.g., "layer.weight")
+    bytes data = 2;               // Serialized tensor data
+    repeated int32 shape = 3;     // Tensor dimensions
+    string dtype = 4;            // PyTorch dtype (e.g., "torch.float32")
+    int32 data_size = 5;         // Byte size for validation
 }

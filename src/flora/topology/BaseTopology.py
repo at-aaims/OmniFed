@@ -20,12 +20,13 @@ from omegaconf import DictConfig
 
 from .. import utils
 from ..Node import Node
+from ..mixins import SetupMixin
 
 # ======================================================================================
 
 
 @rich.repr.auto
-class Topology(ABC):
+class Topology(SetupMixin, ABC):
     """
     Abstract network topology interface.
 
@@ -38,21 +39,18 @@ class Topology(ABC):
         """
         Initialize topology.
         """
+        super().__init__()
         utils.log_sep(f"{self.__class__.__name__} Init")
         self.__nodes: List[Node] = []
 
-    def setup(
+    def _setup_impl(
         self,
         comm_cfg: DictConfig,
         algo_cfg: DictConfig,
         model_cfg: DictConfig,
         data_cfg: DictConfig,
     ):
-        """
-        Can be overridden if necessary
-        """
-        utils.log_sep("Topology Setup")
-
+        """Implementation-specific setup logic."""
         self.__nodes = self.create_nodes(
             comm_cfg=comm_cfg,
             algo_cfg=algo_cfg,

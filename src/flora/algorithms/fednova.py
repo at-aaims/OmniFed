@@ -15,13 +15,14 @@
 import copy
 from typing import Any, Dict, Tuple
 
+import rich.repr
 import torch
 import torch.nn as nn
 
-from src.flora.communicator import Communicator
 from src.flora.helper.node_config import NodeConfig
 from src.flora.helper.training_params import FedNovaTrainingParameters
 
+from ..communicator import Communicator, ReductionType
 from . import utils
 from .BaseAlgorithm import Algorithm
 
@@ -101,7 +102,7 @@ class FedNova:
                 target_param.copy_((weight_scaling * (param1 - param2)) / alpha)
 
         self.diff_params = self.communicator.aggregate(
-            msg=self.diff_params, communicate_params=True, compute_mean=False
+            msg=self.diff_params, compute_mean=False
         )
 
     def model_update(self):
@@ -148,6 +149,7 @@ class FedNova:
 # ======================================================================================
 
 
+@rich.repr.auto
 class FedNovaNew(Algorithm):
     """
     Implementation of Federated Normalized Averaging (FedNova).
@@ -160,10 +162,11 @@ class FedNovaNew(Algorithm):
         self,
         local_model: nn.Module,
         comm: Communicator,
+        max_epochs: int,
         lr: float = 0.01,
         weight_decay: float = 0.0,
     ):
-        super().__init__(local_model, comm)
+        super().__init__(local_model, comm, max_epochs)
         self.lr = lr
         self.weight_decay = weight_decay
 
@@ -235,15 +238,11 @@ class FedNovaNew(Algorithm):
 
         global_samples = self.comm.aggregate(
             torch.tensor([self.local_samples], dtype=torch.float32),
-            communicate_params=False,
-            compute_mean=False,
+            reduction=ReductionType.SUM,
         ).item()
 
         # Handle edge cases safely - all nodes must participate in distributed operations
         if global_samples <= 0:
-            print(
-                "WARN: No samples processed across entire federation - participating with zero weight"
-            )
             data_proportion = 0.0
         else:
             # Calculate the proportion of data this client contributed
@@ -253,9 +252,10 @@ class FedNovaNew(Algorithm):
         for name, delta in normalized_deltas.items():
             delta.mul_(data_proportion)
 
-        # All nodes participate regardless of sample count
+        # Aggregate normalized deltas
         aggregated_deltas = self.comm.aggregate(
-            msg=normalized_deltas, compute_mean=False
+            msg=normalized_deltas,
+            reduction=ReductionType.SUM,
         )
 
         # Apply the aggregated normalized updates to the global model parameters

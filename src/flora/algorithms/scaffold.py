@@ -15,13 +15,14 @@
 import copy
 from typing import Any, Dict, Tuple
 
+import rich.repr
 import torch
 from torch import nn
 
-from src.flora.communicator import Communicator
 from src.flora.helper.node_config import NodeConfig
 from src.flora.helper.training_params import ScaffoldTrainingParameters
 
+from ..communicator import Communicator, ReductionType
 from . import utils
 from .BaseAlgorithm import Algorithm
 
@@ -169,6 +170,7 @@ class Scaffold:
 # ======================================================================================
 
 
+@rich.repr.auto
 class ScaffoldNew(Algorithm):
     """
     SCAFFOLD (Stochastic Controlled Averaging) algorithm implementation.
@@ -182,9 +184,10 @@ class ScaffoldNew(Algorithm):
         self,
         local_model: nn.Module,
         comm: Communicator,
+        max_epochs: int,
         lr: float = 0.01,
     ):
-        super().__init__(local_model, comm)
+        super().__init__(local_model, comm, max_epochs)
         self.lr = lr
 
         # ---
@@ -269,25 +272,13 @@ class ScaffoldNew(Algorithm):
                 self.old_client_cv[name1]
             )
 
-        # Aggregate local sample counts to compute federation total
-
-        global_samples = self.comm.aggregate(
-            torch.tensor([self.local_samples], dtype=torch.float32),
-            communicate_params=False,
-            compute_mean=False,
-        ).item()
-
-        # Handle edge cases safely - all nodes must participate in distributed operations
-        if global_samples <= 0:
-            print(
-                "WARN: No samples processed across entire federation - continuing with zero weights"
-            )
-
         # SCAFFOLD uses mean aggregation rather than weighted aggregation
         aggregated_model_deltas = self.comm.aggregate(
-            msg=self.model_delta, compute_mean=True
+            msg=self.model_delta, reduction=ReductionType.MEAN
         )
-        aggregated_cv_deltas = self.comm.aggregate(msg=self.cv_delta, compute_mean=True)
+        aggregated_cv_deltas = self.comm.aggregate(
+            msg=self.cv_delta, reduction=ReductionType.MEAN
+        )
 
         lr = self.optimizer.param_groups[0]["lr"]
         utils.apply_model_delta(self.global_model, aggregated_model_deltas, scale=lr)

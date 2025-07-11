@@ -15,13 +15,14 @@
 import copy
 from typing import Any, Dict, Tuple
 
+import rich.repr
 import torch
 import torch.nn as nn
 
-from src.flora.communicator import Communicator
 from src.flora.helper.node_config import NodeConfig
 from src.flora.helper.training_params import FedMomTrainingParameters
 
+from ..communicator import Communicator, ReductionType
 from . import utils
 from .BaseAlgorithm import Algorithm
 
@@ -98,7 +99,7 @@ class FederatedMomentum:
                 )
 
         self.diff_params = self.communicator.aggregate(
-            msg=self.diff_params, communicate_params=True, compute_mean=False
+            msg=self.diff_params, compute_mean=False
         )
         with torch.no_grad():
             for (name, param), (_, param_delta) in zip(
@@ -136,6 +137,7 @@ class FederatedMomentum:
 # ======================================================================================
 
 
+@rich.repr.auto
 class FedMomNew(Algorithm):
     """
     Federated Momentum (FedMom) algorithm implementation.
@@ -147,10 +149,11 @@ class FedMomNew(Algorithm):
         self,
         local_model: nn.Module,
         comm: Communicator,
+        max_epochs: int,
         lr: float = 0.01,
         momentum: float = 0.9,
     ):
-        super().__init__(local_model, comm)
+        super().__init__(local_model, comm, max_epochs)
         self.lr = lr
         self.momentum = momentum
 
@@ -203,15 +206,11 @@ class FedMomNew(Algorithm):
 
         global_samples = self.comm.aggregate(
             torch.tensor([self.local_samples], dtype=torch.float32),
-            communicate_params=False,
-            compute_mean=False,
+            reduction=ReductionType.SUM,
         ).item()
 
         # Handle edge cases safely - all nodes must participate in distributed operations
         if global_samples <= 0:
-            print(
-                "WARN: No samples processed across entire federation - participating with zero weight"
-            )
             data_proportion = 0.0
         else:
             # Calculate data proportion for weighted aggregation of deltas
@@ -221,11 +220,17 @@ class FedMomNew(Algorithm):
         for name in local_deltas:
             local_deltas[name].mul_(data_proportion)
 
+        # Aggregate scaled deltas
+        aggregated_deltas = self.comm.aggregate(
+            local_deltas,
+            reduction=ReductionType.SUM,
+        )
+
         # Apply server-side momentum to aggregated deltas
         for name, param in self.global_model.named_parameters():
             if param.requires_grad and name in self.velocity:
                 # Update velocity with momentum using in-place operations
-                self.velocity[name].mul_(self.momentum).add_(local_deltas[name])
+                self.velocity[name].mul_(self.momentum).add_(aggregated_deltas[name])
 
                 # Update global model parameters using alpha argument
                 param.data.sub_(self.velocity[name], alpha=self.lr)
