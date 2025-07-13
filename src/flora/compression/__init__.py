@@ -84,6 +84,7 @@ class Compression:
 #     tensor /= client_count
 #     return tensor
 
+
 def layerwise_decompress(collected_vals, collected_ix, tensor_shape, client_count):
     tensor = torch.zeros(tensor_shape).view(-1)
     for ix in range(len(collected_vals)):

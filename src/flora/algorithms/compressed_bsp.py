@@ -96,8 +96,10 @@ class BSPTraining:
                     compress_ixs.append(compressed_tnsr[1])
 
             compression_time = (perf_counter_ns() - init_time) / nanosec_to_millisec
-            print(f"############################################# Compression time: {compression_time} ms "
-                  f"size_compressed_vals: {len(compress_vals)} size_compress_ixs: {len(compress_ixs)}")
+            print(
+                f"############################################# Compression time: {compression_time} ms "
+                f"size_compressed_vals: {len(compress_vals)} size_compress_ixs: {len(compress_ixs)}"
+            )
 
             init_time = perf_counter_ns()
             self.model = self.communicator.sparse_aggregate(

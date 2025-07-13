@@ -16,7 +16,7 @@ import argparse
 import os
 
 import src.flora.helper as helper
-from src.flora.test.compression_training import CompressionTrainer
+from src.flora.test.compression_training import SparseCompressionTrainer
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -59,4 +59,4 @@ if __name__ == "__main__":
         os.environ["GLOO_SOCKET_IFNAME"] = "lo0"
 
     helper.set_seed(args.seed, determinism=False)
-    CompressionTrainer(args=args).start()
+    SparseCompressionTrainer(args=args).start()

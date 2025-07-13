@@ -30,7 +30,7 @@ from src.flora.algorithms.compressed_bsp import BSPTraining
 from src.flora.compression import sparsification
 
 
-class CompressionTrainer(object):
+class SparseCompressionTrainer(object):
     def __init__(self, args):
         self.args = args
         self.train_bsz = args.bsz
