@@ -11,7 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-import copy
+
 import logging
 import socket
 
@@ -21,7 +21,7 @@ from src.flora.communicator import torch_mpi
 
 # from src.flora.flora_rpc import grpc_communicator
 from src.flora.communicator import grpc_communicator
-from src.flora.datasets.image_classification import cifar
+from src.flora.datasets.image_classification import cifar, caltech
 from src.flora.test import get_model
 from src.flora.helper import training_params
 from src.flora.algorithms import SimpleFedPerHead, fedper, feddyn
@@ -124,20 +124,50 @@ class ModelTrainer(object):
 
         logging.info("initialized communicator object...")
 
-        self.train_dataloader, self.test_dataloader = cifar.cifar10Data(
-            client_id=self.rank,
-            total_clients=self.world_size,
-            datadir=args.dir,
-            train_bsz=self.train_bsz,
-            test_bsz=self.test_bsz,
-            partition_dataset=False,
-        )
+        if self.dataset_name == "cifar10":
+            self.train_dataloader, self.test_dataloader = cifar.cifar10Data(
+                client_id=self.rank,
+                total_clients=self.world_size,
+                datadir=args.dir,
+                train_bsz=self.train_bsz,
+                test_bsz=self.test_bsz,
+                partition_dataset=False,
+            )
+        elif self.dataset_name == "caltech101":
+            self.train_dataloader, self.test_dataloader = caltech.caltech101Data(
+                client_id=self.rank,
+                total_clients=self.world_size,
+                datadir=args.dir,
+                train_bsz=self.train_bsz,
+                test_bsz=self.test_bsz,
+                partition_dataset=False,
+            )
+        elif self.dataset_name == "cifar100":
+            self.train_dataloader, self.test_dataloader = cifar.cifar100Data(
+                client_id=self.rank,
+                total_clients=self.world_size,
+                datadir=args.dir,
+                train_bsz=self.train_bsz,
+                test_bsz=self.test_bsz,
+                partition_dataset=False,
+            )
+        elif self.dataset_name == "caltech256":
+            self.train_dataloader, self.test_dataloader = caltech.caltech256Data(
+                client_id=self.rank,
+                total_clients=self.world_size,
+                datadir=args.dir,
+                train_bsz=self.train_bsz,
+                test_bsz=self.test_bsz,
+                partition_dataset=False,
+            )
+
         logging.info("initialized dataloader object...")
         self.trainer = self.get_FL_algo(algo=self.algo)
         logging.info("initialized trainer object...")
 
         args.hostname = socket.gethostname()
         args.optimizer = self.optimizer.__class__.__name__
+        args.running_job = "ModelTrainer"
         logging.info(f"training/job specific parameters: {args}")
 
     def get_FL_algo(self, algo="fedavg"):

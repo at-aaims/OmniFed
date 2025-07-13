@@ -19,6 +19,7 @@ import torch
 import torch.distributed as dist
 
 from src.flora.communicator import Communicator
+from src.flora.compression import layerwise_decompress
 
 # TODO: not taking returned data from sent/recv fn calls...fix that!
 
@@ -155,42 +156,88 @@ class TorchMPICommunicator(Communicator):
 
         return msg
 
-    def collect(self, msg, id=None, communicate_params=True):
-        """
-         all-gather in decentralized MPI collectives
-        :param msg: message to receive
-        :param id: client_id specifying the client update comes from. redundant in MPI communication as all_gather
-        collects by rank ids
-        :param communicate_params: collect model parameters if True, else send model gradients
-        :return: either nested list of layerwise model data collected from clients or a simple list of gathered data
-        """
-        # if msg is a model, collected_data list contains list of tuples of client_id and layerwise model updates
-        collected_data = []
+    # def collect(self, msg, id=None, communicate_params=True):
+    #     """
+    #      all-gather in decentralized MPI collectives
+    #     :param msg: message to receive
+    #     :param id: client_id specifying the client update comes from. redundant in MPI communication as all_gather
+    #     collects by rank ids
+    #     :param communicate_params: collect model parameters if True, else send model gradients
+    #     :return: either nested list of layerwise model data collected from clients or a simple list of gathered data
+    #     """
+    #     # if msg is a model, collected_data list contains list of tuples of client_id and layerwise model updates
+    #     collected_data = []
+    #
+    #         for _, param in msg.named_parameters():
+    #             if not param.requires_grad:
+    #                 continue
+    #             if communicate_params:
+    #                 layerwise_collection = [
+    #                     torch.zeros_like(param.data) for _ in range(self.world_size)
+    #                 ]
+    #             else:
+    #                 layerwise_collection = [
+    #                     torch.zeros_like(param.grad) for _ in range(self.world_size)
+    #                 ]
+    #
+    #             dist.all_gather(tensor_list=layerwise_collection, tensor=param.data)
+    #             layerwise_collection = [
+    #                 (ix, layerwise_collection[ix])
+    #                 for ix in range(len(layerwise_collection))
+    #             ]
+    #             collected_data.append(layerwise_collection)
+    #
+    #     elif isinstance(msg, int) or isinstance(msg, float):
+    #         collected_data = [torch.Tensor([0.0]) for _ in range(self.world_size)]
+    #         dist.all_gather(tensor_list=collected_data, tensor=torch.Tensor([msg]))
+    #         collected_data = [
+    #             (ix, collected_data[ix]) for ix in range(len(collected_data))
+    #         ]
+    #
+    #     return collected_data
+
+    def sparse_aggregate(self, msg, layerwise_vals, layerwise_ixs):
         if isinstance(msg, torch.nn.Module):
-            for _, param in msg.named_parameters():
-                if not param.requires_grad:
-                    continue
-                if communicate_params:
-                    layerwise_collection = [
-                        torch.zeros_like(param.data) for _ in range(self.world_size)
-                    ]
-                else:
-                    layerwise_collection = [
-                        torch.zeros_like(param.grad) for _ in range(self.world_size)
-                    ]
+            for param, update_val, update_ix in zip(
+                msg.parameters(), layerwise_vals, layerwise_ixs
+            ):
+                tensor_sizes = [torch.LongTensor([0]) for _ in range(self.world_size)]
+                tensor_size = update_val.numel()
+                dist.all_gather(tensor_sizes, torch.LongTensor([tensor_size]))
 
-                dist.all_gather(tensor_list=layerwise_collection, tensor=param.data)
-                layerwise_collection = [
-                    (ix, layerwise_collection[ix])
-                    for ix in range(len(layerwise_collection))
-                ]
-                collected_data.append(layerwise_collection)
+                tensor_list = []
+                ix_list = []
+                size_list = [int(size.item()) for size in tensor_sizes]
+                max_size = max(size_list)
+                if max_size > 0:
+                    for _ in size_list:
+                        tensor_list.append(
+                            torch.zeros(size=(max_size,), dtype=torch.float32)
+                        )
+                        ix_list.append(torch.zeros(size=(max_size,), dtype=torch.long))
 
-        elif isinstance(msg, int) or isinstance(msg, float):
-            collected_data = [torch.Tensor([0.0]) for _ in range(self.world_size)]
-            dist.all_gather(tensor_list=collected_data, tensor=torch.Tensor([msg]))
-            collected_data = [
-                (ix, collected_data[ix]) for ix in range(len(collected_data))
-            ]
+                    if tensor_size != max_size:
+                        g_padding = torch.zeros(
+                            size=(max_size - tensor_size,), dtype=torch.float32
+                        )
+                        ix_padding = torch.zeros(
+                            size=(max_size - tensor_size,), dtype=torch.long
+                        )
+                        update_val = torch.cat((update_val, g_padding), dim=0)
+                        update_ix = torch.cat((update_ix, ix_padding), dim=0)
 
-        return collected_data
+                    dist.all_gather(tensor_list, update_val)
+                    dist.all_gather(ix_list, update_ix)
+                    # doing gradient sparsification
+                    param.grad = layerwise_decompress(
+                        collected_vals=tensor_list,
+                        collected_ix=ix_list,
+                        tensor_shape=param.shape,
+                        client_count=self.world_size,
+                    )
+
+            return msg
+        else:
+            raise NotImplementedError(
+                "sparse_aggregate implemented to only handle compressed gradient sparsification"
+            )

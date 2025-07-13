@@ -17,7 +17,6 @@ import logging
 from time import perf_counter_ns
 
 import torch
-import torchvision
 
 from src.flora.communicator import Communicator
 from src.flora.helper.node_config import NodeConfig

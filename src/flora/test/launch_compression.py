@@ -16,19 +16,13 @@ import argparse
 import os
 
 import src.flora.helper as helper
-from src.flora.test.train_model import ModelTrainer
+from src.flora.test.compression_training import CompressionTrainer
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--seed", type=int, default=1234, help="seed value for result replication"
     )
-    # parser.add_argument(
-    #     "--dir",
-    #     type=str,
-    #     default="~/",
-    #     help="dir where data is downloaded and/or saved",
-    # )
     parser.add_argument(
         "--dir",
         type=str,
@@ -38,18 +32,6 @@ if __name__ == "__main__":
     parser.add_argument("--bsz", type=int, default=32)
     parser.add_argument("--rank", type=int, default=0)
     parser.add_argument("--world-size", type=int, default=1)
-    parser.add_argument(
-        "--communicator",
-        type=str,
-        default="RPC",
-        help="either Collective or RPC",
-    )
-    parser.add_argument(
-        "--comm-freq",
-        type=int,
-        default=100,
-        help="# iterations after which updates are synchronized",
-    )
     parser.add_argument("--master-addr", type=str, default="127.0.0.1")
     parser.add_argument("--master-port", type=str, default="28564")
     parser.add_argument("--backend", type=str, default="Gloo")
@@ -66,17 +48,8 @@ if __name__ == "__main__":
     parser.add_argument("--mobv3-num-classes", type=int, default=257)
     parser.add_argument("--train-dir", type=str, default="~/")
     parser.add_argument("--test-dir", type=str, default="~/")
-    parser.add_argument("--algo", type=str, default="fedavg")
-    parser.add_argument("--fedprox-mu", type=float, default=0.5)
-    parser.add_argument("--fedmom-momentum", type=float, default=0.9)
-    parser.add_argument("--fednova-weight-decay", type=float, default=5e-4)
-    parser.add_argument("--diloco-outer-momentum", type=float, default=0.9)
-    parser.add_argument("--diloco-outer-lr", type=float, default=0.01)
-    parser.add_argument("--moon-num-prev-models", type=int, default=2)
-    parser.add_argument("--moon-temperature", type=float, default=0.1)
-    parser.add_argument("--moon-mu", type=float, default=0.5)
-    parser.add_argument("--ditto-regularizer", type=float, default=1.0)
-    parser.add_argument("--feddyn-regularizer-alpha", type=float, default=0.5)
+    parser.add_argument("--compression-type", type=str, default="topK")
+    parser.add_argument("--compress-ratio", type=float, default=0.1)
 
     args = parser.parse_args()
 
@@ -86,4 +59,4 @@ if __name__ == "__main__":
         os.environ["GLOO_SOCKET_IFNAME"] = "lo0"
 
     helper.set_seed(args.seed, determinism=False)
-    ModelTrainer(args=args).start()
+    CompressionTrainer(args=args).start()

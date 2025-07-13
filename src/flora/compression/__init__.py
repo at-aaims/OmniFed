@@ -14,6 +14,8 @@
 
 from abc import ABC, abstractmethod
 
+import torch
+
 
 class ResidualMemory(ABC):
     @abstractmethod
@@ -71,3 +73,22 @@ class Compression:
 
     def gradient_unscaling(self, **kwargs):
         raise NotImplementedError("gradient_unscaling not implemented.")
+
+
+# def layerwise_decompress(collected_vals, collected_ix, tensor_shape, client_count):
+#     tensor = torch.zeros(size=tensor_shape)
+#     for ix in range(len(collected_vals)):
+#         tensor.data[collected_ix[ix]] += collected_vals[ix]
+#
+#     # compute mean
+#     tensor /= client_count
+#     return tensor
+
+def layerwise_decompress(collected_vals, collected_ix, tensor_shape, client_count):
+    tensor = torch.zeros(tensor_shape).view(-1)
+    for ix in range(len(collected_vals)):
+        tensor.data[collected_ix[ix]] += collected_vals[ix]
+
+    tensor /= client_count
+    tensor = tensor.reshape(tensor_shape)
+    return tensor

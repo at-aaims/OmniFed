@@ -20,7 +20,7 @@ import torchvision
 import src.flora.helper as helper
 
 
-def get_model(model_name, determinism, args, device=torch.device("cpu")):
+def get_model(model_name, determinism, args):
     if model_name == "resnet18":
         model_obj = ResNet18Object(
             lr=args.lr,
@@ -29,7 +29,38 @@ def get_model(model_name, determinism, args, device=torch.device("cpu")):
             seed=args.seed,
             gamma=args.gamma,
             determinism=determinism,
-            device=device,
+        )
+        return model_obj
+    elif model_name == "alexnet":
+        model_obj = AlexNetObject(
+            lr=args.lr,
+            momentum=args.momentum,
+            weightdecay=args.weight_decay,
+            seed=args.seed,
+            determinism=determinism,
+            gamma=args.gamma,
+        )
+        return model_obj
+    elif model_name == "vgg11":
+        model_obj = VGG11Object(
+            lr=args.lr,
+            momentum=args.momentum,
+            weight_decay=args.weight_decay,
+            seed=args.seed,
+            determinism=determinism,
+            gamma=args.gamma,
+        )
+        return model_obj
+    elif model_name == "mobilenetv3":
+        model_obj = MobileNetV3Object(
+            lr=args.lr,
+            momentum=args.momentum,
+            weight_decay=args.weight_decay,
+            seed=args.seed,
+            determinism=determinism,
+            gamma=args.gamma,
+            num_classes=args.mobv3_num_classes,
+            lr_step_size=args.mobv3_lr_step_size,
         )
         return model_obj
 
@@ -37,17 +68,7 @@ def get_model(model_name, determinism, args, device=torch.device("cpu")):
 
 
 class ResNet18Object(object):
-    def __init__(
-        self,
-        lr,
-        momentum,
-        weight_decay,
-        seed,
-        gamma,
-        determinism,
-        device=torch.device("cpu"),
-        use_lars=False,
-    ):
+    def __init__(self, lr, momentum, weight_decay, seed, gamma, determinism):
         helper.set_seed(seed, determinism)
         self.lr = lr
         self.momentum = momentum
@@ -64,6 +85,130 @@ class ResNet18Object(object):
         milestones = [100, 150, 200]
         self.lr_scheduler = torch.optim.lr_scheduler.MultiStepLR(
             optimizer=self.optim, milestones=milestones, gamma=self.gamma, last_epoch=-1
+        )
+
+    def get_lr(self):
+        return self.lr
+
+    def get_model(self):
+        return self.model
+
+    def get_optim(self):
+        return self.optim
+
+    def get_loss(self):
+        return self.loss
+
+    def get_lrscheduler(self):
+        return self.lr_scheduler
+
+
+class AlexNetObject(object):
+    def __init__(self, lr, gamma, seed, momentum, weightdecay, determinism):
+        helper.set_seed(seed, determinism)
+        self.lr = lr
+        self.gamma = gamma
+        self.momentum = momentum
+        self.weightdecay = weightdecay
+        self.loss = torch.nn.CrossEntropyLoss()
+        self.model = torchvision.models.alexnet(progress=True, pretrained=False)
+        self.opt = torch.optim.SGD(
+            params=self.model.parameters(),
+            lr=self.lr,
+            momentum=self.momentum,
+            weight_decay=self.weightdecay,
+        )
+
+        milestones = [25, 50, 75]
+        self.lr_scheduler = torch.optim.lr_scheduler.MultiStepLR(
+            self.opt, milestones=milestones, gamma=self.gamma, last_epoch=-1
+        )
+
+    def get_lr(self):
+        return self.lr
+
+    def get_model(self):
+        return self.model
+
+    def get_optim(self):
+        return self.opt
+
+    def get_loss(self):
+        return self.loss
+
+    def get_lrscheduler(self):
+        return self.lr_scheduler
+
+
+class VGG11Object(object):
+    def __init__(self, lr, momentum, seed, weight_decay, gamma, determinism):
+        helper.set_seed(seed, determinism)
+        self.lr = lr
+        self.momentum = momentum
+        self.weight_decay = weight_decay
+        self.gamma = gamma
+        self.loss = torch.nn.CrossEntropyLoss()
+        self.model = torchvision.models.vgg11(pretrained=False, progress=True)
+        self.optim = torch.optim.SGD(
+            self.model.parameters(),
+            lr=self.lr,
+            momentum=self.momentum,
+            weight_decay=self.weight_decay,
+        )
+
+        self.lr_scheduler = torch.optim.lr_scheduler.MultiStepLR(
+            self.optim, milestones=[50, 75, 100], gamma=self.gamma, last_epoch=-1
+        )
+
+    def get_lr(self):
+        return self.lr
+
+    def get_model(self):
+        return self.model
+
+    def get_optim(self):
+        return self.optim
+
+    def get_loss(self):
+        return self.loss
+
+    def get_lrscheduler(self):
+        return self.lr_scheduler
+
+
+class MobileNetV3Object(object):
+    def __init__(
+        self,
+        lr,
+        num_classes,
+        seed,
+        momentum,
+        weight_decay,
+        gamma,
+        lr_step_size,
+        determinism,
+    ):
+        helper.set_seed(seed, determinism)
+        self.lr = lr
+        self.lr_step_size = lr_step_size
+        self.momentum = momentum
+        self.weight_decay = weight_decay
+        self.gamma = gamma
+        self.model = torchvision.models.mobilenet_v3_large(
+            progress=True, pretrained=False
+        )
+        self.model.classifier[3] = torch.nn.Linear(
+            self.model.classifier[3].in_features, num_classes
+        )
+        self.loss = torch.nn.CrossEntropyLoss()
+        self.optim = torch.optim.SGD(
+            self.model.parameters(),
+            lr=self.lr,
+            momentum=self.momentum,
+            weight_decay=self.weight_decay,
+        )
+        self.lr_scheduler = torch.optim.lr_scheduler.StepLR(
+            self.optim, step_size=self.lr_step_size, gamma=self.gamma
         )
 
     def get_lr(self):
