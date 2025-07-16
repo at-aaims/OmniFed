@@ -74,6 +74,7 @@ class Moon:
 
     def __init__(
         self,
+        client_id: int,
         model: torch.nn.Module,
         train_data: torch.utils.data.DataLoader,
         test_data: torch.utils.data.DataLoader,
@@ -107,10 +108,11 @@ class Moon:
         self.prev_models = []
         self.local_step = 0
         self.training_samples = 0
-        dev_id = NodeConfig().get_gpus() % self.total_clients
-        self.device = torch.device(
-            "cuda:" + str(dev_id) if torch.cuda.is_available() else "cpu"
-        )
+        # dev_id = NodeConfig().get_gpus() % self.total_clients
+        # self.device = torch.device(
+        #     "cuda:" + str(dev_id) if torch.cuda.is_available() else "cpu"
+        # )
+        self.device = torch.device("cuda:" + str(client_id)) if torch.cuda.is_available() else torch.device("cpu")
         self.model = self.model.to(self.device)
         self.global_model = copy.deepcopy(self.model)
         self.global_model = self.global_model.to(self.device)

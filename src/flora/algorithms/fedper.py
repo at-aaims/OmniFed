@@ -55,6 +55,7 @@ class FedPer:
 
     def __init__(
         self,
+        client_id: int,
         base_model: torch.nn.Module,
         personal_head: torch.nn.Module,
         train_data: torch.utils.data.DataLoader,
@@ -83,10 +84,11 @@ class FedPer:
         self.epochs = self.train_params.get_epochs()
         self.local_step = 0
         self.training_samples = 0
-        dev_id = NodeConfig().get_gpus() % self.total_clients
-        self.device = torch.device(
-            "cuda:" + str(dev_id) if torch.cuda.is_available() else "cpu"
-        )
+        # dev_id = NodeConfig().get_gpus() % self.total_clients
+        # self.device = torch.device(
+        #     "cuda:" + str(dev_id) if torch.cuda.is_available() else "cpu"
+        # )
+        self.device = torch.device("cuda:" + str(client_id)) if torch.cuda.is_available() else torch.device("cpu")
         self.model = self.model.to(self.device)
         # self.global_model = copy.deepcopy(self.model)
         self.global_model = FedPerModel(base_model, personal_head)

@@ -200,6 +200,7 @@ class ModelTrainer(object):
                 lr_scheduler=self.lr_scheduler,
             )
             return fedprox.FedProx(
+                client_id=self.rank,
                 model=self.model,
                 communicator=self.communicator,
                 train_data=self.train_dataloader,
@@ -218,6 +219,7 @@ class ModelTrainer(object):
                 lr=self.lr,
             )
             return fedmom.FederatedMomentum(
+                client_id=self.rank,
                 model=self.model,
                 communicator=self.communicator,
                 train_data=self.train_dataloader,
@@ -235,6 +237,7 @@ class ModelTrainer(object):
                 weight_decay=self.fednova_weight_decay,
             )
             return fednova.FedNova(
+                client_id=self.rank,
                 model=self.model,
                 communicator=self.communicator,
                 train_data=self.train_dataloader,
@@ -250,6 +253,7 @@ class ModelTrainer(object):
                 comm_freq=self.comm_freq,
             )
             return scaffold.Scaffold(
+                client_id=self.rank,
                 model=self.model,
                 communicator=self.communicator,
                 train_data=self.train_dataloader,
@@ -267,6 +271,7 @@ class ModelTrainer(object):
                 outer_momentum=self.diloco_outer_momentum,
             )
             return diloco.DiLoCo(
+                client_id=self.rank,
                 model=self.model,
                 train_data=self.train_dataloader,
                 test_data=self.test_dataloader,
@@ -285,6 +290,7 @@ class ModelTrainer(object):
                 mu=self.moon_mu,
             )
             return moon.Moon(
+                client_id=self.rank,
                 model=self.model,
                 train_data=self.train_dataloader,
                 test_data=self.test_dataloader,
@@ -303,6 +309,7 @@ class ModelTrainer(object):
                 global_optimizer=self.ditto_global_optimizer,
             )
             return ditto.Ditto(
+                client_id=self.rank,
                 model=self.model,
                 train_data=self.train_dataloader,
                 test_data=self.test_dataloader,
@@ -318,6 +325,7 @@ class ModelTrainer(object):
                 comm_freq=self.comm_freq,
             )
             return fedbn.FederatedBatchNormalization(
+                client_id=self.rank,
                 model=self.model,
                 train_data=self.train_dataloader,
                 test_data=self.test_dataloader,
@@ -333,6 +341,7 @@ class ModelTrainer(object):
                 comm_freq=self.comm_freq,
             )
             return fedper.FedPer(
+                client_id=self.rank,
                 base_model=self.model,
                 personal_head=SimpleFedPerHead(input_dim=1000, num_classes=10),
                 train_data=self.train_dataloader,
@@ -350,6 +359,7 @@ class ModelTrainer(object):
                 regularizer_alpha=self.feddyn_regularizer_alpha,
             )
             return feddyn.FedDyn(
+                client_id=self.rank,
                 model=self.model,
                 train_data=self.train_dataloader,
                 test_data=self.test_dataloader,

@@ -30,6 +30,7 @@ def get_model(model_name, determinism, args):
             gamma=args.gamma,
             determinism=determinism,
         )
+
         return model_obj
     elif model_name == "alexnet":
         model_obj = AlexNetObject(
