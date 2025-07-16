@@ -1,5 +1,3 @@
-# Copyright (c) 2025, Oak Ridge National Laboratory.  All rights reserved.
-#
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
@@ -18,19 +16,15 @@ import socket
 import torch
 
 from src.flora.communicator import torch_mpi
-
-# from src.flora.flora_rpc import grpc_communicator
-from src.flora.communicator import grpc_communicator
-from src.flora.datasets.image_classification import cifar, caltech
-from src.flora.test import get_model
-from src.flora.helper import training_params
 from src.flora.helper.node_config import NodeConfig
-from src.flora.algorithms import SimpleFedPerHead, fedper, feddyn
-from src.flora.algorithms.compressed_bsp import BSPTraining
-from src.flora.compression import sparsification
+from src.flora.compression import quantization
+from src.flora.test import get_model
+from src.flora.datasets.image_classification import cifar, caltech
+from src.flora.helper import training_params
+from src.flora.algorithms.quantized_bsp import QuantizedBSPTraining
 
 
-class SparseCompressionTrainer(object):
+class QuantizedCompressionTrainer(object):
     def __init__(self, args):
         self.args = args
         self.train_bsz = args.bsz
@@ -47,27 +41,14 @@ class SparseCompressionTrainer(object):
             "cuda:" + str(dev_id) if torch.cuda.is_available() else "cpu"
         )
         self.compression_type = args.compression_type
-        self.compress_ratio = args.compress_ratio
-        if self.compression_type == "topK":
-            self.compression = sparsification.TopKCompression(
-                device=device, compress_ratio=self.compress_ratio
+        self.quantized_bitwidth = args.quantized_bitwidth
+        if self.compression_type == "QSGD":
+            self.compression = quantization.QSGDCompression(
+                device=device, bit_width=self.quantized_bitwidth
             )
-        elif self.compression_type == "dgc":
-            self.compression = sparsification.DGCCompression(
-                device=device, compress_ratio=self.compress_ratio
-            )
-        elif self.compression_type == "redsync":
-            self.compression = sparsification.RedsyncCompression(
-                device=device, compress_ratio=self.compress_ratio
-            )
-        elif self.compression_type == "sidco":
-            self.compression = sparsification.SIDCoCompression(
-                num_stages=3, device=device, compress_ratio=self.compress_ratio
-            )
-        elif self.compression_type == "randomK":
-            self.compression = sparsification.RandomKCompression(
-                device=device, compress_ratio=self.compress_ratio
-            )
+        elif self.compression_type == "AMP":
+            # automatic mixed-precision training with 16-bit floating point
+            self.compression = quantization.AMPCompression(device=device)
 
         logging.basicConfig(
             filename=self.logdir
@@ -154,7 +135,7 @@ class SparseCompressionTrainer(object):
             comm_freq=1,
             lr_scheduler=self.lr_scheduler,
         )
-        self.trainer = BSPTraining(
+        self.trainer = QuantizedBSPTraining(
             model=self.model,
             train_data=self.train_dataloader,
             test_data=self.test_dataloader,

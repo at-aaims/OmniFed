@@ -17,7 +17,7 @@ from time import perf_counter_ns
 
 import torch
 
-from src.flora.compression import Compression
+from src.flora.compression.quantization import QSGDCompression
 from src.flora.communicator.torch_mpi import TorchMPICommunicator
 from src.flora.helper.node_config import NodeConfig
 from src.flora.helper.training_params import FedAvgTrainingParameters
@@ -30,7 +30,7 @@ from src.flora.helper.training_stats import (
 nanosec_to_millisec = 1e6
 
 
-class BSPTraining:
+class QuantizedBSPTraining:
     def __init__(
         self,
         model: torch.nn.Module,
@@ -39,7 +39,7 @@ class BSPTraining:
         communicator: TorchMPICommunicator,
         total_clients: int,
         train_params: FedAvgTrainingParameters,
-        compression: Compression,
+        compression: QSGDCompression,
     ):
         self.model = model
         self.train_data = train_data
@@ -82,30 +82,72 @@ class BSPTraining:
             pred = self.model(inputs)
             loss = self.loss(pred, labels)
             self.training_samples += inputs.size(0)
+
+            # loss scaling in AMP training
+            if self.compression.__class__.__name__ == "AMPCompression":
+                loss = self.compression.loss_scaling(loss=loss)
+
             loss.backward()
             compute_time = (perf_counter_ns() - init_time) / nanosec_to_millisec
 
-            init_time = perf_counter_ns()
-            compress_vals, compress_ixs = [], []
-            with torch.no_grad():
-                for name, param in self.model.named_parameters():
-                    compressed_tnsr, _ = self.compression.compress(
-                        tensor=param.grad, name=name
-                    )
-                    compress_vals.append(compressed_tnsr[0])
-                    compress_ixs.append(compressed_tnsr[1])
+            quantized_grads = {}
+            compression_time = 0.
+            compress_sync_time = 0.
+            if self.compression.__class__.__name__ == "QSGDCompression":
+                # perform gradient quantization here
+                with torch.no_grad():
+                    for name, param in self.model.named_parameters():
+                        init_time = perf_counter_ns()
+                        quant_min, quant_max = self.compression.get_compress_minmax(tensor=param.grad)
+                        compression_time += (perf_counter_ns() - init_time) / nanosec_to_millisec
+                        sync_init = perf_counter_ns()
+                        quant_min, quant_max = self.communicator.quantized_minmaxval(min_val=quant_min,
+                                                                                     max_val=quant_max)
+                        compress_sync_time += (perf_counter_ns() - sync_init) / nanosec_to_millisec
+                        init_time = perf_counter_ns()
+                        quantized_grads[name] = self.compression.compress(tensor=param.grad,
+                                                                          min_val=quant_min,
+                                                                          max_val=quant_max)
+                        compression_time += (perf_counter_ns() - init_time) / nanosec_to_millisec
 
-            compression_time = (perf_counter_ns() - init_time) / nanosec_to_millisec
-            print(
-                f"############################################# Compression time: {compression_time} ms "
-                f"size_compressed_vals: {len(compress_vals)} size_compress_ixs: {len(compress_ixs)}"
-            )
+                sync_init = perf_counter_ns()
+                quantized_grads = self.communicator.quantized_aggregate(quantized_dict=quantized_grads,
+                                                                        compute_mean=True)
+                compress_sync_time += (perf_counter_ns() - sync_init) / nanosec_to_millisec
 
-            init_time = perf_counter_ns()
-            self.model = self.communicator.sparse_aggregate(
-                msg=self.model, layerwise_vals=compress_vals, layerwise_ixs=compress_ixs
-            )
-            compress_sync_time = (perf_counter_ns() - init_time) / nanosec_to_millisec
+                init_time = perf_counter_ns()
+                for (name, param), (q_name, quantized_grad) in zip(self.model.named_parameters(),
+                                                                   quantized_grads.items()):
+                    assert name == q_name, f"Parameter mismatch: {name} vs {q_name}"
+                    param.grad = self.compression.decompress(tensor=quantized_grad,
+                                                             min_val=quant_min,
+                                                             max_val=quant_max)
+
+                compression_time += (perf_counter_ns() - init_time) / nanosec_to_millisec
+
+            elif self.compression.__class__.__name__ == "AMPCompression":
+                with torch.no_grad():
+                    init_time = perf_counter_ns()
+                    for name, param in self.model.named_parameters():
+                        quantized_grads[name] = self.compression.compress(tensor=param.grad)
+
+                    compression_time += (perf_counter_ns() - init_time) / nanosec_to_millisec
+
+                init_time = perf_counter_ns()
+                quantized_grads = self.communicator.quantized_aggregate(quantized_dict=quantized_grads,
+                                                                        compute_mean=True)
+                compress_sync_time += (perf_counter_ns() - init_time) / nanosec_to_millisec
+
+                init_time = perf_counter_ns()
+                for (name, param), (q_name, quantized_grad) in zip(self.model.named_parameters(),
+                                                                   quantized_grads.items()):
+                    assert name == q_name, f"Parameter mismatch: {name} vs {q_name}"
+                    param.grad = self.compression.decompress(tensor=quantized_grad)
+
+                compression_time += (perf_counter_ns() - init_time) / nanosec_to_millisec
+
+                self.model = self.compression.gradient_unscaling(model=self.model)
+
             self.optimizer.step()
             self.optimizer.zero_grad()
             self.local_step += 1
@@ -145,7 +187,7 @@ class BSPTraining:
 
     def train(self):
         print("going to broadcast model across clients...")
-        # self.model = self.broadcast_model(model=self.model)
+        self.model = self.broadcast_model(model=self.model)
         if self.epochs is not None and isinstance(self.epochs, int) and self.epochs > 0:
             for epoch in range(self.epochs):
                 print("going to start epoch {}/{}".format(epoch, self.epochs))

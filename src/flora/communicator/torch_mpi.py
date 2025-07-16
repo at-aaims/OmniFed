@@ -241,3 +241,21 @@ class TorchMPICommunicator(Communicator):
             raise NotImplementedError(
                 "sparse_aggregate implemented to only handle compressed gradient sparsification"
             )
+
+    def quantized_minmaxval(self, min_val, max_val):
+        dist.all_reduce(tensor=min_val, op=dist.ReduceOp.MIN)
+        dist.all_reduce(tensor=max_val, op=dist.ReduceOp.MAX)
+
+        return min_val, max_val
+
+    def quantized_aggregate(self, quantized_dict, compute_mean=True):
+        quantized_aggregate = {}
+        if isinstance(quantized_dict, Dict):
+            for key, val in quantized_dict.items():
+                dist.all_reduce(tensor=val, op=dist.ReduceOp.SUM)
+                if compute_mean:
+                    val /= self.world_size
+
+                quantized_aggregate[key] = val
+
+        return quantized_aggregate

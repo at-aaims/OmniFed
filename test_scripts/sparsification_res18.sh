@@ -2,8 +2,8 @@
 
 cd ../
 
-# kill -s 9 `ps -ef | grep src.flora.test.launch_compression |grep -v grep | awk '{print $2}'`
-# kill -9 $(ps aux | grep src.flora.test.launch_compression | grep -v grep | awk '{print $2}')
+# kill -s 9 `ps -ef | grep src.flora.test.launch_sparsification |grep -v grep | awk '{print $2}'`
+# kill -9 $(ps aux | grep src.flora.test.launch_sparsification | grep -v grep | awk '{print $2}')
 
 dir='/Users/ssq/Desktop/datasets/flora_test/'
 bsz=32
@@ -20,7 +20,7 @@ for val in $(seq 1 $worldsize)
 do
   rank=$(($val-1))
   echo '###### going to launch training for rank '$rank
-  python3 -m src.flora.test.launch_compression --dir=$dir --bsz=$bsz --rank=$rank --world-size=$worldsize \
+  python3 -m src.flora.test.launch_sparsification --dir=$dir --bsz=$bsz --rank=$rank --world-size=$worldsize \
   --master-addr=$masteraddr --master-port=$masterport --backend=$backend --model=$model --dataset=$dataset \
   --train-dir=$dir --test-dir=$dir --compression-type=$compression --compress-ratio=$compressratio &
   sleep 3

@@ -28,34 +28,38 @@ class QSGDCompression(Compression):
         self.bit_width = bit_width
         self.scale = (2**self.bit_width) - 1
 
-    def compress(self, tensor):
+    def get_compress_minmax(self, tensor):
         tensor = tensor.to(self.device)
-        scale = (2**self.bit_width) - 1
         min_val, max_val = tensor.min(), tensor.max()
 
+        return min_val, max_val
+
+
+    def compress(self, tensor, min_val, max_val):
+        tensor = tensor.to(self.device)
         # Scale the tensor to [0, scale]
-        tensor = (tensor - min_val) / (max_val - min_val) * scale
+        tensor = (tensor - min_val) / (max_val - min_val) * self.scale
         # Round and clamp to [0, scale]
-        tensor = torch.round(tensor).clamp(0, scale)
+        tensor = torch.round(tensor).clamp(0, self.scale)
 
         # return quantized tensor, min and max val for communication.
         # In MPI, call allreduce on first, and allgather on latter two
-        return tensor, min_val.item(), max_val.item()
+        return tensor
 
-    def decompress(self, tensor, scale, max_val, min_val):
+    def decompress(self, tensor, max_val, min_val):
         # Transform tensors back to its original range
-        return min_val + (tensor.float() / scale) * (max_val - min_val)
+        return min_val + (tensor.float() / self.scale) * (max_val - min_val)
 
 
 class AMPCompression(Compression):
-    """Implementation of Automatic Mixed-Precision (AMP) training, where gradients are compressed to 16bit for communication"""
+    """Implementation of Automatic Mixed-Precision (AMP) training, where gradients are compressed to 16-bit"""
 
     def __init__(self, device):
         super().__init__()
         self.device = device
         self.loss_scale_factor = (2**16) - 1
 
-    def compress(self, tensor, name):
+    def compress(self, tensor):
         # Convert tensors to 16-bit
         return tensor.to(self.device).half()
 

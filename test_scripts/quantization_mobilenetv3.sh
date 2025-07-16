@@ -2,8 +2,8 @@
 
 cd ../
 
-# kill -s 9 `ps -ef | grep src.flora.test.launch_sparsification |grep -v grep | awk '{print $2}'`
-# kill -9 $(ps aux | grep src.flora.test.launch_sparsification | grep -v grep | awk '{print $2}')
+# kill -s 9 `ps -ef | grep src.flora.test.launch_quantization |grep -v grep | awk '{print $2}'`
+# kill -9 $(ps aux | grep src.flora.test.launch_quantization | grep -v grep | awk '{print $2}')
 
 dir='/Users/ssq/Desktop/datasets/flora_test/'
 bsz=32
@@ -20,16 +20,16 @@ weightdecay=1e-4
 momentum=0.9
 lrstepsize=40
 numclasses=257
-compression='randomK'
-compressratio=0.1
+compression='AMP'
+bitwidth=4
 
 for val in $(seq 1 $worldsize)
 do
   rank=$(($val-1))
   echo '###### going to launch training for rank '$rank
-  python3 -m src.flora.test.launch_sparsification --dir=$dir --bsz=$bsz --rank=$rank --world-size=$worldsize \
+  python3 -m src.flora.test.launch_quantization --dir=$dir --bsz=$bsz --rank=$rank --world-size=$worldsize \
   --master-addr=$masteraddr --master-port=$masterport --backend=$backend --model=$model --dataset=$dataset \
-  --train-dir=$dir --test-dir=$dir --compression-type=$compression --compress-ratio=$compressratio --lr=$lr \
+  --train-dir=$dir --test-dir=$dir --compression-type=$compression --quantized-bitwidth=$bitwidth --lr=$lr \
   --gamma=$gamma --weight-decay=$weightdecay --momentum=$momentum --test-bsz=$testbsz \
   --mobv3-lr-step-size=$lrstepsize --mobv3-num-classes=$numclasses &
   sleep 3

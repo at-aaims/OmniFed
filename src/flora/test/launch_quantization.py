@@ -16,7 +16,7 @@ import argparse
 import os
 
 import src.flora.helper as helper
-from src.flora.test.compression_training import SparseCompressionTrainer
+from src.flora.test.quantization_training import QuantizedCompressionTrainer
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -48,8 +48,8 @@ if __name__ == "__main__":
     parser.add_argument("--mobv3-num-classes", type=int, default=257)
     parser.add_argument("--train-dir", type=str, default="~/")
     parser.add_argument("--test-dir", type=str, default="~/")
-    parser.add_argument("--compression-type", type=str, default="topK")
-    parser.add_argument("--compress-ratio", type=float, default=0.1)
+    parser.add_argument("--compression-type", type=str, default="QSGD")
+    parser.add_argument("--quantized-bitwidth", type=float, default=8)
 
     args = parser.parse_args()
 
@@ -59,4 +59,4 @@ if __name__ == "__main__":
         os.environ["GLOO_SOCKET_IFNAME"] = "lo0"
 
     helper.set_seed(args.seed, determinism=False)
-    SparseCompressionTrainer(args=args).start()
+    QuantizedCompressionTrainer(args=args).start()
