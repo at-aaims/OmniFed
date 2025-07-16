@@ -29,6 +29,6 @@ do
   python3 -m src.flora.test.launch_training --dir=$dir --bsz=$bsz --rank=$rank --world-size=$worldsize \
   --communicator=$comm --comm-freq=$commfreq --master-addr=$masteraddr --master-port=$masterport --backend=$backend \
   --model=$model --dataset=$dataset --train-dir=$dir --test-dir=$dir --algo=$algo --network-interface=$interface &
-  echo "going to sleep for 5 seconds..."
-  sleep 3
+  echo "going to sleep for 2 seconds..."
+  sleep 2
 done

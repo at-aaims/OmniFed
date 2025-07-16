@@ -182,6 +182,7 @@ class ModelTrainer(object):
             )
             logging.info("initialized trainable_params object...")
             return fedavg.FederatedAveraging(
+                client_id=self.rank,
                 model=self.model,
                 train_data=self.train_dataloader,
                 test_data=self.test_dataloader,
