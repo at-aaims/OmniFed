@@ -100,7 +100,7 @@ class FederatedAveraging:
                 init_time = perf_counter_ns()
                 # batch_samples argument present only in RPC communicator currently
                 total_samples = self.communicator.aggregate(
-                    msg=torch.Tensor([self.training_samples]), compute_mean=False
+                    msg=torch.Tensor([self.training_samples]).to(self.device), compute_mean=False
                 )
                 # total_samples = torch.Tensor([96])
                 weight_scaling = self.training_samples / total_samples.item()
