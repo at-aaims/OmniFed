@@ -52,6 +52,7 @@ if __name__ == "__main__":
     )
     parser.add_argument("--master-addr", type=str, default="127.0.0.1")
     parser.add_argument("--master-port", type=str, default="28564")
+    parser.add_argument("--network-interface", type=str, default="lo")
     parser.add_argument("--backend", type=str, default="Gloo")
     parser.add_argument("--test-bsz", type=int, default=32)
     parser.add_argument("--model", type=str, default="resnet18")
@@ -83,7 +84,7 @@ if __name__ == "__main__":
     os.environ["MASTER_ADDR"] = args.master_addr
     os.environ["MASTER_PORT"] = args.master_port
     if args.backend == "Gloo":
-        os.environ["GLOO_SOCKET_IFNAME"] = "lo0"
+        os.environ["GLOO_SOCKET_IFNAME"] = args.network_interface
 
     helper.set_seed(args.seed, determinism=False)
     ModelTrainer(args=args).start()
