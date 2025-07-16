@@ -215,7 +215,6 @@ def caltech101Data(
         os.chdir(datadir)
         tar.extractall()
         tar.close()
-        # os.rmdir(os.path.join(datadir, "Caltech101"))
         os.remove(os.path.join(datadir, "caltech101.zip"))
         caltechDataSplit(datadir=datadir, seed=client_id, dataset_name="Caltech101")
         os.chdir(curr_dir)
@@ -275,6 +274,7 @@ def caltech101Data(
 
 
 if __name__=="__main__":
-    _,_ = caltech101Data(client_id=0, total_clients=1, datadir='/ccsopen/home/ssq/datasets/')
-    # _,_ = caltech256Data(client_id=0, total_clients=1, datadir='/ccsopen/home/ssq/datasets/')
-    print("completed CalTech-101!")
+    # _,_ = caltech101Data(client_id=0, total_clients=1, datadir='/ccsopen/home/ssq/datasets/')
+    # print("completed CalTech-101!")
+    _,_ = caltech256Data(client_id=0, total_clients=1, datadir='/ccsopen/home/ssq/datasets/')
+    print("completed CalTech-256!")
