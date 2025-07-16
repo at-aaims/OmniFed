@@ -17,7 +17,7 @@ commfreq=500
 masteraddr='127.0.0.1'
 masterport=28670
 #masterport=50055
-backend='nccl'
+backend='gloo'
 model='resnet18'
 dataset='cifar10'
 
