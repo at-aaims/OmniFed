@@ -11,3 +11,16 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
+import tenseal as ts
+
+
+class HomomorphicEncryption:
+    def __init__(self):
+        self.context = context = ts.context(
+        ts.SCHEME_TYPE.CKKS,
+        poly_modulus_degree=8192,
+        coeff_mod_bit_sizes=[60, 40, 40, 60]
+        )
+        self.context.global_scale = 2 ** 40
+        self.context.generate_galois_keys()
