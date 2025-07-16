@@ -271,3 +271,8 @@ def caltech101Data(
             test_loader = None
 
         return train_loader, test_loader
+
+
+if __name__=="__main__":
+    _,_ = caltech101Data(client_id=0, total_clients=1, datadir='/ccsopen/home/ssq/datasets/')
+    print("completed CalTech-101!")
