@@ -7,10 +7,10 @@ cd ../
 
 dir='/Users/ssq/Desktop/datasets/flora_test/'
 bsz=32
-worldsize=4
+worldsize=8
 #comm='RPC'
 comm='Collective'
-algo='fedper'
+algo='fedavg'
 commfreq=10
 masteraddr='127.0.0.1'
 masterport=28670

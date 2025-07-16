@@ -34,7 +34,6 @@ class QSGDCompression(Compression):
 
         return min_val, max_val
 
-
     def compress(self, tensor, min_val, max_val):
         tensor = tensor.to(self.device)
         # Scale the tensor to [0, scale]
