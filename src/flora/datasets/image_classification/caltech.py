@@ -206,7 +206,8 @@ def caltech101Data(
             zip_ref.extractall(os.path.join(datadir, "Caltech101"))
 
         print("Unzipped CalTech-101 dataset")
-        filename = "101_ObjectCategories.tar.gz"
+        filename = ("101_Object"
+                    "Categories.tar.gz")
         print("Going to untar 101_ObjectCategories.tar.gz")
         tar = tarfile.open(
             os.path.join(datadir, "Caltech101", "caltech-101", filename), "r"
@@ -214,7 +215,7 @@ def caltech101Data(
         os.chdir(datadir)
         tar.extractall()
         tar.close()
-        os.remove(os.path.join(datadir, "Caltech101"))
+        os.rmdir(os.path.join(datadir, "Caltech101"))
         os.remove(os.path.join(datadir, "caltech101.zip"))
         caltechDataSplit(datadir=datadir, seed=client_id, dataset_name="Caltech101")
         os.chdir(curr_dir)
@@ -275,4 +276,5 @@ def caltech101Data(
 
 if __name__=="__main__":
     _,_ = caltech101Data(client_id=0, total_clients=1, datadir='/ccsopen/home/ssq/datasets/')
+    # _,_ = caltech256Data(client_id=0, total_clients=1, datadir='/ccsopen/home/ssq/datasets/')
     print("completed CalTech-101!")
