@@ -20,6 +20,7 @@ import torch
 
 from src.flora.communicator import Communicator
 from src.flora.helper.node_config import NodeConfig
+from src.flora.helper.training_stats import topK_accuracy
 from src.flora.helper.training_params import MOONTrainingParameters
 from src.flora.helper.training_stats import (
     AverageMeter,
@@ -112,7 +113,9 @@ class Moon:
         # self.device = torch.device(
         #     "cuda:" + str(dev_id) if torch.cuda.is_available() else "cpu"
         # )
-        self.device = torch.device("cuda:" + str(client_id)) if torch.cuda.is_available() else torch.device("cpu")
+        # self.device = torch.device("cuda:" + str(client_id)) if torch.cuda.is_available() else torch.device("cpu")
+        dev_id = client_id % 4
+        self.device = torch.device("cuda:" + str(dev_id)) if torch.cuda.is_available() else torch.device("cpu")
         self.model = self.model.to(self.device)
         self.global_model = copy.deepcopy(self.model)
         self.global_model = self.global_model.to(self.device)
@@ -165,7 +168,6 @@ class Moon:
                 ).sum(dim=1)
 
                 contrastive_loss = -torch.log(pos_sim / (pos_sim + neg_sim + 1e-8))
-                # loss += self.mu * contrastive_loss
                 loss += self.mu * contrastive_loss.mean()
 
             loss.backward()
@@ -220,7 +222,7 @@ class Moon:
             top5acc=self.top5_acc,
             top10acc=self.top10_acc,
         )
-        test_img_accuracy(
+        self.moon_test_img_accuracy(
             epoch=epoch,
             device=self.device,
             model=self.model,
@@ -244,3 +246,29 @@ class Moon:
             while True:
                 self.train_loop(epoch=i)
                 i += 1
+
+    def moon_test_img_accuracy(self, epoch, device, model, test_loader, loss_fn, iteration):
+        model.eval()
+        with torch.no_grad():
+            test_loss, top1acc, top5acc, top10acc = (
+                AverageMeter(),
+                AverageMeter(),
+                AverageMeter(),
+                AverageMeter(),
+            )
+            for input, label in test_loader:
+                input, label = input.to(device), label.to(device)
+                output, _ = model(input)
+                loss = loss_fn(output, label)
+                topKaccuracy = topK_accuracy(output=output, target=label, topk=(1, 5, 10))
+                top1acc.update(topKaccuracy[0], input.size(0))
+                top5acc.update(topKaccuracy[1], input.size(0))
+                top10acc.update(topKaccuracy[2], input.size(0))
+                test_loss.update(loss.item(), input.size(0))
+
+            logging.info(
+                f"Logging test_metrics iteration {iteration} epoch {epoch} test_loss {test_loss.avg} top1_acc "
+                f"{top1acc.avg.cpu().numpy().item()} top5_acc {top5acc.avg.cpu().numpy().item()} top10_acc "
+                f"{top10acc.avg.cpu().numpy().item()}"
+            )
+            model.train()
