@@ -14,6 +14,7 @@
 
 import tenseal as ts
 import torch
+from typing import Dict
 
 
 class HomomorphicEncryption:
@@ -33,3 +34,19 @@ class HomomorphicEncryption:
         """
         encrypted_updates = {}
         for name, param in model.named_parameters():
+            if encrypt_grads:
+                encrypted_updates[name] = ts.ckks_vector(self.context, param.grad)
+            else:
+                encrypted_updates[name] = ts.ckks_vector(self.context, param.data)
+
+        return encrypted_updates
+
+    def decrypt(self, model: torch.nn.Module, encrypted_updates: Dict, encrypt_grads=True):
+        for (name1, param), (name2, encrypt_data) in zip(model.named_parameters(), encrypted_updates.items()):
+            assert name1 == name2, f"Parameter mismatch: {name1} vs {name2}"
+            if encrypt_grads:
+                param.grad = torch.tensor(encrypt_data.decrypt(), dtype=torch.float32).view(param.shape)
+            else:
+                param.data = torch.tensor(encrypt_data.decrypt(), dtype=torch.float32).view(param.shape)
+
+        return model
