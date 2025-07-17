@@ -132,7 +132,12 @@ class Ditto:
                     msg=torch.Tensor([self.training_samples]), compute_mean=False
                 )
                 weight_scaling = self.training_samples / total_samples.item()
-                for _, param in self.model.named_parameters():
+                # for _, param in self.model.named_parameters():
+                #     if not param.requires_grad:
+                #         continue
+                #     param.data *= weight_scaling
+                # July 17 2025 update
+                for _, param in self.global_model.named_parameters():
                     if not param.requires_grad:
                         continue
                     param.data *= weight_scaling
