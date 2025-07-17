@@ -12,8 +12,7 @@ bsz=32
 worldsize=8
 #comm='RPC'
 comm='Collective'
-algo='fedper
-'
+algo='fedper'
 commfreq=500
 masteraddr='127.0.0.1'
 masterport=28670
