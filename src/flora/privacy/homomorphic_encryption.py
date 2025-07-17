@@ -13,6 +13,7 @@
 # limitations under the License.
 
 import tenseal as ts
+import torch
 
 
 class HomomorphicEncryption:
@@ -24,3 +25,11 @@ class HomomorphicEncryption:
         )
         self.context.global_scale = 2 ** 40
         self.context.generate_galois_keys()
+
+    def encrypt(self, model: torch.nn.Module, encrypt_grads=True):
+        """
+        model: pytorch model to encrypt
+        encrypt_grads: whether to encrypt gradients or model parameters
+        """
+        encrypted_updates = {}
+        for name, param in model.named_parameters():
