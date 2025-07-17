@@ -99,7 +99,7 @@ class FedDyn:
             loss = self.loss(pred, labels)
             self.training_samples += inputs.size(0)
 
-            param_2_vec = torch.nn.utils.parameters_to_vector(self.model.parameters())
+            param_2_vec = torch.nn.utils.parameters_to_vector(self.model.parameters()).detach()
             regularization_loss = (
                 self.regularizer_alpha * torch.norm(param_2_vec) ** 2
             ) / 2 - torch.dot(self.dynamic_correction, param_2_vec)
@@ -112,10 +112,11 @@ class FedDyn:
             self.optimizer.zero_grad()
             self.local_step += 1
             sync_time = None
-            self.dynamic_correction += self.regularizer_alpha * (
-                torch.nn.utils.parameters_to_vector(self.model.parameters())
-                - torch.nn.utils.parameters_to_vector(self.global_model.parameters())
-            )
+            with torch.no_grad():
+                self.dynamic_correction += self.regularizer_alpha * (
+                        torch.nn.utils.parameters_to_vector(self.model.parameters()).detach()
+                        - torch.nn.utils.parameters_to_vector(self.global_model.parameters()).detach()
+                )
 
             if self.local_step % self.comm_freq == 0:
                 init_time = perf_counter_ns()
