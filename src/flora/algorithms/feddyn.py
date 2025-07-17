@@ -103,10 +103,10 @@ class FedDyn:
             regularization_loss = (
                 self.regularizer_alpha * torch.norm(param_2_vec) ** 2
             ) / 2 - torch.dot(self.dynamic_correction, param_2_vec)
-            fed_dyn_loss = loss + regularization_loss
-            del param_2_vec
+            loss += regularization_loss
 
-            fed_dyn_loss.backward()
+            loss.backward()
+            del param_2_vec
             compute_time = (perf_counter_ns() - init_time) / nanosec_to_millisec
             self.optimizer.step()
             self.optimizer.zero_grad()
@@ -151,7 +151,7 @@ class FedDyn:
             input=inputs,
             label=labels,
             output=pred,
-            loss=fed_dyn_loss,
+            loss=loss,
             train_loss=self.train_loss,
             top1acc=self.top1_acc,
             top5acc=self.top5_acc,
