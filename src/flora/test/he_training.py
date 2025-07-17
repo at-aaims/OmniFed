@@ -127,7 +127,7 @@ class HETraining:
 
         args.hostname = socket.gethostname()
         args.optimizer = self.optimizer.__class__.__name__
-        args.running_job = "CompressionTrainer"
+        args.running_job = "HomomorphicEncryption"
         logging.info(f"training/job specific parameters: {args}")
 
     def start(self):

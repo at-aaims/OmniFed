@@ -258,4 +258,16 @@ class TorchMPICommunicator(Communicator):
 
                 quantized_aggregate[key] = val
 
-        return quantized_aggregate
+            return quantized_aggregate
+
+    def encrypted_aggregation(self, encrypted_dict: Dict, compute_mean=True):
+        if isinstance(encrypted_dict, Dict):
+            # aggregated_encrypted_dict = {}
+            for key, val in encrypted_dict.items():
+                dist.all_reduce(tensor=val, op=dist.ReduceOp.SUM)
+                if compute_mean:
+                    val /= self.world_size
+
+                encrypted_dict[key] = val
+
+            return encrypted_dict

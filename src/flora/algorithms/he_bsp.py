@@ -65,6 +65,7 @@ class HomomorphicEncryptionBSP:
             AverageMeter(),
         )
         self.he_object = HomomorphicEncryption()
+        self.encrypt_grads = True
 
     def broadcast_model(self, model):
         # broadcast model from central server with id 0
@@ -84,13 +85,27 @@ class HomomorphicEncryptionBSP:
             compute_time = (perf_counter_ns() - init_time) / nanosec_to_millisec
             init_time = perf_counter_ns()
             with torch.no_grad():
-                encrypted_updates = self.he_object.encrypt(self.model)
+                encrypted_updates = self.he_object.encrypt(model=self.model, encrypt_grads=self.encrypt_grads)
 
             he_encryption_time = (perf_counter_ns() - init_time) / nanosec_to_millisec
 
             init_time = perf_counter_ns()
+            encrypted_updates = self.communicator.encrypted_aggregation(encrypted_dict=encrypted_updates,
+                                                                        compute_mean=True)
+            encrypted_sync_time = (perf_counter_ns() - init_time) / nanosec_to_millisec
 
+            for (name1, param1), (key, avg_value) in zip(self.model.named_parameters(), encrypted_updates.items()):
+                if self.encrypt_grads:
+                    param1.grad = avg_value
+                else:
+                    param1.data = avg_value
 
-
-
-
+            self.optimizer.step()
+            self.optimizer.zero_grad()
+            self.local_step += 1
+            itr_time = (perf_counter_ns() - itr_strt) / nanosec_to_millisec
+            logging.info(
+                f"training_metrics local_step: {self.local_step} epoch {epoch} compute_time {compute_time} ms "
+                f"he_encryption_time: {he_encryption_time} ms encrypted_sync_time: {encrypted_sync_time} ms "
+                f"itr_time: {itr_time} ms"
+            )
