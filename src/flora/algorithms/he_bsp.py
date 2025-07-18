@@ -38,8 +38,7 @@ class HomomorphicEncryptionBSP:
             test_data: torch.utils.data.DataLoader,
             communicator: TorchMPICommunicator,
             total_clients: int,
-            train_params: FedAvgTrainingParameters,
-            compression: Compression,
+            train_params: FedAvgTrainingParameters
     ):
         self.model = model
         self.train_data = train_data
@@ -47,7 +46,6 @@ class HomomorphicEncryptionBSP:
         self.communicator = communicator
         self.total_clients = total_clients
         self.train_params = train_params
-        self.compression = compression
         self.optimizer = self.train_params.get_optimizer()
         self.comm_freq = self.train_params.get_comm_freq()
         self.loss = self.train_params.get_loss()
@@ -109,3 +107,43 @@ class HomomorphicEncryptionBSP:
                 f"he_encryption_time: {he_encryption_time} ms encrypted_sync_time: {encrypted_sync_time} ms "
                 f"itr_time: {itr_time} ms"
             )
+
+        epoch_time = (perf_counter_ns() - epoch_strt) / nanosec_to_millisec
+        logging.info(f"epoch completion time for epoch {epoch} is {epoch_time} ms")
+
+        train_img_accuracy(
+            epoch=epoch,
+            iteration=self.local_step,
+            input=inputs,
+            label=labels,
+            output=pred,
+            loss=loss,
+            train_loss=self.train_loss,
+            top1acc=self.top1_acc,
+            top5acc=self.top5_acc,
+            top10acc=self.top10_acc,
+        )
+        test_img_accuracy(
+            epoch=epoch,
+            device=self.device,
+            model=self.model,
+            test_loader=self.test_data,
+            loss_fn=self.loss,
+            iteration=self.local_step,
+        )
+
+        if self.lr_scheduler is not None:
+            self.lr_scheduler.step()
+
+    def train(self):
+        print("going to broadcast model across clients...")
+        self.model = self.broadcast_model(model=self.model)
+        if self.epochs is not None and isinstance(self.epochs, int) and self.epochs > 0:
+            for epoch in range(self.epochs):
+                print("going to start epoch {}/{}".format(epoch, self.epochs))
+                self.train_loop(epoch=epoch)
+        else:
+            i = 0
+            while True:
+                self.train_loop(epoch=i)
+                i += 1

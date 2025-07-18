@@ -20,6 +20,7 @@ from src.flora.communicator import torch_mpi
 from src.flora.test import get_model
 from src.flora.datasets.image_classification import cifar, caltech
 from src.flora.helper import training_params
+from src.flora.algorithms.he_bsp import HomomorphicEncryptionBSP
 
 
 class HETraining:
@@ -124,6 +125,15 @@ class HETraining:
         )
 
         # add HETrainer object here
+        self.trainer = HomomorphicEncryptionBSP(
+            client_id=self.rank,
+            model=self.model,
+            train_data=self.train_dataloader,
+            test_data=self.test_dataloader,
+            communicator=self.communicator,
+            total_clients=self.world_size,
+            train_params=self.fedavg_params
+        )
 
         args.hostname = socket.gethostname()
         args.optimizer = self.optimizer.__class__.__name__
