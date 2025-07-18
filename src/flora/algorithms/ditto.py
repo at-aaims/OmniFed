@@ -74,7 +74,11 @@ class Ditto:
         # # )
         # self.device = torch.device("cuda:" + str(client_id)) if torch.cuda.is_available() else torch.device("cpu")
         dev_id = client_id % 4
-        self.device = torch.device("cuda:" + str(dev_id)) if torch.cuda.is_available() else torch.device("cpu")
+        self.device = (
+            torch.device("cuda:" + str(dev_id))
+            if torch.cuda.is_available()
+            else torch.device("cpu")
+        )
         self.model = self.model.to(self.device)
         self.global_model = copy.deepcopy(self.model)
         self.global_model = self.global_model.to(self.device)

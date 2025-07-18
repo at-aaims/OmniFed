@@ -29,16 +29,17 @@ from src.flora.helper.training_stats import (
 
 nanosec_to_millisec = 1e6
 
+
 class HomomorphicEncryptionBSP:
     def __init__(
-            self,
-            client_id: int,
-            model: torch.nn.Module,
-            train_data: torch.utils.data.DataLoader,
-            test_data: torch.utils.data.DataLoader,
-            communicator: TorchMPICommunicator,
-            total_clients: int,
-            train_params: FedAvgTrainingParameters
+        self,
+        client_id: int,
+        model: torch.nn.Module,
+        train_data: torch.utils.data.DataLoader,
+        test_data: torch.utils.data.DataLoader,
+        communicator: TorchMPICommunicator,
+        total_clients: int,
+        train_params: FedAvgTrainingParameters,
     ):
         self.model = model
         self.train_data = train_data
@@ -54,7 +55,11 @@ class HomomorphicEncryptionBSP:
         self.local_step = 0
         self.training_samples = 0
         dev_id = client_id % 4
-        self.device = torch.device("cuda:" + str(dev_id)) if torch.cuda.is_available() else torch.device("cpu")
+        self.device = (
+            torch.device("cuda:" + str(dev_id))
+            if torch.cuda.is_available()
+            else torch.device("cpu")
+        )
         self.model = self.model.to(self.device)
         self.train_loss = AverageMeter()
         self.top1_acc, self.top5_acc, self.top10_acc = (
@@ -83,16 +88,21 @@ class HomomorphicEncryptionBSP:
             compute_time = (perf_counter_ns() - init_time) / nanosec_to_millisec
             init_time = perf_counter_ns()
             with torch.no_grad():
-                encrypted_updates = self.he_object.encrypt(model=self.model, encrypt_grads=self.encrypt_grads)
+                encrypted_updates = self.he_object.encrypt(
+                    model=self.model, encrypt_grads=self.encrypt_grads
+                )
 
             he_encryption_time = (perf_counter_ns() - init_time) / nanosec_to_millisec
 
             init_time = perf_counter_ns()
-            encrypted_updates = self.communicator.encrypted_aggregation(encrypted_dict=encrypted_updates,
-                                                                        compute_mean=True)
+            encrypted_updates = self.communicator.encrypted_aggregation(
+                encrypted_dict=encrypted_updates, compute_mean=True
+            )
             encrypted_sync_time = (perf_counter_ns() - init_time) / nanosec_to_millisec
 
-            for (name1, param1), (key, avg_value) in zip(self.model.named_parameters(), encrypted_updates.items()):
+            for (name1, param1), (key, avg_value) in zip(
+                self.model.named_parameters(), encrypted_updates.items()
+            ):
                 if self.encrypt_grads:
                     param1.grad = avg_value
                 else:

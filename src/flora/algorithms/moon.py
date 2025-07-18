@@ -115,7 +115,11 @@ class Moon:
         # )
         # self.device = torch.device("cuda:" + str(client_id)) if torch.cuda.is_available() else torch.device("cpu")
         dev_id = client_id % 4
-        self.device = torch.device("cuda:" + str(dev_id)) if torch.cuda.is_available() else torch.device("cpu")
+        self.device = (
+            torch.device("cuda:" + str(dev_id))
+            if torch.cuda.is_available()
+            else torch.device("cpu")
+        )
         self.model = self.model.to(self.device)
         self.global_model = copy.deepcopy(self.model)
         self.global_model = self.global_model.to(self.device)
@@ -247,7 +251,9 @@ class Moon:
                 self.train_loop(epoch=i)
                 i += 1
 
-    def moon_test_img_accuracy(self, epoch, device, model, test_loader, loss_fn, iteration):
+    def moon_test_img_accuracy(
+        self, epoch, device, model, test_loader, loss_fn, iteration
+    ):
         model.eval()
         with torch.no_grad():
             test_loss, top1acc, top5acc, top10acc = (
@@ -260,7 +266,9 @@ class Moon:
                 input, label = input.to(device), label.to(device)
                 output, _ = model(input)
                 loss = loss_fn(output, label)
-                topKaccuracy = topK_accuracy(output=output, target=label, topk=(1, 5, 10))
+                topKaccuracy = topK_accuracy(
+                    output=output, target=label, topk=(1, 5, 10)
+                )
                 top1acc.update(topKaccuracy[0], input.size(0))
                 top5acc.update(topKaccuracy[1], input.size(0))
                 top10acc.update(topKaccuracy[2], input.size(0))

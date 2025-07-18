@@ -69,7 +69,11 @@ class FederatedAveraging:
         # )
         # self.device = torch.device("cuda:"+str(client_id)) if torch.cuda.is_available() else torch.device("cpu")
         dev_id = client_id % 4
-        self.device = torch.device("cuda:" + str(dev_id)) if torch.cuda.is_available() else torch.device("cpu")
+        self.device = (
+            torch.device("cuda:" + str(dev_id))
+            if torch.cuda.is_available()
+            else torch.device("cpu")
+        )
         self.model = self.model.to(self.device)
         self.train_loss = AverageMeter()
         self.top1_acc, self.top5_acc, self.top10_acc = (
@@ -104,7 +108,8 @@ class FederatedAveraging:
                 init_time = perf_counter_ns()
                 # batch_samples argument present only in RPC communicator currently
                 total_samples = self.communicator.aggregate(
-                    msg=torch.Tensor([self.training_samples]).to(self.device), compute_mean=False
+                    msg=torch.Tensor([self.training_samples]).to(self.device),
+                    compute_mean=False,
                 )
                 # total_samples = torch.Tensor([96])
                 weight_scaling = self.training_samples / total_samples.item()

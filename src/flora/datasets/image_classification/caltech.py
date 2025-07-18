@@ -206,8 +206,7 @@ def caltech101Data(
             zip_ref.extractall(os.path.join(datadir, "Caltech101"))
 
         print("Unzipped CalTech-101 dataset")
-        filename = ("101_Object"
-                    "Categories.tar.gz")
+        filename = "101_ObjectCategories.tar.gz"
         print("Going to untar 101_ObjectCategories.tar.gz")
         tar = tarfile.open(
             os.path.join(datadir, "Caltech101", "caltech-101", filename), "r"
@@ -273,8 +272,10 @@ def caltech101Data(
         return train_loader, test_loader
 
 
-if __name__=="__main__":
+if __name__ == "__main__":
     # _,_ = caltech101Data(client_id=0, total_clients=1, datadir='/ccsopen/home/ssq/datasets/')
     # print("completed CalTech-101!")
-    _,_ = caltech256Data(client_id=0, total_clients=1, datadir='/ccsopen/home/ssq/datasets/')
+    _, _ = caltech256Data(
+        client_id=0, total_clients=1, datadir="/ccsopen/home/ssq/datasets/"
+    )
     print("completed CalTech-256!")

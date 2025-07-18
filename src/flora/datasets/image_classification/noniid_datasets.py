@@ -170,7 +170,9 @@ def noniid_caltech101Data(
     test_bsz=32,
     number_of_labels=101,
 ):
-    labels_per_client = get_labels_perclient(number_of_labels=number_of_labels, total_clients=total_clients)
+    labels_per_client = get_labels_perclient(
+        number_of_labels=number_of_labels, total_clients=total_clients
+    )
 
     set_seed(seed=total_clients)
     g = torch.Generator()
@@ -217,15 +219,18 @@ def noniid_caltech101Data(
 
     return noniid_train_loader, test_loader
 
+
 def noniid_caltech256Data(
     client_id=0,
     total_clients=1,
     datadir="~/",
     train_bsz=32,
     test_bsz=32,
-    number_of_labels=256
+    number_of_labels=256,
 ):
-    labels_per_client = get_labels_perclient(number_of_labels=number_of_labels, total_clients=total_clients)
+    labels_per_client = get_labels_perclient(
+        number_of_labels=number_of_labels, total_clients=total_clients
+    )
 
     set_seed(seed=total_clients)
     g = torch.Generator()

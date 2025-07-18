@@ -36,16 +36,20 @@ class HETraining:
         self.epochs = args.epochs
 
         dev_id = self.rank % 4
-        self.device = torch.device("cuda:" + str(dev_id)) if torch.cuda.is_available() else torch.device("cpu")
+        self.device = (
+            torch.device("cuda:" + str(dev_id))
+            if torch.cuda.is_available()
+            else torch.device("cpu")
+        )
         logging.basicConfig(
             filename=self.logdir
-                     + "/g"
-                     + str(self.rank)
-                     + "/"
-                     + self.model_name
-                     + "-"
-                     + str(self.rank)
-                     + ".log",
+            + "/g"
+            + str(self.rank)
+            + "/"
+            + self.model_name
+            + "-"
+            + str(self.rank)
+            + ".log",
             level=logging.INFO,
         )
         self.dataset_name = args.dataset
@@ -132,7 +136,7 @@ class HETraining:
             test_data=self.test_dataloader,
             communicator=self.communicator,
             total_clients=self.world_size,
-            train_params=self.fedavg_params
+            train_params=self.fedavg_params,
         )
 
         args.hostname = socket.gethostname()

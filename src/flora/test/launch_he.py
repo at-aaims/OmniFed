@@ -16,7 +16,7 @@ import argparse
 import os
 
 import src.flora.helper as helper
-from src.flora.algorithms.he_bsp import HomomorphicEncryptionBSP
+from src.flora.test.he_training import HETraining
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -76,3 +76,4 @@ if __name__ == "__main__":
         os.environ["GLOO_SOCKET_IFNAME"] = args.network_interface
 
     helper.set_seed(args.seed, determinism=False)
+    HETraining(args=args).start()

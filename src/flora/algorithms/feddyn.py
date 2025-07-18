@@ -70,7 +70,11 @@ class FedDyn:
         # )
         # self.device = torch.device("cuda:" + str(client_id)) if torch.cuda.is_available() else torch.device("cpu")
         dev_id = client_id % 4
-        self.device = torch.device("cuda:" + str(dev_id)) if torch.cuda.is_available() else torch.device("cpu")
+        self.device = (
+            torch.device("cuda:" + str(dev_id))
+            if torch.cuda.is_available()
+            else torch.device("cpu")
+        )
         self.model = self.model.to(self.device)
         self.dynamic_correction = torch.zeros_like(
             torch.nn.utils.parameters_to_vector(self.model.parameters())
@@ -99,7 +103,9 @@ class FedDyn:
             loss = self.loss(pred, labels)
             self.training_samples += inputs.size(0)
 
-            param_2_vec = torch.nn.utils.parameters_to_vector(self.model.parameters()).detach()
+            param_2_vec = torch.nn.utils.parameters_to_vector(
+                self.model.parameters()
+            ).detach()
             regularization_loss = (
                 self.regularizer_alpha * torch.norm(param_2_vec) ** 2
             ) / 2 - torch.dot(self.dynamic_correction, param_2_vec)
@@ -114,8 +120,12 @@ class FedDyn:
             sync_time = None
             with torch.no_grad():
                 self.dynamic_correction += self.regularizer_alpha * (
-                        torch.nn.utils.parameters_to_vector(self.model.parameters()).detach()
-                        - torch.nn.utils.parameters_to_vector(self.global_model.parameters()).detach()
+                    torch.nn.utils.parameters_to_vector(
+                        self.model.parameters()
+                    ).detach()
+                    - torch.nn.utils.parameters_to_vector(
+                        self.global_model.parameters()
+                    ).detach()
                 )
 
             if self.local_step % self.comm_freq == 0:

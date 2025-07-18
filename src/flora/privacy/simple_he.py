@@ -16,13 +16,11 @@ import tenseal as ts
 
 # Create a TenSEAL context with CKKS scheme (for real numbers)
 context = ts.context(
-    ts.SCHEME_TYPE.CKKS,
-    poly_modulus_degree=8192,
-    coeff_mod_bit_sizes=[60, 40, 40, 60]
+    ts.SCHEME_TYPE.CKKS, poly_modulus_degree=8192, coeff_mod_bit_sizes=[60, 40, 40, 60]
 )
 
 # Set global scale and enable encryption parameters to be serialized
-context.global_scale = 2 ** 40
+context.global_scale = 2**40
 context.generate_galois_keys()
 
 # Encrypt two vectors
