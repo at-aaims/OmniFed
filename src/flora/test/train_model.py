@@ -346,7 +346,7 @@ class ModelTrainer(object):
                 # for ResNet18 CIFAR10
                 # personal_head=SimpleFedPerHead(input_dim=1000, num_classes=10),
                 # for VGG11 CIFAR100
-                personal_head=SimpleFedPerHead(input_dim=1000, num_classes=100),
+                personal_head=SimpleFedPerHead(input_dim=10000, num_classes=100),
                 train_data=self.train_dataloader,
                 test_data=self.test_dataloader,
                 communicator=self.communicator,
