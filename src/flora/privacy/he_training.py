@@ -20,7 +20,7 @@ from src.flora.communicator import torch_mpi
 from src.flora.test import get_model
 from src.flora.datasets.image_classification import cifar, caltech
 from src.flora.helper import training_params
-from src.flora.algorithms.he_bsp import HomomorphicEncryptionBSP
+from src.flora.privacy.he_bsp import HomomorphicEncryptionBSP
 
 
 class HETraining:

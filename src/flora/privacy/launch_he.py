@@ -16,7 +16,7 @@ import argparse
 import os
 
 import src.flora.helper as helper
-from src.flora.test.he_training import HETraining
+from src.flora.privacy.he_training import HETraining
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()

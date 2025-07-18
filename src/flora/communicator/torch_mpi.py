@@ -14,6 +14,7 @@
 
 import datetime
 from typing import Dict
+import tenseal as ts
 
 import torch
 import torch.distributed as dist
@@ -83,6 +84,19 @@ class TorchMPICommunicator(Communicator):
             dist.broadcast(tensor=msg, src=id)
 
         return msg
+
+    # def he_broadcast(self, ctx_bytes, ctx_size, id=0):
+    #     dist.broadcast(ctx_size, src=0)
+    #     ctx_buf = torch.empty(ctx_size.item(), dtype=torch.uint8)
+    #     if id == 0:
+    #         ctx_buf[:] = ctx_bytes
+    #
+    #     dist.broadcast(ctx_buf, src=0)
+    #
+    #     if id != 0:
+    #         serialized_ctx = bytes(ctx_buf.tolist())
+    #         ctx = ts.context_from(serialized_ctx)
+    #         return ctx
 
     def aggregate(self, msg, communicate_params=True, compute_mean=True):
         """

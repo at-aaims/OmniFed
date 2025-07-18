@@ -16,11 +16,12 @@ import logging
 from time import perf_counter_ns
 
 import torch
+import tenseal as ts
 
-from src.flora.compression import Compression
 from src.flora.communicator.torch_mpi import TorchMPICommunicator
 from src.flora.helper.training_params import FedAvgTrainingParameters
 from src.flora.privacy.homomorphic_encryption import HomomorphicEncryption
+import src.flora.privacy.homomorphic_encryption as he_utils
 from src.flora.helper.training_stats import (
     AverageMeter,
     train_img_accuracy,
@@ -54,7 +55,8 @@ class HomomorphicEncryptionBSP:
         self.epochs = self.train_params.get_epochs()
         self.local_step = 0
         self.training_samples = 0
-        dev_id = client_id % 4
+        self.client_id = client_id
+        dev_id = self.client_id % 4
         self.device = (
             torch.device("cuda:" + str(dev_id))
             if torch.cuda.is_available()
@@ -67,7 +69,7 @@ class HomomorphicEncryptionBSP:
             AverageMeter(),
             AverageMeter(),
         )
-        self.he_object = HomomorphicEncryption()
+
         self.encrypt_grads = True
 
     def broadcast_model(self, model):
@@ -87,10 +89,7 @@ class HomomorphicEncryptionBSP:
             loss.backward()
             compute_time = (perf_counter_ns() - init_time) / nanosec_to_millisec
             init_time = perf_counter_ns()
-            with torch.no_grad():
-                encrypted_updates = self.he_object.encrypt(
-                    model=self.model, encrypt_grads=self.encrypt_grads
-                )
+            encrypted_updates = he_utils.encrypt(model=self.model, encrypt_grads=self.encrypt_grads)
 
             he_encryption_time = (perf_counter_ns() - init_time) / nanosec_to_millisec
 
@@ -145,9 +144,42 @@ class HomomorphicEncryptionBSP:
         if self.lr_scheduler is not None:
             self.lr_scheduler.step()
 
+    def handle_he_ctx(self):
+        """
+        compute HE context on rank 0 and send serialized context to clients
+        """
+        if self.client_id == 0:
+            self.he_obj = HomomorphicEncryption(encrypt_grads=True)
+            serialized_ctx = self.he_obj.get_he_context().serialize(save_secret_key=False)
+            ctx_bytes = torch.ByteTensor(list(serialized_ctx))
+            ctx_size = torch.tensor([ctx_bytes.numel()], dtype=torch.long)
+        else:
+            ctx_size = torch.zeros(1, dtype=torch.long)
+
+        ctx_size = self.communicator.broadcast(msg=ctx_size, id=0)
+        print("context_size: ", ctx_size.item(), "on client", self.client_id)
+        ctx_buf = torch.empty(ctx_size.item(), dtype=torch.uint8)
+
+        if self.client_id == 0:
+            ctx_buf[:] = ctx_bytes
+
+        ctx_buf = self.communicator.broadcast(msg=ctx_buf, id=0)
+
+        if self.client_id == 0:
+            self.context = self.he_obj.get_he_context()
+        else:
+            serialized_ctx = bytes(ctx_buf.tolist())
+            self.context = ts.context_from(serialized_ctx)
+
     def train(self):
         print("going to broadcast model across clients...")
         self.model = self.broadcast_model(model=self.model)
+
+        self.handle_he_ctx()
+        print('!!!!!!!!!!!!!!!!!!!!! created HE context!!!!!!!!!!!!!!!!!!')
+        import time
+        time.sleep(100)
+
         if self.epochs is not None and isinstance(self.epochs, int) and self.epochs > 0:
             for epoch in range(self.epochs):
                 print("going to start epoch {}/{}".format(epoch, self.epochs))
