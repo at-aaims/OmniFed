@@ -116,7 +116,8 @@ class HomomorphicEncryptionBSP:
                     avg = collected_encrypted_data[0]
                     for g in collected_encrypted_data[1:]:
                         avg += g
-                    avg /= self.total_clients
+
+                    avg = avg * (1.0 / float(self.total_clients))
                     param.grad = torch.tensor(avg.decrypt(), dtype=torch.float32).view(param.shape)
 
 
@@ -194,8 +195,8 @@ class HomomorphicEncryptionBSP:
             self.context = ts.context_from(serialized_ctx)
 
     def train(self):
-        # print("going to broadcast model across clients...")
-        # self.model = self.broadcast_model(model=self.model)
+        print("going to broadcast model across clients...")
+        self.model = self.broadcast_model(model=self.model)
 
         print("going to initiate seal context....")
         self.handle_he_ctx()

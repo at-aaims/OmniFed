@@ -2,14 +2,14 @@
 
 cd ../
 
-# kill -s 9 `ps -ef | grep src.flora.test.launch_he |grep -v grep | awk '{print $2}'`
-# kill -9 $(ps aux | grep src.flora.test.launch_he | grep -v grep | awk '{print $2}')
+# kill -s 9 `ps -ef | grep src.flora.privacy.launch_he |grep -v grep | awk '{print $2}'`
+# kill -9 $(ps aux | grep src.flora.privacy.launch_he | grep -v grep | awk '{print $2}')
 
 dir='/Users/ssq/Desktop/datasets/flora_test/'
 #dir='/ccsopen/home/ssq/datasets/'
 #interface='eth1'
 bsz=32
-worldsize=1
+worldsize=2
 comm='Collective'
 masteraddr='127.0.0.1'
 masterport=28670
