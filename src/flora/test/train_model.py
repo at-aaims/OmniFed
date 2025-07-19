@@ -348,7 +348,7 @@ class ModelTrainer(object):
                 # for VGG11 CIFAR100
                 # personal_head=SimpleFedPerHead(input_dim=1000, num_classes=100),
                 # for AlexNet
-                personal_head=SimpleFedPerHead(input_dim=1000, num_classes=101),
+                personal_head=SimpleFedPerHead(input_dim=1000, num_classes=102),
                 train_data=self.train_dataloader,
                 test_data=self.test_dataloader,
                 communicator=self.communicator,
