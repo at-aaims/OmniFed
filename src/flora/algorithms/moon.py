@@ -104,13 +104,19 @@ nanosec_to_millisec = 1e6
 #         representation = self.proj_head(features)     # -> [B, projection_dim]
 #         return logits, representation
 
+
 # for AlexNet
 class MoonWrapper(torch.nn.Module):
-    def __init__(self, base_model: torch.nn.Module, num_classes: int = 102, projection_dim: int = 128):
+    def __init__(
+        self,
+        base_model: torch.nn.Module,
+        num_classes: int = 102,
+        projection_dim: int = 128,
+    ):
         super().__init__()
 
         self.features = base_model.features  # Conv layers
-        self.avgpool = base_model.avgpool    # AdaptiveAvgPool2d((6, 6)) by default
+        self.avgpool = base_model.avgpool  # AdaptiveAvgPool2d((6, 6)) by default
         self.flatten = torch.nn.Flatten()
 
         # Modify classifier for Caltech-101 (102 classes)
@@ -121,21 +127,21 @@ class MoonWrapper(torch.nn.Module):
             torch.nn.Dropout(),
             torch.nn.Linear(4096, 4096),
             torch.nn.ReLU(inplace=True),
-            torch.nn.Linear(4096, num_classes)
+            torch.nn.Linear(4096, num_classes),
         )
 
         # Projection head for contrastive representation (input = 256 * 6 * 6)
         self.proj_head = torch.nn.Linear(256 * 6 * 6, projection_dim)
 
     def extract_features(self, x):
-        x = self.features(x)          # [B, 256, 6, 6] for 224×224 inputs
-        x = self.avgpool(x)           # Still [B, 256, 6, 6]
-        x = self.flatten(x)           # [B, 9216]
+        x = self.features(x)  # [B, 256, 6, 6] for 224×224 inputs
+        x = self.avgpool(x)  # Still [B, 256, 6, 6]
+        x = self.flatten(x)  # [B, 9216]
         return x
 
     def forward(self, x):
-        features = self.extract_features(x)      # [B, 9216]
-        logits = self.classifier(features)       # [B, 102]
+        features = self.extract_features(x)  # [B, 9216]
+        logits = self.classifier(features)  # [B, 102]
         representation = self.proj_head(features)  # [B, projection_dim]
         return logits, representation
 

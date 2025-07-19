@@ -72,8 +72,8 @@ if __name__ == "__main__":
 
     os.environ["MASTER_ADDR"] = args.master_addr
     os.environ["MASTER_PORT"] = args.master_port
-    if args.backend == "Gloo":
-        os.environ["GLOO_SOCKET_IFNAME"] = args.network_interface
+    # if args.backend == "Gloo":
+    #     os.environ["GLOO_SOCKET_IFNAME"] = args.network_interface
 
     helper.set_seed(args.seed, determinism=False)
     HETraining(args=args).start()

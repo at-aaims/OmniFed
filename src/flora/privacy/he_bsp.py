@@ -89,33 +89,41 @@ class HomomorphicEncryptionBSP:
             loss.backward()
             compute_time = (perf_counter_ns() - init_time) / nanosec_to_millisec
             init_time = perf_counter_ns()
-            encrypted_updates = he_utils.encrypt(model=self.model,
-                                                 encrypt_grads=self.encrypt_grads,
-                                                 encrypt_ctx=self.context)
+            encrypted_updates = he_utils.encrypt(
+                model=self.model,
+                encrypt_grads=self.encrypt_grads,
+                encrypt_ctx=self.context,
+            )
 
             he_encryption_time = (perf_counter_ns() - init_time) / nanosec_to_millisec
 
             init_time = perf_counter_ns()
             # rank 0 receives while other ranks send encrypted updates
-            for (name1, param), (name2, enc_data) in zip(self.model.named_parameters(), encrypted_updates.items()):
+            for (name1, param), (name2, enc_data) in zip(
+                self.model.named_parameters(), encrypted_updates.items()
+            ):
                 # assert parameter name mismatch
                 if self.client_id == 0:
                     collected_encrypted_data = []
+                    collected_encrypted_data.append(
+                        ts.ckks_vector_from(self.context, bytes(enc_data.tolist()))
+                    )
                     for ix in range(1, self.total_clients):
                         buff = torch.empty(size=enc_data.size())
                         self.communicator.recv(msg=buff, id=ix)
+                        collected_encrypted_data.append(ts.ckks_vector_from(self.context, bytes(buff.tolist())))
+
+                    avg = collected_encrypted_data[0]
+                    for g in collected_encrypted_data[1:]:
+                        avg += g
+                    avg /= self.total_clients
+                    param.grad = torch.tensor(avg.decrypt(), dtype=torch.float32).view(param.shape)
+
+
                 else:
                     self.communicator.send(msg=enc_data, id=0)
 
             encrypted_sync_time = (perf_counter_ns() - init_time) / nanosec_to_millisec
-
-            for (name1, param1), (key, avg_value) in zip(
-                self.model.named_parameters(), encrypted_updates.items()
-            ):
-                if self.encrypt_grads:
-                    param1.grad = avg_value
-                else:
-                    param1.data = avg_value
 
             self.optimizer.step()
             self.optimizer.zero_grad()
@@ -160,11 +168,15 @@ class HomomorphicEncryptionBSP:
         """
         if self.client_id == 0:
             self.he_obj = HomomorphicEncryption(encrypt_grads=True)
-            serialized_ctx = self.he_obj.get_he_context().serialize(save_secret_key=False)
+            serialized_ctx = self.he_obj.get_he_context().serialize(
+                save_secret_key=False
+            )
             ctx_bytes = torch.ByteTensor(list(serialized_ctx))
             ctx_size = torch.tensor([ctx_bytes.numel()], dtype=torch.long)
+            print("done on client-0.....")
         else:
             ctx_size = torch.zeros(1, dtype=torch.long)
+            print("done on client-", self.client_id)
 
         ctx_size = self.communicator.broadcast(msg=ctx_size, id=0)
         print("context_size: ", ctx_size.item(), "on client", self.client_id)
@@ -182,11 +194,12 @@ class HomomorphicEncryptionBSP:
             self.context = ts.context_from(serialized_ctx)
 
     def train(self):
-        print("going to broadcast model across clients...")
-        self.model = self.broadcast_model(model=self.model)
+        # print("going to broadcast model across clients...")
+        # self.model = self.broadcast_model(model=self.model)
 
+        print("going to initiate seal context....")
         self.handle_he_ctx()
-        print('!!!!!!!!!!!!!!!!!!!!! created HE context!!!!!!!!!!!!!!!!!!')
+        print("!!!!!!!!!!!!!!!!!!!!! created HE context!!!!!!!!!!!!!!!!!!")
         if self.epochs is not None and isinstance(self.epochs, int) and self.epochs > 0:
             for epoch in range(self.epochs):
                 print("going to start epoch {}/{}".format(epoch, self.epochs))
