@@ -67,8 +67,9 @@ class DiLoCo:
         # self.device = torch.device(
         #     "cuda:" + str(dev_id) if torch.cuda.is_available() else "cpu"
         # )
+        dev_id = client_id % 4
         self.device = (
-            torch.device("cuda:" + str(client_id))
+            torch.device("cuda:" + str(dev_id))
             if torch.cuda.is_available()
             else torch.device("cpu")
         )
