@@ -94,9 +94,15 @@ class HomomorphicEncryptionBSP:
             he_encryption_time = (perf_counter_ns() - init_time) / nanosec_to_millisec
 
             init_time = perf_counter_ns()
-            encrypted_updates = self.communicator.encrypted_aggregation(
-                encrypted_dict=encrypted_updates, compute_mean=True
-            )
+            # rank 0 receives while other ranks send encrypted updates
+            for (name1, param), (name2, enc_data) in zip(self.model.named_parameters(), encrypted_updates.items()):
+                # assert parameter name mismatch
+                if self.client_id == 0:
+                    self.communicator.s
+                else:
+
+
+
             encrypted_sync_time = (perf_counter_ns() - init_time) / nanosec_to_millisec
 
             for (name1, param1), (key, avg_value) in zip(
