@@ -89,7 +89,9 @@ class HomomorphicEncryptionBSP:
             loss.backward()
             compute_time = (perf_counter_ns() - init_time) / nanosec_to_millisec
             init_time = perf_counter_ns()
-            encrypted_updates = he_utils.encrypt(model=self.model, encrypt_grads=self.encrypt_grads)
+            encrypted_updates = he_utils.encrypt(model=self.model,
+                                                 encrypt_grads=self.encrypt_grads,
+                                                 encrypt_ctx=self.context)
 
             he_encryption_time = (perf_counter_ns() - init_time) / nanosec_to_millisec
 
@@ -97,11 +99,17 @@ class HomomorphicEncryptionBSP:
             # rank 0 receives while other ranks send encrypted updates
             for (name1, param), (name2, enc_data) in zip(self.model.named_parameters(), encrypted_updates.items()):
                 # assert parameter name mismatch
+                # if self.client_id == 0:
+                #     for ix in range(1, self.total_clients):
+                #         self.communicator.recv(msg=enc_data, id=ix)
+                # else:
+                #     self.communicator.send(msg=enc_data, id=0)
+
                 if self.client_id == 0:
-                    self.communicator.s
+                    for ix in range(1, self.total_clients):
+                        self.communicator.recv(msg=enc_data, id=ix)
                 else:
-
-
+                    self.communicator.send(msg=enc_data, id=0)
 
             encrypted_sync_time = (perf_counter_ns() - init_time) / nanosec_to_millisec
 
@@ -183,9 +191,6 @@ class HomomorphicEncryptionBSP:
 
         self.handle_he_ctx()
         print('!!!!!!!!!!!!!!!!!!!!! created HE context!!!!!!!!!!!!!!!!!!')
-        import time
-        time.sleep(100)
-
         if self.epochs is not None and isinstance(self.epochs, int) and self.epochs > 0:
             for epoch in range(self.epochs):
                 print("going to start epoch {}/{}".format(epoch, self.epochs))
