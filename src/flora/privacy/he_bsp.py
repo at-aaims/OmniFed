@@ -106,8 +106,10 @@ class HomomorphicEncryptionBSP:
                 #     self.communicator.send(msg=enc_data, id=0)
 
                 if self.client_id == 0:
+                    collected_encrypted_data = []
                     for ix in range(1, self.total_clients):
-                        self.communicator.recv(msg=enc_data, id=ix)
+                        buff = torch.empty(size=enc_data.size())
+                        self.communicator.recv(msg=buff, id=ix)
                 else:
                     self.communicator.send(msg=enc_data, id=0)
 

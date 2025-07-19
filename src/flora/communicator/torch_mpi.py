@@ -166,7 +166,7 @@ class TorchMPICommunicator(Communicator):
                 else:
                     dist.recv(tensor=param.grad, src=id)
         else:
-            dist.send(tensor=msg, dst=id)
+            dist.recv(tensor=msg, src=id)
 
         return msg
 
