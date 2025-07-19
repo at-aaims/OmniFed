@@ -114,6 +114,7 @@ class HomomorphicEncryptionBSP:
                         collected_encrypted_data.append(ts.ckks_vector_from(self.context, bytes(buff.tolist())))
 
                     avg = collected_encrypted_data[0]
+                    print(f'length of encrypted data: {len(collected_encrypted_data)}')
                     for g in collected_encrypted_data[1:]:
                         avg += g
 
@@ -197,7 +198,7 @@ class HomomorphicEncryptionBSP:
     def train(self):
         print("going to broadcast model across clients...")
         self.model = self.broadcast_model(model=self.model)
-
+        print(f"$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$ BROADCAST MODEL COMPLETE $$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$")
         print("going to initiate seal context....")
         self.handle_he_ctx()
         print("!!!!!!!!!!!!!!!!!!!!! created HE context!!!!!!!!!!!!!!!!!!")

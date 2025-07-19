@@ -50,7 +50,8 @@ class TorchMPICommunicator(Communicator):
         self.backend = backend
 
         if init_method == "tcp":
-            timeout = datetime.timedelta(seconds=5 * 60)
+            # timeout = datetime.timedelta(seconds=5 * 60)
+            timeout = datetime.timedelta(seconds=5 * 60 * 60)
             tcp_addr = "tcp://" + str(master_addr) + ":" + str(master_port)
             dist.init_process_group(
                 backend=self.backend,
