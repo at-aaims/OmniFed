@@ -109,12 +109,12 @@ class HomomorphicEncryptionBSP:
                         ts.ckks_vector_from(self.context, bytes(enc_data.tolist()))
                     )
                     for ix in range(1, self.total_clients):
-                        buff = torch.empty(size=enc_data.size())
+                        buff = torch.empty(size=enc_data.size(), dtype=torch.uint8)
                         self.communicator.recv(msg=buff, id=ix)
                         collected_encrypted_data.append(ts.ckks_vector_from(self.context, bytes(buff.tolist())))
 
                     avg = collected_encrypted_data[0]
-                    print(f'length of encrypted data: {len(collected_encrypted_data)}')
+                    print(f'%%%%%%%%%%%%%%%%%%%%%%%%%%%% length of encrypted data: {len(collected_encrypted_data)}')
                     for g in collected_encrypted_data[1:]:
                         avg += g
 
