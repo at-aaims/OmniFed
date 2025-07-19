@@ -6,7 +6,7 @@ cd ../
 # kill -9 $(ps aux | grep src.flora.test.launch_training | grep -v grep | awk '{print $2}')
 
 #dir='/Users/ssq/Desktop/datasets/flora_test/'
-#interface='eth1'
+#interface='lo0'
 #worldsize=4
 #commfreq=10
 dir='/ccsopen/home/ssq/datasets/'
