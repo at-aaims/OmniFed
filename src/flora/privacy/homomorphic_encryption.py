@@ -17,6 +17,22 @@ import torch
 from typing import Dict
 
 
+class HomomorphicEncryption:
+    def __init__(self, poly_modulus_degree=32768, encrypt_grads=True):
+        self.encrypt_grads = encrypt_grads
+        self.context = context = ts.context(
+            ts.SCHEME_TYPE.CKKS,
+            poly_modulus_degree=poly_modulus_degree,
+            coeff_mod_bit_sizes=[60, 40, 40, 60],
+        )
+        self.context.global_scale = 2**40
+        self.context.generate_galois_keys()
+        self.chunk_size = poly_modulus_degree // 2
+
+    def get_he_context(self):
+        return self.context
+
+
 def encrypt(model: torch.nn.Module, encrypt_ctx, encrypt_grads=True):
     """
     model: pytorch model to encrypt
@@ -59,18 +75,35 @@ def encrypt(model: torch.nn.Module, encrypt_ctx, encrypt_grads=True):
 #
 #     return model
 
+class HomomorphicEncryptBucketing:
+    def __init__(self):
+        super().__init__()
 
-class HomomorphicEncryption:
-    def __init__(self, poly_modulus_degree=32768, encrypt_grads=True):
-        self.encrypt_grads = encrypt_grads
-        self.context = context = ts.context(
-            ts.SCHEME_TYPE.CKKS,
-            poly_modulus_degree=poly_modulus_degree,
-            coeff_mod_bit_sizes=[60, 40, 40, 60],
-        )
-        self.context.global_scale = 2**40
-        self.context.generate_galois_keys()
-        self.chunk_size = poly_modulus_degree // 2
+    def chunk_tensors(self, tensor, chunk_size):
+        flatten_tensor = tensor.view(-1).tolist()
 
-    def get_he_context(self):
-        return self.context
+        return [flatten_tensor[i:i + chunk_size] for i in range(0, len(flatten_tensor), chunk_size)]
+
+    def encrypt_chunks(self, chunks, context):
+
+        return [ts.ckks_vector(context, c) for c in chunks]
+
+    def decrypt_chunks(self, enc_chunks):
+
+        return [c.decrypt() for c in enc_chunks]
+
+    def average_encrypted_chunks(self, chunks_list, total_clients):
+        avg_chunks = []
+        for chunk_group in zip(*chunks_list):
+            avg = chunk_group[0]
+            for other in chunk_group[1:]:
+                avg += other
+            avg *= (1.0 / total_clients)
+            avg_chunks.append(avg)
+
+        return avg_chunks
+
+
+
+
+

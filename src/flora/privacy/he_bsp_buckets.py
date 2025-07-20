@@ -90,55 +90,11 @@ class HomomorphicEncryptionBSP:
             self.training_samples += inputs.size(0)
             loss.backward()
             compute_time = (perf_counter_ns() - init_time) / nanosec_to_millisec
-            init_time = perf_counter_ns()
-            encrypted_updates = he_utils.encrypt(
-                model=self.model,
-                encrypt_grads=self.encrypt_grads,
-                encrypt_ctx=self.context,
-            )
 
-            he_encryption_time = (perf_counter_ns() - init_time) / nanosec_to_millisec
+            encrypted_chunks = []
 
-            init_time = perf_counter_ns()
-            # rank 0 receives while other ranks send encrypted updates
-            for (name1, param), (name2, enc_data) in zip(
-                self.model.named_parameters(), encrypted_updates.items()
-            ):
-                # assert parameter name mismatch
-                if self.client_id == 0:
-                    collected_encrypted_data = []
-                    collected_encrypted_data.append(
-                        ts.ckks_vector_from(self.context, bytes(enc_data.tolist()))
-                    )
-                    for ix in range(1, self.total_clients):
-                        recv_size = torch.tensor([0], dtype=torch.long)
-                        self.communicator.recv(msg=recv_size, id=ix)
-                        print(f"########## receive size: {recv_size.item()} on client-{self.client_id}")
 
-                        buff = torch.empty((recv_size.item(),), dtype=torch.uint8)
-                        self.communicator.recv(msg=buff, id=ix)
-                        serial_enc_data = bytes(buff.tolist())
-                        received_encrypt_data = ts.ckks_vector_from(
-                            self.context, serial_enc_data
-                        )
-                        collected_encrypted_data.append(received_encrypt_data)
 
-                    avg = collected_encrypted_data[0]
-                    print(f'%%%%%%%%%%%%%%%%%%%%%%%%%%%% length of encrypted data: {len(collected_encrypted_data)}')
-                    for g in collected_encrypted_data[1:]:
-                        avg += g
-
-                    avg = avg * (1.0 / float(self.total_clients))
-                    param.grad = torch.tensor(
-                        avg.decrypt(), dtype=torch.float32, device=param.device
-                    ).reshape(param.shape)
-                else:
-                    send_size = torch.tensor([enc_data.numel()], dtype=torch.long)
-                    self.communicator.send(msg=send_size, id=0)
-                    print(f"$$$$$$ send size: {send_size.item()} on client-{self.client_id}")
-                    self.communicator.send(msg=enc_data, id=0)
-
-            encrypted_sync_time = (perf_counter_ns() - init_time) / nanosec_to_millisec
             self.optimizer.step()
             self.optimizer.zero_grad()
             self.local_step += 1
