@@ -38,26 +38,26 @@ def encrypt(model: torch.nn.Module, encrypt_ctx, encrypt_grads=True):
     return encrypted_updates
 
 
-def decrypt(model: torch.nn.Module, encrypted_updates: Dict, encrypt_grads=True):
-    """
-    model: pytorch model to update
-    encrypted_updates: updates to be decrypted and applied to model
-    encrypt_grads: whether to decrypt gradients or model parameters
-    """
-    for (name1, param), (name2, encrypt_data) in zip(
-        model.named_parameters(), encrypted_updates.items()
-    ):
-        assert name1 == name2, f"Parameter mismatch: {name1} vs {name2}"
-        if encrypt_grads:
-            param.grad = torch.tensor(encrypt_data.decrypt(), dtype=torch.float32).view(
-                param.shape
-            )
-        else:
-            param.data = torch.tensor(encrypt_data.decrypt(), dtype=torch.float32).view(
-                param.shape
-            )
-
-    return model
+# def decrypt(model: torch.nn.Module, encrypted_updates: Dict, encrypt_grads=True):
+#     """
+#     model: pytorch model to update
+#     encrypted_updates: updates to be decrypted and applied to model
+#     encrypt_grads: whether to decrypt gradients or model parameters
+#     """
+#     for (name1, param), (name2, encrypt_data) in zip(
+#         model.named_parameters(), encrypted_updates.items()
+#     ):
+#         assert name1 == name2, f"Parameter mismatch: {name1} vs {name2}"
+#         if encrypt_grads:
+#             param.grad = torch.tensor(encrypt_data.decrypt(), dtype=torch.float32).view(
+#                 param.shape
+#             )
+#         else:
+#             param.data = torch.tensor(encrypt_data.decrypt(), dtype=torch.float32).view(
+#                 param.shape
+#             )
+#
+#     return model
 
 
 class HomomorphicEncryption:
