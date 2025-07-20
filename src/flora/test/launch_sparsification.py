@@ -50,13 +50,14 @@ if __name__ == "__main__":
     parser.add_argument("--test-dir", type=str, default="~/")
     parser.add_argument("--compression-type", type=str, default="topK")
     parser.add_argument("--compress-ratio", type=float, default=0.1)
+    parser.add_argument("--network-interface", type=str, default='lo0')
 
     args = parser.parse_args()
 
     os.environ["MASTER_ADDR"] = args.master_addr
     os.environ["MASTER_PORT"] = args.master_port
     if args.backend == "Gloo":
-        os.environ["GLOO_SOCKET_IFNAME"] = "lo0"
+        os.environ["GLOO_SOCKET_IFNAME"] = args.network_interface
 
     helper.set_seed(args.seed, determinism=False)
     SparseCompressionTrainer(args=args).start()
