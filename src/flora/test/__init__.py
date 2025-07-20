@@ -202,7 +202,7 @@ class MobileNetV3Object(object):
         # )
         # July 20, 2025
         self.model.classifier[3] = torch.nn.Linear(
-            1000, 1000
+            self.model.classifier[3].in_features, 1000
         )
         self.loss = torch.nn.CrossEntropyLoss()
         self.optim = torch.optim.SGD(
