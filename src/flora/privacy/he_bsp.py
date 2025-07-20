@@ -126,7 +126,7 @@ class HomomorphicEncryptionBSP:
                         avg += g
 
                     avg = avg * (1.0 / float(self.total_clients))
-                    param.grad = torch.tensor(avg.decrypt(), dtype=torch.float32).reshape(param.shape)
+                    param.grad = torch.tensor(avg.decrypt(), dtype=torch.float32, device=param.device).reshape(param.shape)
 
 
                 else:
