@@ -114,7 +114,7 @@ class HomomorphicEncryptionBSP:
                         self.communicator.recv(msg=recv_size, id=ix)
                         print(f"########## receive size: {recv_size.item()} on client-{self.client_id}")
 
-                        buff = torch.empty(size=recv_size.item(), dtype=torch.uint8)
+                        buff = torch.empty((recv_size.item(),), dtype=torch.uint8)
                         self.communicator.recv(msg=buff, id=ix)
                         serial_enc_data = bytes(buff.tolist())
                         received_encrypt_data = ts.ckks_vector_from(self.context, serial_enc_data)
