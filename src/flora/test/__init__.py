@@ -197,8 +197,12 @@ class MobileNetV3Object(object):
         self.model = torchvision.models.mobilenet_v3_large(
             progress=True, pretrained=False
         )
+        # self.model.classifier[3] = torch.nn.Linear(
+        #     self.model.classifier[3].in_features, num_classes
+        # )
+        # July 20, 2025
         self.model.classifier[3] = torch.nn.Linear(
-            self.model.classifier[3].in_features, num_classes
+            1000, 1000
         )
         self.loss = torch.nn.CrossEntropyLoss()
         self.optim = torch.optim.SGD(
