@@ -61,15 +61,16 @@ def encrypt(model: torch.nn.Module, encrypt_ctx, encrypt_grads=True):
 
 
 class HomomorphicEncryption:
-    def __init__(self, encrypt_grads=True):
+    def __init__(self, poly_modulus_degree=32768, encrypt_grads=True):
         self.encrypt_grads = encrypt_grads
         self.context = context = ts.context(
             ts.SCHEME_TYPE.CKKS,
-            poly_modulus_degree=32768,
+            poly_modulus_degree=poly_modulus_degree,
             coeff_mod_bit_sizes=[60, 40, 40, 60],
         )
         self.context.global_scale = 2**40
         self.context.generate_galois_keys()
+        self.chunk_size = poly_modulus_degree // 2
 
     def get_he_context(self):
         return self.context

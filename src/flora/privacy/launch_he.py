@@ -67,6 +67,7 @@ if __name__ == "__main__":
     parser.add_argument("--mobv3-num-classes", type=int, default=257)
     parser.add_argument("--train-dir", type=str, default="~/")
     parser.add_argument("--test-dir", type=str, default="~/")
+    parser.add_argument("--poly-modulus-degree", type=int, default=32768)
 
     args = parser.parse_args()
 

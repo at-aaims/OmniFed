@@ -41,6 +41,7 @@ class HomomorphicEncryptionBSP:
         communicator: TorchMPICommunicator,
         total_clients: int,
         train_params: FedAvgTrainingParameters,
+        poly_modulus_degree: int
     ):
         self.model = model
         self.train_data = train_data
@@ -71,6 +72,7 @@ class HomomorphicEncryptionBSP:
         )
 
         self.encrypt_grads = True
+        self.poly_modulus_degree = poly_modulus_degree
 
     def broadcast_model(self, model):
         # broadcast model from central server with id 0
@@ -174,12 +176,12 @@ class HomomorphicEncryptionBSP:
         if self.lr_scheduler is not None:
             self.lr_scheduler.step()
 
-    def handle_he_ctx(self):
+    def handle_he_ctx(self, poly_modulus_degree):
         """
         compute HE context on rank 0 and send serialized context to clients
         """
         if self.client_id == 0:
-            self.he_obj = HomomorphicEncryption(encrypt_grads=True)
+            self.he_obj = HomomorphicEncryption(poly_modulus_degree=poly_modulus_degree, encrypt_grads=True)
             serialized_ctx = self.he_obj.get_he_context().serialize(
                 save_secret_key=False
             )
@@ -212,7 +214,7 @@ class HomomorphicEncryptionBSP:
             f"$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$ BROADCAST MODEL COMPLETE $$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$"
         )
         print("going to initiate seal context....")
-        self.handle_he_ctx()
+        self.handle_he_ctx(poly_modulus_degree=self.poly_modulus_degree)
         print("!!!!!!!!!!!!!!!!!!!!! created HE context!!!!!!!!!!!!!!!!!!")
         if self.epochs is not None and isinstance(self.epochs, int) and self.epochs > 0:
             for epoch in range(self.epochs):

@@ -20,14 +20,16 @@ backend='gloo'
 #dataset='cifar10'
 model='mobilenetv3'
 dataset='caltech256'
+polymoddegree=32768
 
 for val in $(seq 1 $worldsize)
 do
   rank=$(($val-1))
   echo '###### going to launch homomorphic encryption on rank '$rank
   python3 -m src.flora.privacy.launch_he --dir=$dir --bsz=$bsz --rank=$rank --world-size=$worldsize \
-  --communicator=$comm --master-addr=$masteraddr --master-port=$masterport --backend=$backend \
-  --model=$model --dataset=$dataset --train-dir=$dir --test-dir=$dir --network-interface=$interface &
+  --communicator=$comm --master-addr=$masteraddr --master-port=$masterport --backend=$backend --model=$model \
+  --dataset=$dataset --train-dir=$dir --test-dir=$dir --network-interface=$interface \
+  --poly-modulus-degree=$polymoddegree &
   echo "going to sleep for 2 seconds..."
   sleep 2
 done

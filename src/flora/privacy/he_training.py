@@ -137,6 +137,7 @@ class HETraining:
             communicator=self.communicator,
             total_clients=self.world_size,
             train_params=self.fedavg_params,
+            poly_modulus_degree=args.poly_modulus_degree
         )
 
         args.hostname = socket.gethostname()
