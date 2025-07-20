@@ -2,8 +2,7 @@
 
 cd ../
 
-#
-
+# kill -s 9 `ps -ef | grep src.flora.test.launch_training |grep -v grep | awk '{print $2}'`
 # kill -9 $(ps aux | grep src.flora.test.launch_training | grep -v grep | awk '{print $2}')
 
 #dir='/Users/ssq/Desktop/datasets/flora_test/'
@@ -18,7 +17,7 @@ bsz=32
 testbsz=32
 #comm='RPC'
 comm='Collective'
-algo='diloco'
+algo='ditto'
 masteraddr='127.0.0.1'
 masterport=28670
 #masterport=50055
