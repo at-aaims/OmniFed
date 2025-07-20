@@ -211,7 +211,7 @@ class TorchMPICommunicator(Communicator):
     #
     #     return collected_data
 
-    def sparse_aggregate(self, msg, layerwise_vals, layerwise_ixs):
+    def sparse_aggregate(self, msg, layerwise_vals, layerwise_ixs, device):
         if isinstance(msg, torch.nn.Module):
             for param, update_val, update_ix in zip(
                 msg.parameters(), layerwise_vals, layerwise_ixs
@@ -238,8 +238,8 @@ class TorchMPICommunicator(Communicator):
                         ix_padding = torch.zeros(
                             size=(max_size - tensor_size,), dtype=torch.long
                         )
-                        update_val = torch.cat((update_val, g_padding), dim=0)
-                        update_ix = torch.cat((update_ix, ix_padding), dim=0)
+                        update_val = torch.cat((update_val, g_padding), dim=0).to(device)
+                        update_ix = torch.cat((update_ix, ix_padding), dim=0).to(device)
 
                     dist.all_gather(tensor_list, update_val)
                     dist.all_gather(ix_list, update_ix)
