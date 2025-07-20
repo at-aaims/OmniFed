@@ -227,16 +227,16 @@ class TorchMPICommunicator(Communicator):
                 if max_size > 0:
                     for _ in size_list:
                         tensor_list.append(
-                            torch.zeros(size=(max_size,), dtype=torch.float32)
+                            torch.zeros(size=(max_size,), dtype=torch.float32, device=device)
                         )
-                        ix_list.append(torch.zeros(size=(max_size,), dtype=torch.long))
+                        ix_list.append(torch.zeros(size=(max_size,), dtype=torch.long, device=device))
 
                     if tensor_size != max_size:
                         g_padding = torch.zeros(
-                            size=(max_size - tensor_size,), dtype=torch.float32
+                            size=(max_size - tensor_size,), dtype=torch.float32, device=device
                         )
                         ix_padding = torch.zeros(
-                            size=(max_size - tensor_size,), dtype=torch.long
+                            size=(max_size - tensor_size,), dtype=torch.long, device=device
                         )
                         update_val = torch.cat((update_val, g_padding), dim=0).to(device)
                         update_ix = torch.cat((update_ix, ix_padding), dim=0).to(device)
