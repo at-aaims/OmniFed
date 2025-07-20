@@ -91,9 +91,11 @@ class HomomorphicEncryptionBSP:
             loss.backward()
             compute_time = (perf_counter_ns() - init_time) / nanosec_to_millisec
 
+            init_time = perf_counter_ns()
             encrypted_chunks = []
 
 
+            he_encryption_time = (perf_counter_ns() - init_time) / nanosec_to_millisec
 
             self.optimizer.step()
             self.optimizer.zero_grad()

@@ -200,7 +200,9 @@ class MobileNetV3Object(object):
         self.model.classifier[3] = torch.nn.Linear(
             self.model.classifier[3].in_features, num_classes
         )
-        # July 20, 2025
+        # July 20, 2025 for
+        #
+        # FedPer
         # self.model.classifier[3] = torch.nn.Linear(
         #     self.model.classifier[3].in_features, 1000
         # )
