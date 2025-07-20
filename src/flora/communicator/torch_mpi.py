@@ -249,6 +249,7 @@ class TorchMPICommunicator(Communicator):
                         collected_ix=ix_list,
                         tensor_shape=param.shape,
                         client_count=self.world_size,
+                        device=device
                     )
 
             return msg
