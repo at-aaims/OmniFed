@@ -111,7 +111,7 @@ class HomomorphicEncryptionBSP:
                     for ix in range(1, self.total_clients):
                         recv_size = torch.tensor([0], dtype=torch.long)
                         self.communicator.recv(msg=recv_size, id=ix)
-                        # print(f"########## receive size: {recv_size.item()} on client-{self.client_id}")
+                        print(f"########## receive size: {recv_size.item()} on client-{self.client_id}")
 
                         buff = torch.empty((recv_size.item(),), dtype=torch.uint8)
                         self.communicator.recv(msg=buff, id=ix)
@@ -122,7 +122,7 @@ class HomomorphicEncryptionBSP:
                         collected_encrypted_data.append(received_encrypt_data)
 
                     avg = collected_encrypted_data[0]
-                    # print(f'%%%%%%%%%%%%%%%%%%%%%%%%%%%% length of encrypted data: {len(collected_encrypted_data)}')
+                    print(f'%%%%%%%%%%%%%%%%%%%%%%%%%%%% length of encrypted data: {len(collected_encrypted_data)}')
                     for g in collected_encrypted_data[1:]:
                         avg += g
 
@@ -133,7 +133,7 @@ class HomomorphicEncryptionBSP:
                 else:
                     send_size = torch.tensor([enc_data.numel()], dtype=torch.long)
                     self.communicator.send(msg=send_size, id=0)
-                    # print(f"$$$$$$ send size: {send_size.item()} on client-{self.client_id}")
+                    print(f"$$$$$$ send size: {send_size.item()} on client-{self.client_id}")
                     self.communicator.send(msg=enc_data, id=0)
 
             encrypted_sync_time = (perf_counter_ns() - init_time) / nanosec_to_millisec
