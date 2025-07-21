@@ -5,12 +5,12 @@ cd ../
 # kill -s 9 `ps -ef | grep src.flora.privacy.launch_he |grep -v grep | awk '{print $2}'`
 # kill -9 $(ps aux | grep src.flora.privacy.launch_he | grep -v grep | awk '{print $2}')
 
-#dir='/Users/ssq/Desktop/datasets/flora_test/'
-#interface='lo0'
+dir='/Users/ssq/Desktop/datasets/flora_test/'
+interface='lo0'
+worldsize=1
+#dir='/ccsopen/home/ssq/datasets/'
+#interface='eth1'
 #worldsize=2
-dir='/ccsopen/home/ssq/datasets/'
-interface='eth1'
-worldsize=2
 bsz=32
 comm='Collective'
 masteraddr='127.0.0.1'

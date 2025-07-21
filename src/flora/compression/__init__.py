@@ -85,7 +85,9 @@ class Compression:
 #     return tensor
 
 
-def layerwise_decompress(collected_vals, collected_ix, tensor_shape, client_count, device):
+def layerwise_decompress(
+    collected_vals, collected_ix, tensor_shape, client_count, device
+):
     tensor = torch.zeros(tensor_shape).view(-1).to(device=device)
     for ix in range(len(collected_vals)):
         tensor.data[collected_ix[ix]] += collected_vals[ix]

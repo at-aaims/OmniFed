@@ -145,13 +145,14 @@ nanosec_to_millisec = 1e6
 #         representation = self.proj_head(features)  # [B, projection_dim]
 #         return logits, representation
 
+
 # MobileNet-V3
 class MoonWrapper(torch.nn.Module):
     def __init__(self, base_model: torch.nn.Module, projection_dim: int = 128):
         super().__init__()
 
         self.features = base_model.features  # feature extractor
-        self.avgpool = base_model.avgpool    # AdaptiveAvgPool2d((1, 1))
+        self.avgpool = base_model.avgpool  # AdaptiveAvgPool2d((1, 1))
         self.classifier = base_model.classifier  # already modified externally
 
         # Flatten to match output after avgpool
@@ -164,15 +165,15 @@ class MoonWrapper(torch.nn.Module):
         self.proj_head = torch.nn.Linear(feature_dim, projection_dim)
 
     def extract_features(self, x):
-        x = self.features(x)         # [B, 960, H, W]
-        x = self.avgpool(x)          # [B, 960, 1, 1]
-        x = self.flatten(x)          # [B, 960]
+        x = self.features(x)  # [B, 960, H, W]
+        x = self.avgpool(x)  # [B, 960, 1, 1]
+        x = self.flatten(x)  # [B, 960]
         return x
 
     def forward(self, x):
-        features = self.extract_features(x)         # [B, 960]
-        logits = self.classifier(features)          # [B, 257]
-        representation = self.proj_head(features)   # [B, projection_dim]
+        features = self.extract_features(x)  # [B, 960]
+        logits = self.classifier(features)  # [B, 257]
+        representation = self.proj_head(features)  # [B, projection_dim]
         return logits, representation
 
 

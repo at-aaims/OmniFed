@@ -211,6 +211,12 @@ class TorchMPICommunicator(Communicator):
     #
     #     return collected_data
 
+    def he_collect(self, recv_buff, msg):
+        if isinstance(msg, torch.Tensor):
+            dist.all_gather(tensor_list=recv_buff, tensor=msg)
+
+        return recv_buff
+
     def sparse_aggregate(self, msg, layerwise_vals, layerwise_ixs, device):
         if isinstance(msg, torch.nn.Module):
             for param, update_val, update_ix in zip(
@@ -227,18 +233,30 @@ class TorchMPICommunicator(Communicator):
                 if max_size > 0:
                     for _ in size_list:
                         tensor_list.append(
-                            torch.zeros(size=(max_size,), dtype=torch.float32, device=device)
+                            torch.zeros(
+                                size=(max_size,), dtype=torch.float32, device=device
+                            )
                         )
-                        ix_list.append(torch.zeros(size=(max_size,), dtype=torch.long, device=device))
+                        ix_list.append(
+                            torch.zeros(
+                                size=(max_size,), dtype=torch.long, device=device
+                            )
+                        )
 
                     if tensor_size != max_size:
                         g_padding = torch.zeros(
-                            size=(max_size - tensor_size,), dtype=torch.float32, device=device
+                            size=(max_size - tensor_size,),
+                            dtype=torch.float32,
+                            device=device,
                         )
                         ix_padding = torch.zeros(
-                            size=(max_size - tensor_size,), dtype=torch.long, device=device
+                            size=(max_size - tensor_size,),
+                            dtype=torch.long,
+                            device=device,
                         )
-                        update_val = torch.cat((update_val, g_padding), dim=0).to(device)
+                        update_val = torch.cat((update_val, g_padding), dim=0).to(
+                            device
+                        )
                         update_ix = torch.cat((update_ix, ix_padding), dim=0).to(device)
 
                     dist.all_gather(tensor_list, update_val)
@@ -249,7 +267,7 @@ class TorchMPICommunicator(Communicator):
                         collected_ix=ix_list,
                         tensor_shape=param.shape,
                         client_count=self.world_size,
-                        device=device
+                        device=device,
                     )
 
             return msg

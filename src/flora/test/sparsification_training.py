@@ -38,9 +38,15 @@ class SparseCompressionTrainer(object):
         self.backend = args.backend
         self.epochs = args.epochs
 
-        dev_id = NodeConfig().get_gpus() % self.world_size
-        device = torch.device(
-            "cuda:" + str(dev_id) if torch.cuda.is_available() else "cpu"
+        # dev_id = NodeConfig().get_gpus() % self.world_size
+        # device = torch.device(
+        #     "cuda:" + str(dev_id) if torch.cuda.is_available() else "cpu"
+        # )
+        dev_id = self.rank % 4
+        device = (
+            torch.device("cuda:" + str(dev_id))
+            if torch.cuda.is_available()
+            else torch.device("cpu")
         )
         self.compression_type = args.compression_type
         self.compress_ratio = args.compress_ratio

@@ -103,7 +103,10 @@ class SparseBSPTraining:
 
             init_time = perf_counter_ns()
             self.model = self.communicator.sparse_aggregate(
-                msg=self.model, layerwise_vals=compress_vals, layerwise_ixs=compress_ixs, device=self.device
+                msg=self.model,
+                layerwise_vals=compress_vals,
+                layerwise_ixs=compress_ixs,
+                device=self.device,
             )
             compress_sync_time = (perf_counter_ns() - init_time) / nanosec_to_millisec
             self.optimizer.step()

@@ -41,7 +41,7 @@ class HomomorphicEncryptionBSP:
         communicator: TorchMPICommunicator,
         total_clients: int,
         train_params: FedAvgTrainingParameters,
-        poly_modulus_degree: int
+        poly_modulus_degree: int,
     ):
         self.model = model
         self.train_data = train_data
@@ -181,7 +181,9 @@ class HomomorphicEncryptionBSP:
         compute HE context on rank 0 and send serialized context to clients
         """
         if self.client_id == 0:
-            self.he_obj = HomomorphicEncryption(poly_modulus_degree=poly_modulus_degree, encrypt_grads=True)
+            self.he_obj = HomomorphicEncryption(
+                poly_modulus_degree=poly_modulus_degree, encrypt_grads=True
+            )
             serialized_ctx = self.he_obj.get_he_context().serialize(
                 save_secret_key=False
             )

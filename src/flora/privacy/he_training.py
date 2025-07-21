@@ -20,7 +20,9 @@ from src.flora.communicator import torch_mpi
 from src.flora.test import get_model
 from src.flora.datasets.image_classification import cifar, caltech
 from src.flora.helper import training_params
-from src.flora.privacy.he_bsp import HomomorphicEncryptionBSP
+
+# from src.flora.privacy.he_bsp import HomomorphicEncryptionBSP
+from src.flora.privacy.he_bsp_buckets import HomomorphicEncryptionBucketing
 
 
 class HETraining:
@@ -128,8 +130,20 @@ class HETraining:
             lr_scheduler=self.lr_scheduler,
         )
 
+        self.poly_modulus_degree = args.poly_modulus_degree
+
         # add HETrainer object here
-        self.trainer = HomomorphicEncryptionBSP(
+        # self.trainer = HomomorphicEncryptionBSP(
+        #     client_id=self.rank,
+        #     model=self.model,
+        #     train_data=self.train_dataloader,
+        #     test_data=self.test_dataloader,
+        #     communicator=self.communicator,
+        #     total_clients=self.world_size,
+        #     train_params=self.fedavg_params,
+        #     poly_modulus_degree=self.poly_modulus_degree)
+
+        self.trainer = HomomorphicEncryptionBucketing(
             client_id=self.rank,
             model=self.model,
             train_data=self.train_dataloader,
@@ -137,7 +151,7 @@ class HETraining:
             communicator=self.communicator,
             total_clients=self.world_size,
             train_params=self.fedavg_params,
-            poly_modulus_degree=args.poly_modulus_degree
+            poly_modulus_degree=self.poly_modulus_degree,
         )
 
         args.hostname = socket.gethostname()

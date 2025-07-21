@@ -31,7 +31,7 @@ from src.flora.helper.training_stats import (
 nanosec_to_millisec = 1e6
 
 
-class HomomorphicEncryptionBSP:
+class HomomorphicEncryptionBucketing:
     def __init__(
         self,
         client_id: int,
@@ -41,7 +41,7 @@ class HomomorphicEncryptionBSP:
         communicator: TorchMPICommunicator,
         total_clients: int,
         train_params: FedAvgTrainingParameters,
-        poly_modulus_degree: int
+        poly_modulus_degree: int,
     ):
         self.model = model
         self.train_data = train_data
@@ -73,6 +73,46 @@ class HomomorphicEncryptionBSP:
 
         self.encrypt_grads = True
         self.poly_modulus_degree = poly_modulus_degree
+        self.he_buckets = he_utils.HomomorphicEncryptBucketing(
+            poly_modulus_degree=self.poly_modulus_degree
+        )
+        self.chunk_size = self.he_buckets.get_chunk_size()
+        print("going to initiate seal context....")
+        self.handle_he_ctx(poly_modulus_degree=self.poly_modulus_degree)
+        print("!!!!!!!!!!!!!!!!!!!!! created HE context!!!!!!!!!!!!!!!!!!")
+
+    def handle_he_ctx(self, poly_modulus_degree):
+        """
+        compute HE context on rank 0 and send serialized context to clients
+        """
+        if self.client_id == 0:
+            self.he_obj = HomomorphicEncryption(
+                poly_modulus_degree=poly_modulus_degree, encrypt_grads=True
+            )
+            serialized_ctx = self.he_obj.get_he_context().serialize(
+                save_secret_key=False
+            )
+            ctx_bytes = torch.ByteTensor(list(serialized_ctx))
+            ctx_size = torch.tensor([ctx_bytes.numel()], dtype=torch.long)
+            print("done on client-0.....")
+        else:
+            ctx_size = torch.zeros(1, dtype=torch.long)
+            print("done on client-", self.client_id)
+
+        ctx_size = self.communicator.broadcast(msg=ctx_size, id=0)
+        print("context_size: ", ctx_size.item(), "on client", self.client_id)
+        ctx_buf = torch.empty(ctx_size.item(), dtype=torch.uint8)
+
+        if self.client_id == 0:
+            ctx_buf[:] = ctx_bytes
+
+        ctx_buf = self.communicator.broadcast(msg=ctx_buf, id=0)
+
+        if self.client_id == 0:
+            self.context = self.he_obj.get_he_context()
+        else:
+            serialized_ctx = bytes(ctx_buf.tolist())
+            self.context = ts.context_from(serialized_ctx)
 
     def broadcast_model(self, model):
         # broadcast model from central server with id 0
@@ -91,11 +131,71 @@ class HomomorphicEncryptionBSP:
             loss.backward()
             compute_time = (perf_counter_ns() - init_time) / nanosec_to_millisec
 
+            # encrypt model updates into chunks
             init_time = perf_counter_ns()
             encrypted_chunks = []
+            for param in self.model.parameters():
+                if param.grad is None:
+                    continue
 
+                chunks = self.he_buckets.chunk_tensors(
+                    tensor=param.grad.detach().cpu(), chunk_size=self.chunk_size
+                )
+                enc_chunks = self.he_buckets.encrypt_chunks(
+                    chunks=chunks, context=self.context
+                )
+                # serialized = [
+                #     torch.ByteTensor(bytes(e.serialize())) for e in enc_chunks
+                # ]
+                serialized = [torch.ByteTensor(list(chunk.serialize())) for chunk in enc_chunks]
+                encrypted_chunks.append(serialized)
 
             he_encryption_time = (perf_counter_ns() - init_time) / nanosec_to_millisec
+
+            # communicate encrypted chunks across workers
+            init_time = perf_counter_ns()
+            aggregated_chunks = [[] for _ in encrypted_chunks]
+            for i, param_chunks in enumerate(encrypted_chunks):
+                for j, chunk in enumerate(param_chunks):
+                    recv_bufs = [
+                        torch.empty_like(chunk) for _ in range(self.total_clients)
+                    ]
+                    recv_bufs = self.communicator.he_collect(
+                        recv_buff=recv_bufs, msg=chunk
+                    )
+                    aggregated_chunks[i].append(recv_bufs)
+
+            encrypted_sync_time = (perf_counter_ns() - init_time) / nanosec_to_millisec
+
+            # decrypt tensors
+            init_time = perf_counter_ns()
+            with torch.no_grad():
+                for param, all_chunks in zip(
+                    self.model.parameters(), aggregated_chunks
+                ):
+                    if param.grad is None:
+                        continue
+
+                    avg_grad = []
+                    for chunk_set in all_chunks:
+                        vectors = [
+                            ts.ckks_vector_from(self.context, bytes(c.tolist()))
+                            for c in chunk_set
+                        ]
+                        avg_vector = vectors[0]
+                        for vec in vectors[1:]:
+                            avg_vector += vec
+                        avg_vector *= 1.0 / self.total_clients
+                        avg_grad.extend(avg_vector.decrypt())
+
+                    avg_grad_tensor = (
+                        torch.tensor(avg_grad[: param.numel()], dtype=torch.float32)
+                        .reshape_as(param)
+                        .to(self.device)
+                    )
+                    param.grad.copy_(avg_grad_tensor)
+
+            he_decryption_time = (perf_counter_ns() - init_time) / nanosec_to_millisec
 
             self.optimizer.step()
             self.optimizer.zero_grad()
@@ -103,8 +203,8 @@ class HomomorphicEncryptionBSP:
             itr_time = (perf_counter_ns() - itr_strt) / nanosec_to_millisec
             logging.info(
                 f"training_metrics local_step: {self.local_step} epoch {epoch} compute_time {compute_time} ms "
-                f"he_encryption_time: {he_encryption_time} ms encrypted_sync_time: {encrypted_sync_time} ms "
-                f"itr_time: {itr_time} ms"
+                f"he_encryption_time: {he_encryption_time} ms he_decryption_time {he_decryption_time} ms "
+                f"encrypted_sync_time: {encrypted_sync_time} ms itr_time: {itr_time} ms"
             )
 
         epoch_time = (perf_counter_ns() - epoch_strt) / nanosec_to_millisec
@@ -134,46 +234,12 @@ class HomomorphicEncryptionBSP:
         if self.lr_scheduler is not None:
             self.lr_scheduler.step()
 
-    def handle_he_ctx(self, poly_modulus_degree):
-        """
-        compute HE context on rank 0 and send serialized context to clients
-        """
-        if self.client_id == 0:
-            self.he_obj = HomomorphicEncryption(poly_modulus_degree=poly_modulus_degree, encrypt_grads=True)
-            serialized_ctx = self.he_obj.get_he_context().serialize(
-                save_secret_key=False
-            )
-            ctx_bytes = torch.ByteTensor(list(serialized_ctx))
-            ctx_size = torch.tensor([ctx_bytes.numel()], dtype=torch.long)
-            print("done on client-0.....")
-        else:
-            ctx_size = torch.zeros(1, dtype=torch.long)
-            print("done on client-", self.client_id)
-
-        ctx_size = self.communicator.broadcast(msg=ctx_size, id=0)
-        print("context_size: ", ctx_size.item(), "on client", self.client_id)
-        ctx_buf = torch.empty(ctx_size.item(), dtype=torch.uint8)
-
-        if self.client_id == 0:
-            ctx_buf[:] = ctx_bytes
-
-        ctx_buf = self.communicator.broadcast(msg=ctx_buf, id=0)
-
-        if self.client_id == 0:
-            self.context = self.he_obj.get_he_context()
-        else:
-            serialized_ctx = bytes(ctx_buf.tolist())
-            self.context = ts.context_from(serialized_ctx)
-
     def train(self):
         print("going to broadcast model across clients...")
         self.model = self.broadcast_model(model=self.model)
         print(
             f"$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$ BROADCAST MODEL COMPLETE $$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$"
         )
-        print("going to initiate seal context....")
-        self.handle_he_ctx(poly_modulus_degree=self.poly_modulus_degree)
-        print("!!!!!!!!!!!!!!!!!!!!! created HE context!!!!!!!!!!!!!!!!!!")
         if self.epochs is not None and isinstance(self.epochs, int) and self.epochs > 0:
             for epoch in range(self.epochs):
                 print("going to start epoch {}/{}".format(epoch, self.epochs))

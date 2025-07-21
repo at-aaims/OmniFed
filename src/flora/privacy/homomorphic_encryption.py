@@ -27,7 +27,6 @@ class HomomorphicEncryption:
         )
         self.context.global_scale = 2**40
         self.context.generate_galois_keys()
-        self.chunk_size = poly_modulus_degree // 2
 
     def get_he_context(self):
         return self.context
@@ -75,21 +74,27 @@ def encrypt(model: torch.nn.Module, encrypt_ctx, encrypt_grads=True):
 #
 #     return model
 
+
 class HomomorphicEncryptBucketing:
-    def __init__(self):
+    def __init__(self, poly_modulus_degree):
         super().__init__()
+        self.chunk_size = poly_modulus_degree // 2
+
+    def get_chunk_size(self):
+        return self.chunk_size
 
     def chunk_tensors(self, tensor, chunk_size):
         flatten_tensor = tensor.view(-1).tolist()
 
-        return [flatten_tensor[i:i + chunk_size] for i in range(0, len(flatten_tensor), chunk_size)]
+        return [
+            flatten_tensor[i : i + chunk_size]
+            for i in range(0, len(flatten_tensor), chunk_size)
+        ]
 
     def encrypt_chunks(self, chunks, context):
-
         return [ts.ckks_vector(context, c) for c in chunks]
 
     def decrypt_chunks(self, enc_chunks):
-
         return [c.decrypt() for c in enc_chunks]
 
     def average_encrypted_chunks(self, chunks_list, total_clients):
@@ -98,12 +103,7 @@ class HomomorphicEncryptBucketing:
             avg = chunk_group[0]
             for other in chunk_group[1:]:
                 avg += other
-            avg *= (1.0 / total_clients)
+            avg *= 1.0 / total_clients
             avg_chunks.append(avg)
 
         return avg_chunks
-
-
-
-
-

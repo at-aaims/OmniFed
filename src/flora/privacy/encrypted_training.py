@@ -24,14 +24,17 @@ import tenseal as ts
 # Configuration
 CHUNK_SIZE = 8192
 
+
 def setup(rank, world_size):
     os.environ["MASTER_ADDR"] = "localhost"
     os.environ["MASTER_PORT"] = "12355"
     dist.init_process_group("nccl", rank=rank, world_size=world_size)
     torch.cuda.set_device(rank)
 
+
 def cleanup():
     dist.destroy_process_group()
+
 
 def create_context():
     ctx = ts.context(
@@ -40,18 +43,22 @@ def create_context():
         coeff_mod_bit_sizes=[60, 40, 40, 60],
     )
     ctx.generate_galois_keys()
-    ctx.global_scale = 2 ** 40
+    ctx.global_scale = 2**40
     return ctx
+
 
 def chunk_tensor(tensor, chunk_size):
     flat = tensor.view(-1).tolist()
-    return [flat[i:i + chunk_size] for i in range(0, len(flat), chunk_size)]
+    return [flat[i : i + chunk_size] for i in range(0, len(flat), chunk_size)]
+
 
 def encrypt_chunks(chunks, ctx):
     return [ts.ckks_vector(ctx, c) for c in chunks]
 
+
 def decrypt_chunks(enc_chunks):
     return [c.decrypt() for c in enc_chunks]
+
 
 def average_encrypted_chunks(chunks_list, world_size):
     avg_chunks = []
@@ -59,19 +66,23 @@ def average_encrypted_chunks(chunks_list, world_size):
         avg = chunk_group[0]
         for other in chunk_group[1:]:
             avg += other
-        avg *= (1.0 / world_size)
+        avg *= 1.0 / world_size
         avg_chunks.append(avg)
     return avg_chunks
+
 
 def train(rank, world_size):
     setup(rank, world_size)
 
-    transform = transforms.Compose([
-        transforms.ToTensor(),
-        transforms.Normalize((0.5,), (0.5,))
-    ])
-    dataset = datasets.CIFAR10(root='./data', train=True, download=True, transform=transform)
-    sampler = torch.utils.data.distributed.DistributedSampler(dataset, num_replicas=world_size, rank=rank)
+    transform = transforms.Compose(
+        [transforms.ToTensor(), transforms.Normalize((0.5,), (0.5,))]
+    )
+    dataset = datasets.CIFAR10(
+        root="./data", train=True, download=True, transform=transform
+    )
+    sampler = torch.utils.data.distributed.DistributedSampler(
+        dataset, num_replicas=world_size, rank=rank
+    )
     loader = torch.utils.data.DataLoader(dataset, batch_size=32, sampler=sampler)
 
     model = models.resnet18(num_classes=10).to(rank)
@@ -98,7 +109,9 @@ def train(rank, world_size):
                 grad = param.grad.detach().cpu()
                 chunks = chunk_tensor(grad, CHUNK_SIZE)
                 enc_chunks = encrypt_chunks(chunks, ctx)
-                serialized = [torch.ByteTensor(bytes(e.serialize())) for e in enc_chunks]
+                serialized = [
+                    torch.ByteTensor(bytes(e.serialize())) for e in enc_chunks
+                ]
                 enc_param_chunks_list.append(serialized)
 
             # Communicate all chunks across workers
