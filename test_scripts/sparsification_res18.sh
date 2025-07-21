@@ -13,12 +13,13 @@ worldsize=8
 #worldsize=4
 bsz=32
 masteraddr='127.0.0.1'
-masterport=28670
+#masterport=28670
+masterport=29860
 backend='Gloo'
 model='resnet18'
 dataset='cifar10'
 compression='topK'
-compressratio=0.001
+compressratio=0.1
 
 for val in $(seq 1 $worldsize)
 do

@@ -252,7 +252,7 @@ class DataStreamSimulator(ABC):
             self.streamer = KafkaConsumer("client" + str(self.client_id))
 
     def start_zookeeper_kafka(self):
-        # TODO: tweak to work for Windows with .bat executables
+        # TODO: add Windows with .bat executables
         try:
             zookeeper_server_pth = os.path.join(
                 self.kafka_dir, "bin", "zookeeper-server-start.sh"
