@@ -159,7 +159,7 @@ class TrainingDataset(Enum):
         return dataset
 
 
-class DataStreamSimulator(ABC):
+class DataStreamSimulator:
     def __init__(
         self,
         dataset=None,
@@ -240,7 +240,7 @@ class DataStreamSimulator(ABC):
 
         if self.client_id == 0:
             # start zookeeper and kafka servers
-            self.start_zookeeper_kafka()
+            # self.start_zookeeper_kafka()
             # start producer to publish data to kafka topics
             print(f"setting up producer on client_id {self.client_id}")
             self.streamer = KafkaProducer(

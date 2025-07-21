@@ -147,7 +147,9 @@ class HomomorphicEncryptionBucketing:
                 # serialized = [
                 #     torch.ByteTensor(bytes(e.serialize())) for e in enc_chunks
                 # ]
-                serialized = [torch.ByteTensor(list(chunk.serialize())) for chunk in enc_chunks]
+                serialized = [
+                    torch.ByteTensor(list(chunk.serialize())) for chunk in enc_chunks
+                ]
                 encrypted_chunks.append(serialized)
 
             he_encryption_time = (perf_counter_ns() - init_time) / nanosec_to_millisec
