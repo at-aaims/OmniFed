@@ -222,6 +222,8 @@ class TorchMPICommunicator(Communicator):
             for param, update_val, update_ix in zip(
                 msg.parameters(), layerwise_vals, layerwise_ixs
             ):
+                update_val = update_val.to(device)
+                update_ix = update_ix.to(device)
                 tensor_sizes = [torch.LongTensor([0]) for _ in range(self.world_size)]
                 tensor_size = update_val.numel()
                 dist.all_gather(tensor_sizes, torch.LongTensor([tensor_size]))
@@ -254,10 +256,8 @@ class TorchMPICommunicator(Communicator):
                             dtype=torch.long,
                             device=device,
                         )
-                        update_val = torch.cat((update_val, g_padding), dim=0).to(
-                            device
-                        )
-                        update_ix = torch.cat((update_ix, ix_padding), dim=0).to(device)
+                        update_val = torch.cat((update_val, g_padding), dim=0)
+                        update_ix = torch.cat((update_ix, ix_padding), dim=0)
 
                     dist.all_gather(tensor_list, update_val)
                     dist.all_gather(ix_list, update_ix)
