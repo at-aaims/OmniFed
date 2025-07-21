@@ -26,7 +26,7 @@ from ..mixins import SetupMixin
 
 
 @rich.repr.auto
-class Topology(SetupMixin, ABC):
+class BaseTopology(SetupMixin, ABC):
     """
     Abstract network topology interface.
 

@@ -32,7 +32,7 @@ class ReductionType(str, Enum):
     MAX = "MAX"
 
 
-class Communicator(SetupMixin, ABC):
+class BaseCommunicator(SetupMixin, ABC):
     """
     Abstract communication interface for federated learning message transport.
 

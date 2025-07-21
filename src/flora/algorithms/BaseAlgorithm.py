@@ -25,7 +25,7 @@ from torch import nn
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 
-from ..communicator.BaseCommunicator import Communicator, ReductionType
+from ..communicator.BaseCommunicator import BaseCommunicator, ReductionType
 from ..communicator.grpc_communicator import GrpcCommunicator
 from ..communicator.TorchDistCommunicator import TorchDistCommunicator
 from ..data.DataModule import DataModule
@@ -61,7 +61,7 @@ class AggLevel(str, Enum):
 
 
 @rich.repr.auto
-class Algorithm(SetupMixin):
+class BaseAlgorithm(SetupMixin):
     """
     Base class for federated learning algorithms with hooks-based architecture.
 
@@ -90,8 +90,8 @@ class Algorithm(SetupMixin):
     def __init__(
         self,
         # Core FL components
-        local_comm: Communicator,
-        global_comm: Communicator | None,
+        local_comm: BaseCommunicator,
+        global_comm: BaseCommunicator | None,
         local_model: nn.Module,
         agg_level: AggLevel,
         agg_freq: int,
@@ -117,8 +117,8 @@ class Algorithm(SetupMixin):
             **kwargs: Additional algorithm-specific parameters
         """
         # Core federated learning components
-        self.local_comm: Communicator = local_comm
-        self.global_comm: Communicator | None = global_comm
+        self.local_comm: BaseCommunicator = local_comm
+        self.global_comm: BaseCommunicator | None = global_comm
         self.local_model: nn.Module = local_model
         self.agg_level: AggLevel = agg_level
         self.agg_freq: int = agg_freq
@@ -132,7 +132,7 @@ class Algorithm(SetupMixin):
             raise ValueError(f"agg_freq must be positive, got {agg_freq}")
 
         self.local_lr: float = local_lr
-        self.local_epochs_per_round: int = max_epochs_per_round
+        self.max_epochs_per_round: int = max_epochs_per_round
 
         # Infrastructure components
         # self.tb_writer: SummaryWriter = tb_writer
@@ -140,14 +140,14 @@ class Algorithm(SetupMixin):
         self.tb_writer = None
 
         # Initialize state
-        self.__round_local_optimizer: Optional[torch.optim.Optimizer] = None
+        self.__local_optimizer: Optional[torch.optim.Optimizer] = None
         self.__round_metrics: Optional[RoundMetrics] = None
         self.__round_idx: int = 0
         self.__epoch_idx: int = 0
         self.__batch_idx: int = 0
         self.__local_sample_count: int = 0
 
-        # Lazy-initialized distributed training parameters
+        # ---
         self._local_iters_per_epoch: Optional[int] = None
         self._global_max_iters_per_epoch: Optional[int] = None
         self._global_max_epochs_per_round: Optional[int] = None
@@ -162,16 +162,16 @@ class Algorithm(SetupMixin):
 
         Created during round initialization in __reset_round_state().
         """
-        if self.__round_local_optimizer is None:
+        if self.__local_optimizer is None:
             raise RuntimeError("local_optimizer accessed before round initialization")
-        return self.__round_local_optimizer
+        return self.__local_optimizer
 
     @local_optimizer.setter
     def local_optimizer(self, value: torch.optim.Optimizer) -> None:
-        self.__round_local_optimizer = value
+        self.__local_optimizer = value
 
     @property
-    def metrics(self) -> RoundMetrics:
+    def round_metrics(self) -> RoundMetrics:
         """Current round metrics for tracking training statistics.
 
         Created during round initialization in __reset_round_state().
@@ -180,8 +180,8 @@ class Algorithm(SetupMixin):
             raise RuntimeError("metrics accessed before round initialization")
         return self.__round_metrics
 
-    @metrics.setter
-    def metrics(self, value: RoundMetrics) -> None:
+    @round_metrics.setter
+    def round_metrics(self, value: RoundMetrics) -> None:
         self.__round_metrics = value
 
     @property
@@ -220,7 +220,7 @@ class Algorithm(SetupMixin):
     @property
     def tb_global_epoch(self) -> int:
         """Global epoch count across all rounds for TensorBoard logging."""
-        return self.round_idx * self.local_epochs_per_round + self.epoch_idx
+        return self.round_idx * self.max_epochs_per_round + self.epoch_idx
 
     @property
     def local_sample_count(self) -> int:
@@ -457,7 +457,7 @@ class Algorithm(SetupMixin):
 
         # Find global maximum iterations and epochs (batched for efficiency)
         discovery_tensor = torch.tensor(
-            [self._local_iters_per_epoch, self.local_epochs_per_round], dtype=torch.int
+            [self._local_iters_per_epoch, self.max_epochs_per_round], dtype=torch.int
         )
         global_maxes = self.local_comm.aggregate(discovery_tensor, ReductionType.MAX)
 
@@ -466,7 +466,7 @@ class Algorithm(SetupMixin):
 
         # ---
         # Create new instances for this round
-        self.__round_local_optimizer = self._configure_local_optimizer(self.local_lr)
+        self.__local_optimizer = self._configure_local_optimizer(self.local_lr)
         self.__round_metrics = RoundMetrics()
         # ---
         self.round_idx = round_idx
@@ -531,7 +531,7 @@ class Algorithm(SetupMixin):
         # Overridable hook for algorithm-specific logic
         self._round_end()
         _t_end = time.time()
-        self.metrics.update_mean("time/round", _t_end - _t_start)
+        self.round_metrics.update_mean("time/round", _t_end - _t_start)
 
         print(
             f"[END] Round {self.round_idx + 1} |",
@@ -541,12 +541,12 @@ class Algorithm(SetupMixin):
                 else round(v, 2)
                 if isinstance(v, float)
                 else v
-                for k, v in self.metrics.to_dict().items()
+                for k, v in self.round_metrics.to_dict().items()
             },
             flush=True,
         )
 
-        return self.metrics.to_dict()
+        return self.round_metrics.to_dict()
 
     def __run_epoch(
         self,
@@ -582,7 +582,7 @@ class Algorithm(SetupMixin):
             # Data preparation: fetch and transfer batch
             batch = None
             _t_batch_data_start = time.time()
-            if self.epoch_idx < self.local_epochs_per_round:
+            if self.epoch_idx < self.max_epochs_per_round:
                 try:
                     batch = next(dataloader_iter)
                     batch = self._transfer_batch_to_device(
@@ -622,15 +622,15 @@ class Algorithm(SetupMixin):
             # Update timing metrics
             _t_batch_end = time.time()
 
-            self.metrics.update_mean(
+            self.round_metrics.update_mean(
                 "time/step_data", _t_batch_data_end - _t_batch_data_start
             )
-            self.metrics.update_mean(
+            self.round_metrics.update_mean(
                 "time/step_compute", _t_batch_compute_end - _t_batch_compute_start
             )
 
             # Overall batch timing for all nodes
-            self.metrics.update_mean("time/step", _t_batch_end - _t_batch_start)
+            self.round_metrics.update_mean("time/step", _t_batch_end - _t_batch_start)
 
         # ---
         # Epoch boundary synchronization
@@ -669,7 +669,7 @@ class Algorithm(SetupMixin):
         self._epoch_end()
         _t_epoch_end = time.time()
 
-        self.metrics.update_mean("time/epoch", _t_epoch_end - _t_epoch_start)
+        self.round_metrics.update_mean("time/epoch", _t_epoch_end - _t_epoch_start)
 
         print(
             f"[END] Round {self.round_idx + 1} Epoch {epoch_idx + 1} |",
@@ -679,14 +679,14 @@ class Algorithm(SetupMixin):
                 else round(v, 2)
                 if isinstance(v, float)
                 else v
-                for k, v in self.metrics.to_dict().items()
+                for k, v in self.round_metrics.to_dict().items()
             },
             flush=True,
         )
 
         # Log epoch metrics to TensorBoard
         if self.tb_writer:
-            for key, value in self.metrics.to_dict().items():
+            for key, value in self.round_metrics.to_dict().items():
                 self.tb_writer.add_scalar(key, value, self.tb_global_epoch)
 
     def _train_batch(self, batch: Any) -> None:
@@ -703,18 +703,18 @@ class Algorithm(SetupMixin):
         loss, batch_size = self._train_step(batch)
         # Automatic sample tracking
         self.local_sample_count = self.local_sample_count + batch_size
-        self.metrics.update_sum("local/sample_count", batch_size)
-        self.metrics.update_sum("local/batch_count", 1)
+        self.round_metrics.update_sum("local/sample_count", batch_size)
+        self.round_metrics.update_sum("local/batch_count", 1)
 
         # Automatic loss tracking
-        self.metrics.update_mean("local/loss", loss.detach().item(), batch_size)
+        self.round_metrics.update_mean("local/loss", loss.detach().item(), batch_size)
 
         self.local_optimizer.zero_grad()
         # Backward pass hook
         self._backward_pass(loss)
 
         # Automatic gradient tracking
-        self.metrics.update_mean(
+        self.round_metrics.update_mean(
             "local/grad_norm", utils.get_grad_norm(self.local_model)
         )
 

@@ -21,13 +21,13 @@ from hydra.utils import instantiate
 from omegaconf import DictConfig, OmegaConf
 
 from ..Node import Node
-from .BaseTopology import Topology
+from .BaseTopology import BaseTopology
 
 # ======================================================================================
 
 
 @rich.repr.auto
-class MultiGroupTopology(Topology):
+class MultiGroupTopology(BaseTopology):
     """
     Multi-group federated learning topology for cross-institutional FL.
 
@@ -61,8 +61,12 @@ class MultiGroupTopology(Topology):
             raise ValueError("At least one group must be specified")
 
         # Instantiate all group topologies directly
-        self.groups: List[Topology] = [
-            instantiate(group_config, _recursive_=False) for group_config in groups
+        self.topologies: List[BaseTopology] = [
+            instantiate(
+                topology,
+                _recursive_=False,
+            )
+            for topology in groups
         ]
 
     def create_nodes(
@@ -92,19 +96,19 @@ class MultiGroupTopology(Topology):
         """
 
         # Prevent GPU over-allocation when multiple groups share infrastructure
-        total_nodes = sum(group.num_clients + 1 for group in self.groups)
+        total_nodes = sum(group.num_clients + 1 for group in self.topologies)
         if torch.cuda.is_available():
             node_rayopts.setdefault("num_gpus", 1.0 / total_nodes)
 
         all_nodes: List[Node] = []
 
-        for group_idx, group_topology in enumerate(self.groups):
+        for group_idx, group_topology in enumerate(self.topologies):
             # Inject group's global rank into gRPC configuration for inter-group communication
-            group_global_comm_cfg = DictConfig(
+            __global_comm_cfg = DictConfig(
                 {
                     **self.global_comm_cfg,
                     "rank": group_idx,  # Group index becomes global rank
-                    "world_size": len(self.groups),
+                    "world_size": len(self.topologies),
                 }
             )
 
@@ -115,7 +119,7 @@ class MultiGroupTopology(Topology):
                 data_cfg=data_cfg,
                 log_dir=os.path.join(log_dir, f"Group{group_idx}"),
                 node_rayopts=node_rayopts,
-                global_comm_cfg=group_global_comm_cfg,  # Pass global_comm_cfg through kwargs for inter-group coordination
+                global_comm_cfg=__global_comm_cfg,  # Pass global_comm_cfg through kwargs for inter-group coordination
                 **kwargs,
             )
 

@@ -22,8 +22,8 @@ from omegaconf import DictConfig
 from torch import nn
 
 # from torch.utils.tensorboard import SummaryWriter
-from .algorithms.BaseAlgorithm import Algorithm
-from .communicator.BaseCommunicator import Communicator
+from .algorithms.BaseAlgorithm import BaseAlgorithm
+from .communicator.BaseCommunicator import BaseCommunicator
 from .data.DataModule import DataModule
 from .mixins import SetupMixin
 
@@ -80,7 +80,7 @@ class Node(SetupMixin):
         # self.roles: Set[NodeRole] = roles
 
         # Communication backend instantiation
-        self.local_comm: Communicator = instantiate(local_comm_cfg)
+        self.local_comm: BaseCommunicator = instantiate(local_comm_cfg)
 
         # Extract rank information from local communicator for device selection and other uses
         self.device: torch.device = self.select_device(
@@ -88,7 +88,7 @@ class Node(SetupMixin):
         )
 
         # Global communicator for inter-group coordination (optional)
-        self.global_comm: Optional[Communicator] = None
+        self.global_comm: Optional[BaseCommunicator] = None
         if global_comm_cfg is not None:
             self.global_comm = instantiate(global_comm_cfg)
 
@@ -102,7 +102,7 @@ class Node(SetupMixin):
         # self.tb_writer: SummaryWriter = SummaryWriter(log_dir=log_dir)
 
         # Federated learning algorithm
-        self.algo: Algorithm = instantiate(
+        self.algo: BaseAlgorithm = instantiate(
             algo_cfg,
             local_comm=self.local_comm,
             global_comm=self.global_comm,

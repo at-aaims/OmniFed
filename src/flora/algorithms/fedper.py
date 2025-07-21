@@ -22,9 +22,9 @@ import torch.nn as nn
 from src.flora.helper.node_config import NodeConfig
 from src.flora.helper.training_params import FedPerTrainingParameters
 
-from ..communicator import Communicator, ReductionType
+from ..communicator import BaseCommunicator, ReductionType
 from . import utils
-from .BaseAlgorithm import Algorithm
+from .BaseAlgorithm import BaseAlgorithm
 
 # Example of personal_head used by FedPerModel
 
@@ -66,7 +66,7 @@ class FedPer:
         base_model: torch.nn.Module,
         personal_head: torch.nn.Module,
         train_data: torch.utils.data.DataLoader,
-        communicator: Communicator,
+        communicator: BaseCommunicator,
         total_clients: int,
         train_params: FedPerTrainingParameters,
     ):
@@ -148,7 +148,7 @@ class FedPer:
 
 
 @rich.repr.auto
-class FedPerNew(Algorithm):
+class FedPerNew(BaseAlgorithm):
     """
     Federated Personalization (FedPer) algorithm implementation.
 

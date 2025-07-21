@@ -21,13 +21,13 @@ import torch
 from omegaconf import DictConfig
 
 from ..Node import Node
-from .BaseTopology import Topology
+from .BaseTopology import BaseTopology
 
 # ======================================================================================
 
 
 @rich.repr.auto
-class CentralizedTopology(Topology):
+class CentralizedTopology(BaseTopology):
     """
     Template for centralized federated learning topology with aggregator-trainer architecture.
 
@@ -88,7 +88,7 @@ class CentralizedTopology(Topology):
             # Configure Ray actor options
 
             # Create communicator configs with injected rank and world_size
-            node_local_comm_cfg = DictConfig(
+            __local_comm_cfg = DictConfig(
                 {
                     **self.local_comm_cfg,
                     "rank": rank,
@@ -100,11 +100,10 @@ class CentralizedTopology(Topology):
             global_comm_cfg = kwargs.get("global_comm_cfg", None)
 
             # Generate node ID
+            node_id_base = f"L{rank}"
             if global_comm_cfg is not None:
                 global_rank = global_comm_cfg["rank"]
-                node_id_base = f"G{global_rank}L{rank}"
-            else:
-                node_id_base = f"L{rank}"
+                node_id_base = f"G{global_rank}{node_id_base}"
 
             if rank == 0:
                 node_id = f"{node_id_base}-SERVER"
@@ -112,17 +111,17 @@ class CentralizedTopology(Topology):
                 node_data_cfg = data_cfg.copy()
                 node_data_cfg.train = None
                 # Only server gets global_comm_cfg for inter-group communication
-                node_global_comm_cfg = global_comm_cfg
+                __global_comm_cfg = global_comm_cfg
             else:
                 node_id = f"{node_id_base}-Client"  # Purposefully using different casing for log readability
                 node_data_cfg = data_cfg
                 # Clients don't participate in inter-group communication
-                node_global_comm_cfg = None
+                __global_comm_cfg = None
 
             node = Node.options(**node_rayopts).remote(
                 id=node_id,
-                local_comm_cfg=node_local_comm_cfg,
-                global_comm_cfg=node_global_comm_cfg,
+                local_comm_cfg=__local_comm_cfg,
+                global_comm_cfg=__global_comm_cfg,
                 algo_cfg=algo_cfg,
                 model_cfg=model_cfg,
                 data_cfg=node_data_cfg,

@@ -17,12 +17,12 @@ import datetime
 import torch
 import torch.distributed as dist
 
-from src.flora.communicator import Communicator
+from src.flora.communicator import BaseCommunicator
 
 # TODO: not taking returned data from sent/recv fn calls...fix that!
 
 
-class TorchDistCommunicator(Communicator):
+class TorchDistCommunicator(BaseCommunicator):
     def __init__(
         self,
         id,

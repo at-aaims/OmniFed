@@ -22,9 +22,9 @@ import torch.nn as nn
 from src.flora.helper.node_config import NodeConfig
 from src.flora.helper.training_params import FedMomTrainingParameters
 
-from ..communicator import Communicator, ReductionType
+from ..communicator import BaseCommunicator, ReductionType
 from . import utils
-from .BaseAlgorithm import Algorithm
+from .BaseAlgorithm import BaseAlgorithm
 
 
 class FederatedMomentum:
@@ -38,7 +38,7 @@ class FederatedMomentum:
         self,
         model: torch.nn.Module,
         train_data: torch.utils.data.DataLoader,
-        communicator: Communicator,
+        communicator: BaseCommunicator,
         total_clients: int,
         train_params: FedMomTrainingParameters,
     ):
@@ -138,7 +138,7 @@ class FederatedMomentum:
 
 
 @rich.repr.auto
-class FedMomNew(Algorithm):
+class FedMomNew(BaseAlgorithm):
     """
     Federated Momentum (FedMom) algorithm implementation.
 

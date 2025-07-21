@@ -21,9 +21,9 @@ from torch import nn
 from src.flora.helper.node_config import NodeConfig
 from src.flora.helper.training_params import FedAvgTrainingParameters
 
-from ..communicator import Communicator, ReductionType
+from ..communicator import BaseCommunicator, ReductionType
 from . import utils
-from .BaseAlgorithm import Algorithm
+from .BaseAlgorithm import BaseAlgorithm
 
 
 class FederatedAveraging:
@@ -37,7 +37,7 @@ class FederatedAveraging:
         self,
         model: torch.nn.Module,
         train_data: torch.utils.data.DataLoader,
-        communicator: Communicator,
+        communicator: BaseCommunicator,
         total_clients: int,
         train_params: FedAvgTrainingParameters,
     ):
@@ -112,7 +112,7 @@ class FederatedAveraging:
 
 
 @rich.repr.auto
-class FedAvgNew(Algorithm):
+class FedAvgNew(BaseAlgorithm):
     """
     Federated Averaging (FedAvg) algorithm implementation.
 

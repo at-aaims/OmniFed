@@ -22,9 +22,9 @@ import torch.nn as nn
 from src.flora.helper.node_config import NodeConfig
 from src.flora.helper.training_params import FedNovaTrainingParameters
 
-from ..communicator import Communicator, ReductionType
+from ..communicator import BaseCommunicator, ReductionType
 from . import utils
-from .BaseAlgorithm import Algorithm
+from .BaseAlgorithm import BaseAlgorithm
 
 
 class FedNova:
@@ -38,7 +38,7 @@ class FedNova:
         self,
         model: torch.nn.Module,
         train_data: torch.utils.data.DataLoader,
-        communicator: Communicator,
+        communicator: BaseCommunicator,
         total_clients: int,
         train_params: FedNovaTrainingParameters,
     ):
@@ -150,7 +150,7 @@ class FedNova:
 
 
 @rich.repr.auto
-class FedNovaNew(Algorithm):
+class FedNovaNew(BaseAlgorithm):
     """
     Implementation of Federated Normalized Averaging (FedNova).
 

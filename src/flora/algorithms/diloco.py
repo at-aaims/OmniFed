@@ -22,9 +22,9 @@ from torch import nn
 from src.flora.helper.node_config import NodeConfig
 from src.flora.helper.training_params import DiLocoTrainingParameters
 
-from ..communicator import Communicator, ReductionType
+from ..communicator import BaseCommunicator, ReductionType
 from . import utils
-from .BaseAlgorithm import Algorithm
+from .BaseAlgorithm import BaseAlgorithm
 
 
 class DiLoCo:
@@ -36,7 +36,7 @@ class DiLoCo:
         self,
         model: torch.nn.Module,
         train_data: torch.utils.data.DataLoader,
-        communicator: Communicator,
+        communicator: BaseCommunicator,
         total_clients: int,
         train_params: DiLocoTrainingParameters,
     ):
@@ -141,7 +141,7 @@ class DiLoCo:
 
 
 @rich.repr.auto
-class DiLoCoNew(Algorithm):
+class DiLoCoNew(BaseAlgorithm):
     """
     Implementation of DiLoCo (Distributed Low-Communication).
 

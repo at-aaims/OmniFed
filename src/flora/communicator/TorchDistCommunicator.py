@@ -20,14 +20,14 @@ import torch
 import torch.distributed as dist
 from torch import nn
 
-from .BaseCommunicator import Communicator, ReductionType
+from .BaseCommunicator import BaseCommunicator, ReductionType
 from ..algorithms import utils
 
 # ======================================================================================
 
 
 @rich.repr.auto
-class TorchDistCommunicator(Communicator):
+class TorchDistCommunicator(BaseCommunicator):
     """
     Communicator implementation using PyTorch distributed primitives.
 
@@ -141,9 +141,9 @@ class TorchDistCommunicator(Communicator):
 
     def broadcast(
         self,
-        msg: Communicator.MsgT,
+        msg: BaseCommunicator.MsgT,
         src: int = 0,
-    ) -> Communicator.MsgT:
+    ) -> BaseCommunicator.MsgT:
         """
         Broadcast message from source rank to all ranks.
 
@@ -169,9 +169,9 @@ class TorchDistCommunicator(Communicator):
 
     def aggregate(
         self,
-        msg: Communicator.MsgT,
+        msg: BaseCommunicator.MsgT,
         reduction: ReductionType,
-    ) -> Communicator.MsgT:
+    ) -> BaseCommunicator.MsgT:
         """
         Aggregate message across all ranks using all-reduce operations.
 

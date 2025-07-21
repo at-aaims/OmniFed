@@ -22,9 +22,9 @@ from torch import nn
 from src.flora.helper.node_config import NodeConfig
 from src.flora.helper.training_params import ScaffoldTrainingParameters
 
-from ..communicator import Communicator, ReductionType
+from ..communicator import BaseCommunicator, ReductionType
 from . import utils
-from .BaseAlgorithm import Algorithm
+from .BaseAlgorithm import BaseAlgorithm
 
 
 class Scaffold:
@@ -37,7 +37,7 @@ class Scaffold:
         self,
         model: torch.nn.Module,
         train_data: torch.utils.data.DataLoader,
-        communicator: Communicator,
+        communicator: BaseCommunicator,
         total_clients: int,
         train_params: ScaffoldTrainingParameters,
     ):
@@ -171,7 +171,7 @@ class Scaffold:
 
 
 @rich.repr.auto
-class ScaffoldNew(Algorithm):
+class ScaffoldNew(BaseAlgorithm):
     """
     SCAFFOLD (Stochastic Controlled Averaging) algorithm implementation.
 

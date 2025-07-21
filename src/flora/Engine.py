@@ -26,7 +26,7 @@ from rich.table import Table
 
 from . import utils
 from .mixins import SetupMixin
-from .topology.BaseTopology import Topology
+from .topology.BaseTopology import BaseTopology
 
 
 @rich.repr.auto
@@ -54,7 +54,9 @@ class Engine(SetupMixin):
         self.flora_cfg: DictConfig = flora_cfg
         self.hydra_cfg: HydraConf = HydraConfig.get()
 
-        self.topology: Topology = instantiate(self.flora_cfg.topology, _recursive_=False)
+        self.topology: BaseTopology = instantiate(
+            self.flora_cfg.topology, _recursive_=False
+        )
         self.global_rounds: int = flora_cfg.global_rounds
 
     def _setup(self):

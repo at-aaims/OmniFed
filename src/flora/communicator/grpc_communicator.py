@@ -19,14 +19,14 @@ import rich.repr
 import torch
 from torch import nn
 
-from . import Communicator, grpc_communicator_pb2_grpc
+from . import BaseCommunicator, grpc_communicator_pb2_grpc
 from .BaseCommunicator import ReductionType
 from .grpc_client import GrpcClient
 from .grpc_server import CentralServerServicer
 
 
 @rich.repr.auto
-class GrpcCommunicator(Communicator):
+class GrpcCommunicator(BaseCommunicator):
     """
     Communicator implementation using gRPC client-server architecture.
 
@@ -138,9 +138,9 @@ class GrpcCommunicator(Communicator):
 
     def broadcast(
         self,
-        msg: Communicator.MsgT,
+        msg: BaseCommunicator.MsgT,
         src: int = 0,  # NOTE: unused here
-    ) -> Communicator.MsgT:
+    ) -> BaseCommunicator.MsgT:
         """Broadcast from source rank to all ranks."""
         if self.is_server:
             tensordict = self._extract_tensordict_from_msg(msg)
@@ -154,9 +154,9 @@ class GrpcCommunicator(Communicator):
 
     def aggregate(
         self,
-        msg: Communicator.MsgT,
+        msg: BaseCommunicator.MsgT,
         reduction: ReductionType,
-    ) -> Communicator.MsgT:
+    ) -> BaseCommunicator.MsgT:
         """Aggregate across all ranks via central server."""
         # Extract tensors and perform aggregation
         tensordict = self._extract_tensordict_from_msg(msg)
@@ -170,7 +170,7 @@ class GrpcCommunicator(Communicator):
         # Apply result back to original message format
         return self._apply_tensordict_to_msg(msg, aggregated_tensordict)
 
-    def _extract_tensordict_from_msg(self, msg: Communicator.MsgT) -> dict:
+    def _extract_tensordict_from_msg(self, msg: BaseCommunicator.MsgT) -> dict:
         """Convert message to tensor dictionary."""
         if isinstance(msg, nn.Module):
             return {
@@ -184,8 +184,8 @@ class GrpcCommunicator(Communicator):
             return {"tensor": msg}
 
     def _apply_tensordict_to_msg(
-        self, msg: Communicator.MsgT, tensordict: dict
-    ) -> Communicator.MsgT:
+        self, msg: BaseCommunicator.MsgT, tensordict: dict
+    ) -> BaseCommunicator.MsgT:
         """Apply tensor dictionary to message."""
         if isinstance(msg, nn.Module):
             with torch.no_grad():
