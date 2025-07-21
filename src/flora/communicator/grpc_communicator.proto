@@ -70,5 +70,6 @@ message TensorEntry {
     bytes data = 2;               // Serialized tensor data
     repeated int32 shape = 3;     // Tensor dimensions
     string dtype = 4;            // PyTorch dtype (e.g., "torch.float32")
-    int32 data_size = 5;         // Byte size for validation
+    string device = 5;           // Original tensor device (e.g., "cuda:0", "cpu")
+    int32 data_size = 6;         // Byte size for validation
 }

@@ -1,0 +1,35 @@
+# ------------------------------------------------------------------------------
+# FLORA Base Configuration
+#
+# This is the foundational configuration that provides common defaults for all FLORA experiments.
+# Other configurations should extend this base and override specific sections as needed.
+# ------------------------------------------------------------------------------
+
+defaults:
+  - _self_
+
+# ───────────── FL Algorithm Config
+
+algo: ??? # Must be specified by extending configs
+
+# ───────────── Model Config
+
+model: ??? # Must be specified by extending configs
+
+# ───────────── Data Config
+
+data: ??? # Must be specified by extending configs
+
+# ───────────── Topology and Communication Config
+
+topology: ??? # Must be specified by extending configs
+
+# ───────────── FL Engine Config
+
+global_rounds: ???
+
+# ───────────── Hydra Config
+
+hydra:
+  run:
+    dir: outputs/${now:%Y-%m-%d}/${hydra.job.config_name}

@@ -36,7 +36,7 @@ class GrpcCommunicator(Communicator):
 
     def __init__(
         self,
-        local_rank: int,
+        rank: int,
         world_size: int,
         master_addr: str = "127.0.0.1",
         master_port: int = 50051,
@@ -46,15 +46,15 @@ class GrpcCommunicator(Communicator):
         aggregation_timeout: float = 600,  # Seconds for server to wait for all clients
         client_timeout: float = 60,  # Seconds for clients to wait for aggregation result
         retry_delay: float = 5.0,  # Seconds between retries
-        max_retries: int = 3,  # Maximum retry attempts
+        max_retries: int = 5,  # Maximum retry attempts
         **kwargs,
     ):
         super().__init__()
         print(
-            f"[COMM-INIT] rank={local_rank}/{world_size} | addr={master_addr}:{master_port}"
+            f"[COMM-INIT] rank={rank}/{world_size} | addr={master_addr}:{master_port}"
         )
 
-        self.local_rank: int = local_rank
+        self.rank: int = rank
         self.world_size: int = world_size
 
         self.master_addr: str = master_addr
@@ -99,9 +99,9 @@ class GrpcCommunicator(Communicator):
     @property
     def is_server(self) -> bool:
         """True if rank 0 (server)."""
-        return self.local_rank == 0
+        return self.rank == 0
 
-    def _setup_impl(self):
+    def _setup(self):
         """Initialize gRPC server or client based on rank."""
         # Setup - Ray already logs actor initialization
         if self.is_server:
@@ -126,7 +126,7 @@ class GrpcCommunicator(Communicator):
             self._server.start()
         else:
             self._client = GrpcClient(
-                client_id=str(self.local_rank),
+                client_id=str(self.rank),
                 master_addr=self.master_addr,
                 master_port=self.master_port,
                 max_send_message_length=self.max_send_message_length,
@@ -160,12 +160,11 @@ class GrpcCommunicator(Communicator):
         """Aggregate across all ranks via central server."""
         # Extract tensors and perform aggregation
         tensordict = self._extract_tensordict_from_msg(msg)
-        
-        if self.is_server:
-            print(f"[AGG-SERVER] {type(msg).__name__} | {len(tensordict)} tensors | {reduction.value}")
-        else:
-            print(f"[AGG-CLIENT] {type(msg).__name__} | {len(tensordict)} tensors | {reduction.value}")
-        
+
+        print(
+            f"[COMM-AGG] {type(msg).__name__} | {len(tensordict)} tensors | reduction={reduction} | info={self.get_msg_info(msg)}"
+        )
+
         aggregated_tensordict = self._grpc_aggregate(tensordict, reduction)
 
         # Apply result back to original message format
@@ -192,7 +191,9 @@ class GrpcCommunicator(Communicator):
             with torch.no_grad():
                 for name, param in msg.named_parameters():
                     if param.requires_grad and name in tensordict:
-                        param.data.copy_(tensordict[name])
+                        # Ensure tensor is on the same device as the parameter before copying
+                        tensor = tensordict[name].to(param.device)
+                        param.data.copy_(tensor)
             return msg
         elif isinstance(msg, dict):
             return tensordict

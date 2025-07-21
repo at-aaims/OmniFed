@@ -21,12 +21,15 @@ from . import grpc_communicator_pb2 as grpc_communicator_pb2
 
 
 def tensordict_to_proto(
-    tensordict: Dict[str, torch.Tensor]
+    tensordict: Dict[str, torch.Tensor],
 ) -> grpc_communicator_pb2.TensorDict:
     """Convert tensor dictionary to protobuf format with exact reconstruction support"""
     entries = []
 
     for key, tensor in tensordict.items():
+        # Store original device before CPU conversion
+        original_device = str(tensor.device)
+
         # Convert to CPU for serialization
         tensor_cpu = tensor.cpu()
 
@@ -38,6 +41,7 @@ def tensordict_to_proto(
             data=tensor_bytes,
             shape=list(tensor_cpu.shape),
             dtype=str(tensor_cpu.dtype),
+            device=original_device,
             data_size=len(tensor_bytes),
         )
         entries.append(entry)
@@ -46,7 +50,7 @@ def tensordict_to_proto(
 
 
 def proto_to_tensordict(
-    proto_tensordict: grpc_communicator_pb2.TensorDict
+    proto_tensordict: grpc_communicator_pb2.TensorDict,
 ) -> Dict[str, torch.Tensor]:
     """Convert protobuf tensor dictionary to native tensor dictionary with exact reconstruction"""
     tensordict = {}
@@ -57,36 +61,30 @@ def proto_to_tensordict(
                 f"Data size mismatch for tensor {entry.key}: expected {entry.data_size}, got {len(entry.data)}"
             )
 
-        # Convert dtype string back to torch dtype
-        dtype_str = entry.dtype
-        # Handle both formats: "torch.float32" and "float32"
-        if dtype_str.startswith("torch."):
-            dtype = getattr(torch, dtype_str.split(".")[1])
-        else:
-            dtype_map = {
-                "float32": torch.float32,
-                "float64": torch.float64,
-                "int32": torch.int32,
-                "int64": torch.int64,
-                "bool": torch.bool,
-            }
-            dtype = dtype_map.get(dtype_str, torch.float32)
+        # Dtype mapping: string -> numpy_dtype
+        dtype_mapping = {
+            "torch.float32": np.float32,
+            "torch.float64": np.float64,
+            "torch.int32": np.int32,
+            "torch.int64": np.int64,
+            "torch.bool": np.bool_,
+        }
+
+        if entry.dtype not in dtype_mapping:
+            supported_dtypes = list(dtype_mapping.keys())
+            raise ValueError(
+                f"Unsupported dtype: {entry.dtype}. Supported: {supported_dtypes}"
+            )
+
+        numpy_dtype = dtype_mapping[entry.dtype]
 
         # Reconstruct tensor from bytes
-        numpy_array = np.frombuffer(
-            entry.data,
-            dtype=dtype.numpy_dtype
-            if hasattr(dtype, "numpy_dtype")
-            else np.float32,
-        )
+        numpy_array = np.frombuffer(entry.data, dtype=numpy_dtype)
         numpy_array = numpy_array.reshape(tuple(entry.shape))
 
-        # Create tensor with exact properties
-        tensor = torch.from_numpy(numpy_array.copy())
-        tensor = tensor.to(dtype=dtype)
-
-        # Tensors are reconstructed on CPU by default
-        # Higher-level code can move to appropriate device if needed
+        # Create tensor and restore to original device
+        # Note: .copy() needed because np.frombuffer creates read-only arrays
+        tensor = torch.from_numpy(numpy_array.copy()).to(entry.device)
 
         tensordict[entry.key] = tensor
 

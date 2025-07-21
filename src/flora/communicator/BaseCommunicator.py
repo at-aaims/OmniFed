@@ -14,29 +14,28 @@
 
 from abc import ABC, abstractmethod
 from enum import Enum
-from typing import Union, TypeVar, Dict
+from typing import Dict, TypeVar
 
-import rich.repr
 import torch
 import torch.nn as nn
 
 from ..mixins import SetupMixin
 
-
 # ======================================================================================
 
 
-class ReductionType(Enum):
+class ReductionType(str, Enum):
     """Aggregation reduction operations."""
 
-    SUM = "sum"
-    MEAN = "mean"
+    SUM = "SUM"
+    MEAN = "MEAN"
+    MAX = "MAX"
 
 
 class Communicator(SetupMixin, ABC):
     """
     Abstract communication interface for federated learning message transport.
-    
+
     Provides protocol-agnostic message passing operations (broadcast, aggregate)
     across different communication backends. Algorithms handle aggregation logic;
     communicators handle pure transport.
@@ -98,3 +97,23 @@ class Communicator(SetupMixin, ABC):
     def close(self):
         """Clean up communication resources."""
         pass
+
+    def get_msg_info(self, msg: MsgT) -> dict:
+        info = {}
+
+        # Extract tensor metadata for logging
+        if isinstance(msg, torch.Tensor):
+            tensor = msg
+        elif isinstance(msg, nn.Module):
+            tensor = next(msg.parameters(), None)
+        elif isinstance(msg, dict):
+            tensor = next(
+                (t for t in msg.values() if isinstance(t, torch.Tensor)), None
+            )
+        else:
+            raise TypeError(f"Unsupported message type: {type(msg)}")
+
+        info["dtype"] = str(tensor.dtype)
+        info["device"] = str(tensor.device)
+
+        return info

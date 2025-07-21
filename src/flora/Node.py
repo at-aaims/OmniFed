@@ -13,8 +13,7 @@
 # limitations under the License.
 
 import time
-from enum import Enum
-from typing import Any, Optional, Set
+from typing import Any, Optional
 
 import ray
 import torch
@@ -22,12 +21,11 @@ from hydra.utils import instantiate
 from omegaconf import DictConfig
 from torch import nn
 
-from .algorithms import utils as alg_utils
+# from torch.utils.tensorboard import SummaryWriter
 from .algorithms.BaseAlgorithm import Algorithm
 from .communicator.BaseCommunicator import Communicator
 from .data.DataModule import DataModule
 from .mixins import SetupMixin
-
 
 # class NodeRole(Enum):
 #     """
@@ -67,12 +65,12 @@ class Node(SetupMixin):
         self,
         id: str,
         # roles: Set[NodeRole],
-        comm_cfg: DictConfig,
+        local_comm_cfg: DictConfig,
+        global_comm_cfg: DictConfig | None,  # For inter-group communication
         algo_cfg: DictConfig,
         model_cfg: DictConfig,
         data_cfg: DictConfig,
-        local_rank: int,
-        world_size: int,
+        log_dir: str,
         device: str = "auto",
         **kwargs: Any,
     ):
@@ -81,17 +79,18 @@ class Node(SetupMixin):
         self.id: str = id
         # self.roles: Set[NodeRole] = roles
 
-        # Distributed computing context
-        self.local_rank: Optional[int] = local_rank
-        self.world_size: Optional[int] = world_size
-        self.device: torch.device = self.select_device(device, rank=local_rank)
-
         # Communication backend instantiation
-        self.comm: Communicator = instantiate(
-            comm_cfg,
-            local_rank=local_rank,
-            world_size=world_size,
+        self.local_comm: Communicator = instantiate(local_comm_cfg)
+
+        # Extract rank information from local communicator for device selection and other uses
+        self.device: torch.device = self.select_device(
+            device, rank=getattr(self.local_comm, "rank", None)
         )
+
+        # Global communicator for inter-group coordination (optional)
+        self.global_comm: Optional[Communicator] = None
+        if global_comm_cfg is not None:
+            self.global_comm = instantiate(global_comm_cfg)
 
         # PyTorch model
         self.local_model: nn.Module = instantiate(model_cfg)
@@ -99,11 +98,16 @@ class Node(SetupMixin):
         # Data module
         self.datamodule: DataModule = instantiate(data_cfg)
 
+        # TensorBoard setup
+        # self.tb_writer: SummaryWriter = SummaryWriter(log_dir=log_dir)
+
         # Federated learning algorithm
         self.algo: Algorithm = instantiate(
             algo_cfg,
+            local_comm=self.local_comm,
+            global_comm=self.global_comm,
             local_model=self.local_model,
-            comm=self.comm,
+            tb_writer=None,
         )
 
     def __repr__(self) -> str:
@@ -115,37 +119,28 @@ class Node(SetupMixin):
         """
         # role_names = [role.value for role in self.roles]
         # return f"Node {self.id}: {role_names}"
-        return f"{self.id}"
+        _time = time.strftime("%H:%M:%S", time.gmtime())
+        # _time = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        return f"{self.id} {_time}"
 
-    def should_train(self) -> bool:
+    def _setup(self) -> None:
         """
-        Determine if this node should perform training based on its role.
-
-        In centralized topology:
-        - Rank 0 (Server/Aggregator): No training, only aggregation
-        - Rank 1+ (Client/Trainer): Performs local training
-
-        Returns:
-            True if node should train, False if it should skip training
+        Setup node with device assignment and algorithm initialization.
         """
-        return self.local_rank != 0
-        # return True
+        print(f"[NODE-SETUP] Device: {self.device}", flush=True)
 
-    def _setup_impl(self) -> None:
-        """
-        Initialize node dependencies and prepare for federated learning execution.
+        # Setup primary communicator
+        self.local_comm.setup()
 
-        Sets up communication backend and prepares all components for distributed training.
-        Called once before federated learning begins.
-        """
-        print("[NODE-SETUP]", flush=True)
+        # Setup global communicator if present
+        if self.global_comm is not None:
+            self.global_comm.setup()
 
-        # Initialize communication backend
-        self.comm.setup()
-
+        # Setup algorithm
+        self.algo.setup(device=self.device)
         # summary(self.model, verbose=1)
 
-    def execute_round(self, round_idx: int) -> dict[str, float]:
+    def round_exec(self, round_idx: int) -> dict[str, float]:
         """
         Execute federated learning round with algorithm-controlled communication.
         Node provides communication infrastructure, Algorithm controls federated lifecycle.
@@ -159,120 +154,11 @@ class Node(SetupMixin):
         if not self.is_ready:
             raise RuntimeError(f"Node {self.id} not ready - call setup() first")
 
-        print(f"[ROUND-START] Round {round_idx + 1}", flush=True)
-        round_start_time = time.time()
-
-        # Reset round state (simple and explicit)
-        self.algo.round_setup(round_idx)
-
-        # Model state before any synchronization
-        metrics: dict[str, float] = dict(round_idx=round_idx)
-
-        # Capture before-sync state
-        hash_before_sync = alg_utils.hash_model_params(self.algo.local_model)
-        metrics["param_norm/before_sync"] = alg_utils.get_param_norm(
-            self.algo.local_model
+        metrics = self.algo.round_exec(
+            self.datamodule,
+            round_idx,
         )
 
-        # Round Start Logic: e.g., Synchronization
-        self.algo.round_start(round_idx)
-
-        # Capture after-sync state and show transition
-        hash_after_sync = alg_utils.hash_model_params(self.algo.local_model)
-        metrics["param_norm/after_sync"] = alg_utils.get_param_norm(
-            self.algo.local_model
-        )
-        metrics["param_norm/sync_delta"] = (
-            metrics["param_norm/after_sync"] - metrics["param_norm/before_sync"]
-        )
-
-        # Consolidated round_start transition print
-        sync_changed = hash_before_sync != hash_after_sync
-        print(
-            f"[ROUND-SYNC] hash: {hash_before_sync[:8]} → {hash_after_sync[:8]} | "
-            f"norm: {metrics['param_norm/before_sync']:.4f} → {metrics['param_norm/after_sync']:.4f} "
-            f"(Δ={metrics['param_norm/sync_delta']:.6f}) | "
-            f"{'CHANGED' if sync_changed else 'UNCHANGED'}"
-        )
-
-        # 4. Local training (only for trainer nodes)
-        if self.should_train():
-            if self.datamodule.train is None:
-                raise ValueError(
-                    "ERROR: Node is configured to train but no training DataLoader is provided."
-                )
-            # Capture before-training state
-            hash_before_train = alg_utils.hash_model_params(self.algo.local_model)
-            metrics["param_norm/before_train_round"] = alg_utils.get_param_norm(
-                self.algo.local_model
-            )
-
-            # Centralized device management: ensure model is on compute device
-            self.algo.local_model.to(self.device)
-
-            # Execute local training round
-            self.algo.train_round(
-                self.datamodule.train,
-                round_idx,
-            )
-
-            # Capture after-training state and show transition
-            hash_after_train = alg_utils.hash_model_params(self.algo.local_model)
-            metrics["param_norm/after_train_round"] = alg_utils.get_param_norm(
-                self.algo.local_model
-            )
-            metrics["param_norm/train_round_delta"] = (
-                metrics["param_norm/after_train_round"]
-                - metrics["param_norm/before_train_round"]
-            )
-
-            # Consolidated train_round transition print
-            train_changed = hash_before_train != hash_after_train
-            print(
-                f"[TRAIN-EXEC] hash: {hash_before_train[:8]} → {hash_after_train[:8]} | "
-                f"norm: {metrics['param_norm/before_train_round']:.4f} → {metrics['param_norm/after_train_round']:.4f} "
-                f"(Δ={metrics['param_norm/train_round_delta']:.6f}) | "
-                f"{'CHANGED' if train_changed else 'UNCHANGED'}"
-            )
-        else:
-            print("[NODE-SKIP-TRAIN] Server node - no local training")
-
-        # Capture before-aggregation state
-        hash_before_agg = alg_utils.hash_model_params(self.algo.local_model)
-        metrics["param_norm/before_agg"] = alg_utils.get_param_norm(
-            self.algo.local_model
-        )
-
-        # Round End Logic: e.g. Aggregation
-        self.algo.round_end(round_idx)
-
-        # Capture after-aggregation state and show transition
-        hash_after_agg = alg_utils.hash_model_params(self.algo.local_model)
-        metrics["param_norm/after_agg"] = alg_utils.get_param_norm(
-            self.algo.local_model
-        )
-        metrics["param_norm/agg_delta"] = (
-            metrics["param_norm/after_agg"] - metrics["param_norm/before_agg"]
-        )
-
-        # Consolidated round_end transition print
-        agg_changed = hash_before_agg != hash_after_agg
-        print(
-            f"[ROUND-AGG] hash: {hash_before_agg[:8]} → {hash_after_agg[:8]} | "
-            f"norm: {metrics['param_norm/before_agg']:.4f} → {metrics['param_norm/after_agg']:.4f} "
-            f"(Δ={metrics['param_norm/agg_delta']:.6f}) | "
-            f"{'CHANGED' if agg_changed else 'UNCHANGED'}"
-        )
-
-        # Collect all metrics from algorithm execution
-        metrics.update(self.algo.metrics.to_dict())
-        metrics["time/round"] = time.time() - round_start_time
-
-        print(
-            f"[ROUND-END] Round {round_idx + 1} |",
-            {k: round(v, 2) if isinstance(v, float) else v for k, v in metrics.items()},
-            flush=True,
-        )
         return metrics
 
     @staticmethod
@@ -308,12 +194,12 @@ class Node(SetupMixin):
                 assigned_gpu_id = rank % local_gpu_count
                 device_str = f"cuda:{assigned_gpu_id}"
                 print(
-                    f"[DEVICE-AUTO] {local_gpu_count} GPUs detected | assigned {device_str} | rank {rank}"
+                    f"[NODE-DEVICE] {local_gpu_count} GPUs detected | assigned {device_str} | rank {rank}"
                 )
                 return torch.device(device_str)
 
-            print("Device auto-selection: No GPUs detected, using CPU")
+            print("[NODE-DEVICE] Device auto-selection: No GPUs detected, using CPU")
             return torch.device("cpu")
 
-        print(f"Device explicit: Using {device_hint}")
+        print(f"[NODE-DEVICE] Device explicit: Using {device_hint}")
         return torch.device(device_hint)

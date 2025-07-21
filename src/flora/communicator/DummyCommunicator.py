@@ -20,7 +20,6 @@ import torch.nn as nn
 
 from .BaseCommunicator import Communicator
 
-
 # ======================================================================================
 
 
@@ -43,7 +42,7 @@ class DummyCommunicator(Communicator):
         self.group_name = group_name
         print(f"[COMM-INIT] rank={rank}/{world_size} | group={group_name}")
 
-    def _setup_impl(self):
+    def _setup(self):
         print("[COMM-SETUP] no-op")
 
     def broadcast(

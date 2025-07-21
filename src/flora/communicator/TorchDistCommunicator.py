@@ -38,7 +38,7 @@ class TorchDistCommunicator(Communicator):
 
     def __init__(
         self,
-        local_rank: int,
+        rank: int,
         world_size: int,
         init_method: str = "tcp",
         # group_name: str = "default",
@@ -46,15 +46,15 @@ class TorchDistCommunicator(Communicator):
         master_port: str = "29500",
         backend: str = "gloo",
         sharedfile: str = "sharedfile",
-        timeout: int = 30,
-        max_retries: int = 3,
+        timeout: int = 60,
+        max_retries: int = 5,
     ):
         super().__init__()
         print(
-            f"[COMM-INIT] rank={local_rank}/{world_size} | backend={backend} | addr={master_addr}:{master_port}"
+            f"[COMM-INIT] rank={rank}/{world_size} | backend={backend} | addr={master_addr}:{master_port}"
         )
 
-        self.local_rank: int = local_rank
+        self.rank: int = rank
         self.world_size: int = world_size
         self.init_method: str = init_method
         # self.group_name = group_name
@@ -109,7 +109,7 @@ class TorchDistCommunicator(Communicator):
 
     #     print(f"Process group initialized successfully")
 
-    def _setup_impl(self):
+    def _setup(self):
         """
         Initialize PyTorch distributed process group.
 
@@ -118,7 +118,7 @@ class TorchDistCommunicator(Communicator):
         """
 
         print(
-            f"[COMM-SETUP] rank={self.local_rank}/{self.world_size} | {self.init_method} | backend={self.backend}"
+            f"[COMM-SETUP] rank={self.rank}/{self.world_size} | {self.init_method} | backend={self.backend}"
         )
 
         if self.init_method == "tcp":
@@ -126,7 +126,7 @@ class TorchDistCommunicator(Communicator):
             dist.init_process_group(
                 backend=self.backend,
                 init_method=addr,
-                rank=self.local_rank,
+                rank=self.rank,
                 world_size=self.world_size,
                 timeout=self.timeout,
             )
@@ -135,7 +135,7 @@ class TorchDistCommunicator(Communicator):
             dist.init_process_group(
                 backend=self.backend,
                 init_method=addr,
-                rank=self.local_rank,
+                rank=self.rank,
                 world_size=self.world_size,
             )
 
@@ -175,41 +175,47 @@ class TorchDistCommunicator(Communicator):
         """
         Aggregate message across all ranks using all-reduce operations.
 
-        Performs distributed summation or averaging of tensors/models.
+        Performs distributed summation, averaging, or max operations on tensors/models.
         Algorithms are responsible for any pre-scaling or weighting.
 
         Args:
             msg: Model, tensor dict, or tensor to aggregate
-            reduction: SUM or MEAN reduction operation
+            reduction: SUM, MEAN, or MAX reduction operation
         Returns:
             Aggregated message
         """
-        print(f"[COMM-AGG] {type(msg).__name__} | reduction: {reduction.value}")
+
+        print(
+            f"[COMM-AGG] {type(msg).__name__} | reduction={reduction} | info={self.get_msg_info(msg)}"
+        )
+
+        # Map reduction type to PyTorch operation
+        reduction_ops = {
+            ReductionType.SUM: dist.ReduceOp.SUM,
+            ReductionType.MEAN: dist.ReduceOp.AVG,
+            ReductionType.MAX: dist.ReduceOp.MAX,
+        }
+
+        if reduction not in reduction_ops:
+            raise ValueError(f"Unsupported reduction type: {reduction}")
+
+        op = reduction_ops[reduction]
 
         if isinstance(msg, nn.Module):
             for _, p in msg.named_parameters():
                 if not p.requires_grad:
                     continue
                 tensor = p.data
-                dist.all_reduce(tensor, op=dist.ReduceOp.SUM)
-                # TODO: would it be equivalent to just use dist.ReduceOp.AVG here?
-                if reduction == ReductionType.MEAN:
-                    tensor.div_(self.world_size)
+                dist.all_reduce(tensor, op=op)
 
         elif isinstance(msg, dict):
             # Handle tensor dictionaries
             for tensor in msg.values():
-                dist.all_reduce(tensor, op=dist.ReduceOp.SUM)
-                # TODO: would it be equivalent to just use dist.ReduceOp.AVG here?
-                if reduction == ReductionType.MEAN:
-                    tensor.div_(self.world_size)
+                dist.all_reduce(tensor, op=op)
 
         else:
             # Handle single tensors
-            dist.all_reduce(msg, op=dist.ReduceOp.SUM)
-            # TODO: would it be equivalent to just use dist.ReduceOp.AVG here?
-            if reduction == ReductionType.MEAN:
-                msg.div_(self.world_size)
+            dist.all_reduce(msg, op=op)
 
         return msg
 
