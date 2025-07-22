@@ -17,7 +17,7 @@ import os
 import torch
 import torch.distributed.rpc as rpc
 
-from src.flora.communicator import Communicator
+from src.flora.communicator import BaseCommunicator
 
 
 class RpcServer(object):
@@ -93,7 +93,7 @@ class RpcServer(object):
             return self.collected_samples
 
 
-class TorchRpcCommunicator(Communicator):
+class TorchRpcCommunicator(BaseCommunicator):
     def __init__(
         self, id=0, total_clients=1, master_addr="127.0.0.1", master_port=27890
     ):

@@ -19,7 +19,7 @@ import numpy as np
 import pika
 import torch
 
-from src.flora.communicator import Communicator
+from src.flora.communicator import BaseCommunicator
 
 # TODO: implement broadcast operation after aggregating all updates (currently model not distributed back)
 
@@ -45,7 +45,7 @@ def aggregate_updates(ch, method, properties, body, total_clients):
         aggregate_update = None
 
 
-class MessageQueueCommunicator(Communicator):
+class MessageQueueCommunicator(BaseCommunicator):
     def __init__(self, id=0, total_clients=1, host="127.0.0.1", queue_name="flora"):
         super().__init__(protocol_type="msg_queue")
         self.id = id

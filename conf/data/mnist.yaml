@@ -9,7 +9,7 @@ _target_: src.flora.data.DataModule
 train:
   _target_: torch.utils.data.DataLoader
 
-  dataset: 
+  dataset:
     _target_: torchvision.datasets.MNIST
     root: /tmp/torchvision-mnist
     train: true
@@ -32,7 +32,7 @@ train:
 val: # TODO: Currently unused
   _target_: torch.utils.data.DataLoader
 
-  dataset: 
+  dataset:
     _target_: torchvision.datasets.MNIST
     root: /tmp/torchvision-mnist
     train: false
@@ -49,11 +49,8 @@ val: # TODO: Currently unused
 
   batch_size: ??? # Mandatory marker; composer must override this value
   num_workers: 2
-
 # ───────────── Test DataLoader Config (Optional)
 
 # test: # Optional
 # ...
-
-
 

@@ -19,14 +19,14 @@ import rich.repr
 import torch
 from torch import nn
 
-from . import Communicator, grpc_communicator_pb2_grpc
+from . import BaseCommunicator, grpc_communicator_pb2_grpc
 from .BaseCommunicator import ReductionType
 from .grpc_client import GrpcClient
 from .grpc_server import CentralServerServicer
 
 
 @rich.repr.auto
-class GrpcCommunicator(Communicator):
+class GrpcCommunicator(BaseCommunicator):
     """
     Communicator implementation using gRPC client-server architecture.
 
@@ -36,7 +36,7 @@ class GrpcCommunicator(Communicator):
 
     def __init__(
         self,
-        local_rank: int,
+        rank: int,
         world_size: int,
         master_addr: str = "127.0.0.1",
         master_port: int = 50051,
@@ -46,15 +46,15 @@ class GrpcCommunicator(Communicator):
         aggregation_timeout: float = 600,  # Seconds for server to wait for all clients
         client_timeout: float = 60,  # Seconds for clients to wait for aggregation result
         retry_delay: float = 5.0,  # Seconds between retries
-        max_retries: int = 3,  # Maximum retry attempts
+        max_retries: int = 5,  # Maximum retry attempts
         **kwargs,
     ):
         super().__init__()
         print(
-            f"[COMM-INIT] rank={local_rank}/{world_size} | addr={master_addr}:{master_port}"
+            f"[COMM-INIT] rank={rank}/{world_size} | addr={master_addr}:{master_port}"
         )
 
-        self.local_rank: int = local_rank
+        self.rank: int = rank
         self.world_size: int = world_size
 
         self.master_addr: str = master_addr
@@ -99,9 +99,9 @@ class GrpcCommunicator(Communicator):
     @property
     def is_server(self) -> bool:
         """True if rank 0 (server)."""
-        return self.local_rank == 0
+        return self.rank == 0
 
-    def _setup_impl(self):
+    def _setup(self):
         """Initialize gRPC server or client based on rank."""
         # Setup - Ray already logs actor initialization
         if self.is_server:
@@ -126,7 +126,7 @@ class GrpcCommunicator(Communicator):
             self._server.start()
         else:
             self._client = GrpcClient(
-                client_id=str(self.local_rank),
+                client_id=str(self.rank),
                 master_addr=self.master_addr,
                 master_port=self.master_port,
                 max_send_message_length=self.max_send_message_length,
@@ -138,9 +138,9 @@ class GrpcCommunicator(Communicator):
 
     def broadcast(
         self,
-        msg: Communicator.MsgT,
+        msg: BaseCommunicator.MsgT,
         src: int = 0,  # NOTE: unused here
-    ) -> Communicator.MsgT:
+    ) -> BaseCommunicator.MsgT:
         """Broadcast from source rank to all ranks."""
         if self.is_server:
             tensordict = self._extract_tensordict_from_msg(msg)
@@ -154,24 +154,23 @@ class GrpcCommunicator(Communicator):
 
     def aggregate(
         self,
-        msg: Communicator.MsgT,
+        msg: BaseCommunicator.MsgT,
         reduction: ReductionType,
-    ) -> Communicator.MsgT:
+    ) -> BaseCommunicator.MsgT:
         """Aggregate across all ranks via central server."""
         # Extract tensors and perform aggregation
         tensordict = self._extract_tensordict_from_msg(msg)
-        
-        if self.is_server:
-            print(f"[AGG-SERVER] {type(msg).__name__} | {len(tensordict)} tensors | {reduction.value}")
-        else:
-            print(f"[AGG-CLIENT] {type(msg).__name__} | {len(tensordict)} tensors | {reduction.value}")
-        
+
+        print(
+            f"[COMM-AGG] {type(msg).__name__} | {len(tensordict)} tensors | reduction={reduction} | info={self.get_msg_info(msg)}"
+        )
+
         aggregated_tensordict = self._grpc_aggregate(tensordict, reduction)
 
         # Apply result back to original message format
         return self._apply_tensordict_to_msg(msg, aggregated_tensordict)
 
-    def _extract_tensordict_from_msg(self, msg: Communicator.MsgT) -> dict:
+    def _extract_tensordict_from_msg(self, msg: BaseCommunicator.MsgT) -> dict:
         """Convert message to tensor dictionary."""
         if isinstance(msg, nn.Module):
             return {
@@ -185,14 +184,16 @@ class GrpcCommunicator(Communicator):
             return {"tensor": msg}
 
     def _apply_tensordict_to_msg(
-        self, msg: Communicator.MsgT, tensordict: dict
-    ) -> Communicator.MsgT:
+        self, msg: BaseCommunicator.MsgT, tensordict: dict
+    ) -> BaseCommunicator.MsgT:
         """Apply tensor dictionary to message."""
         if isinstance(msg, nn.Module):
             with torch.no_grad():
                 for name, param in msg.named_parameters():
                     if param.requires_grad and name in tensordict:
-                        param.data.copy_(tensordict[name])
+                        # Ensure tensor is on the same device as the parameter before copying
+                        tensor = tensordict[name].to(param.device)
+                        param.data.copy_(tensor)
             return msg
         elif isinstance(msg, dict):
             return tensordict

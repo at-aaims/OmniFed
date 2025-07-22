@@ -18,6 +18,7 @@ from rich.console import Console
 from rich.logging import RichHandler
 from rich.rule import Rule
 
+
 console = Console()
 
 

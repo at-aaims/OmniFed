@@ -22,9 +22,9 @@ import torch.nn as nn
 from src.flora.helper.node_config import NodeConfig
 from src.flora.helper.training_params import DittoTrainingParameters
 
-from ..communicator import Communicator, ReductionType
+from ..communicator import BaseCommunicator, ReductionType
 from . import utils
-from .BaseAlgorithm import Algorithm
+from .BaseAlgorithm import BaseAlgorithm
 
 
 class Ditto:
@@ -35,7 +35,7 @@ class Ditto:
         self,
         model: torch.nn.Module,
         train_data: torch.utils.data.DataLoader,
-        communicator: Communicator,
+        communicator: BaseCommunicator,
         total_clients: int,
         train_params: DittoTrainingParameters,
     ):
@@ -135,7 +135,7 @@ class Ditto:
 
 
 @rich.repr.auto
-class DittoNew(Algorithm):
+class DittoNew(BaseAlgorithm):
     """
     Ditto algorithm implementation for personalized federated learning.
 
@@ -143,34 +143,30 @@ class DittoNew(Algorithm):
     The personal model is trained with a proximal regularization term to stay close to the global model.
     """
 
-    def __init__(
-        self,
-        local_model: nn.Module,
-        comm: Communicator,
-        max_epochs: int,
-        lr: float = 0.01,
-        global_lr: float = 0.01,
-        ditto_lambda: float = 0.1,
-    ):
-        super().__init__(local_model, comm, max_epochs)
-        self.lr = lr
+    def __init__(self, global_lr: float = 0.01, ditto_lambda: float = 0.1, **kwargs):
+        """Initialize Ditto algorithm with global learning rate and regularization parameter."""
+        super().__init__(**kwargs)
         self.global_lr = global_lr
         self.ditto_lambda = ditto_lambda
 
-        # ---
-        self.global_model = copy.deepcopy(local_model)
+    def _setup(self, device: torch.device) -> None:
+        """
+        Ditto-specific setup: initialize global model and optimizer.
+        """
+        super()._setup(device=device)
 
+        self.global_model = copy.deepcopy(self.local_model)
         self.global_optimizer = torch.optim.SGD(
             self.global_model.parameters(), lr=self.global_lr
         )
 
-    def configure_optimizer(self) -> torch.optim.Optimizer:
+    def _configure_local_optimizer(self, local_lr: float) -> torch.optim.Optimizer:
         """
         SGD optimizer for local updates.
         """
-        return torch.optim.SGD(self.local_model.parameters(), lr=self.lr)
+        return torch.optim.SGD(self.local_model.parameters(), lr=local_lr)
 
-    def train_step(self, batch: Any, batch_idx: int) -> tuple[torch.Tensor, int]:
+    def _train_step(self, batch: Any) -> tuple[torch.Tensor, int]:
         """
         Perform dual training: update both global model and personal model.
         """
@@ -200,19 +196,24 @@ class DittoNew(Algorithm):
 
         return total_loss, batch_size
 
-    def round_start(self, round_idx: int) -> None:
+    def _round_start(self) -> None:
         """
         Synchronize the global model at the start of each round.
-        """
-        self.global_model = self.comm.broadcast(self.global_model, src=0)
 
-    def round_end(self, round_idx: int) -> None:
+        # NOTE: Ditto requires this broadcast because aggregate() updates self.global_model and all clients need to receive the updated global model for personalization
+
+        # TODO: check whether we can safely just move all this logic in round_start() for all algorithms to the end of aggregate() method and remove round_start() overrides altogether
+        # TODO: should this logic be linked with the same granularity as aggregate(), rather than always on round_start?
         """
-        Aggregate global models across clients. Personal models remain local.
+        self.global_model = self.local_comm.broadcast(self.global_model, src=0)
+
+    def _aggregate(self) -> None:
+        """
+        Ditto aggregation: aggregate global models while keeping personal models local.
         """
         # Aggregate local sample counts to compute federation total
-        global_samples = self.comm.aggregate(
-            torch.tensor([self.local_samples], dtype=torch.float32),
+        global_samples = self.local_comm.aggregate(
+            torch.tensor([self.local_sample_count], dtype=torch.float32),
             reduction=ReductionType.SUM,
         ).item()
 
@@ -221,13 +222,13 @@ class DittoNew(Algorithm):
             data_proportion = 0.0
         else:
             # Calculate data proportion for weighted aggregation
-            data_proportion = self.local_samples / global_samples
+            data_proportion = self.local_sample_count / global_samples
 
         # All nodes participate regardless of sample count
         utils.scale_params(self.global_model, data_proportion)
 
         # Aggregate global models (personal models remain local)
-        self.global_model = self.comm.aggregate(
+        self.global_model = self.local_comm.aggregate(
             self.global_model,
             reduction=ReductionType.SUM,
         )

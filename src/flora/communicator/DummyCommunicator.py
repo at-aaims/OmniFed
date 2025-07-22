@@ -18,14 +18,13 @@ import rich.repr
 import torch
 import torch.nn as nn
 
-from .BaseCommunicator import Communicator
-
+from .BaseCommunicator import BaseCommunicator
 
 # ======================================================================================
 
 
 @rich.repr.auto
-class DummyCommunicator(Communicator):
+class DummyCommunicator(BaseCommunicator):
     """
     Mock communicator for development with no-ops.
     """
@@ -43,45 +42,45 @@ class DummyCommunicator(Communicator):
         self.group_name = group_name
         print(f"[COMM-INIT] rank={rank}/{world_size} | group={group_name}")
 
-    def _setup_impl(self):
+    def _setup(self):
         print("[COMM-SETUP] no-op")
 
     def broadcast(
         self,
-        msg: Communicator.MsgT,
+        msg: BaseCommunicator.MsgT,
         src: int = 0,
-    ) -> Communicator.MsgT:
+    ) -> BaseCommunicator.MsgT:
         print(f"[COMM-BCAST] src=rank{src} | {type(msg).__name__}")
         return msg
 
     def aggregate(
         self,
-        msg: Communicator.MsgT,
+        msg: BaseCommunicator.MsgT,
         compute_mean: bool = True,
-    ) -> Communicator.MsgT:
+    ) -> BaseCommunicator.MsgT:
         print(f"[COMM-AGG] {type(msg).__name__} | no-op")
         return msg
 
     def send(
         self,
-        msg: Communicator.MsgT,
+        msg: BaseCommunicator.MsgT,
         dst: int,
-    ) -> Communicator.MsgT:
+    ) -> BaseCommunicator.MsgT:
         print(f"[COMM-SEND] dst=rank{dst}")
         return msg
 
     def receive(
         self,
-        msg: Communicator.MsgT,
+        msg: BaseCommunicator.MsgT,
         src: int,
-    ) -> Communicator.MsgT:
+    ) -> BaseCommunicator.MsgT:
         print(f"[COMM-RECV] src=rank{src}")
         return msg
 
     def collect(
         self,
         msg: Union[nn.Module, torch.Tensor, float, int],
-    ) -> list[tuple[int, Communicator.MsgT]]:
+    ) -> list[tuple[int, BaseCommunicator.MsgT]]:
         print("[COMM-COLLECT] no-op")
         return [(self.rank, msg)]
 
