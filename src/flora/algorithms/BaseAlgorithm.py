@@ -423,7 +423,7 @@ class BaseAlgorithm(SetupMixin):
         if self.global_comm is not None:
             print(f"[GLOBAL-AGG] {context} | Start", flush=True)
             self.local_model = self.global_comm.aggregate(
-                self.local_model, reduction=ReductionType.SUM
+                self.local_model, reduction=ReductionType.MEAN
             )
             print(f"[GLOBAL-AGG] {context} | Complete", flush=True)
 
