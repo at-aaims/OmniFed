@@ -306,7 +306,7 @@ class MOONNew(BaseAlgorithm):
         # Set global model to eval mode for contrastive learning
         self.global_model.eval()
 
-    def _aggregate(self) -> None:
+    def _aggregate(self) -> nn.Module:
         """
         MOON aggregation: weighted averaging with model history for contrastive learning.
         """
@@ -329,17 +329,19 @@ class MOONNew(BaseAlgorithm):
 
         # Aggregate scaled models
         # NOTE: This aggregate() call returns the updated global model, so the local_model is now the aggregated global model
-        self.local_model = self.local_comm.aggregate(
+        aggregated_model = self.local_comm.aggregate(
             self.local_model,
             reduction=ReductionType.SUM,
         )
 
         # Update previous model history
         # Create a copy of the aggregated model for history
-        model_copy = copy.deepcopy(self.local_model)
+        model_copy = copy.deepcopy(aggregated_model)
         model_copy.eval()
 
         # Maintain history of previous models
         if len(self.prev_models) == self.num_prev_models:
             self.prev_models.pop()  # Remove oldest
         self.prev_models.insert(0, model_copy)  # Add newest at front
+
+        return aggregated_model

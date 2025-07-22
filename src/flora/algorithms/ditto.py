@@ -205,9 +205,9 @@ class DittoNew(BaseAlgorithm):
         # TODO: check whether we can safely just move all this logic in round_start() for all algorithms to the end of aggregate() method and remove round_start() overrides altogether
         # TODO: should this logic be linked with the same granularity as aggregate(), rather than always on round_start?
         """
-        self.global_model = self.local_comm.broadcast(self.global_model, src=0)
+        self.global_model = self.local_comm.broadcast(self.global_model)
 
-    def _aggregate(self) -> None:
+    def _aggregate(self) -> nn.Module:
         """
         Ditto aggregation: aggregate global models while keeping personal models local.
         """
@@ -232,3 +232,6 @@ class DittoNew(BaseAlgorithm):
             self.global_model,
             reduction=ReductionType.SUM,
         )
+
+        # Return the personal local model (not the aggregated global model)
+        return self.local_model

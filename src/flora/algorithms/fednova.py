@@ -221,7 +221,7 @@ class FedNovaNew(BaseAlgorithm):
         alpha *= lr
         return alpha
 
-    def _aggregate(self) -> None:
+    def _aggregate(self) -> nn.Module:
         """
         FedNova aggregation: normalized averaging based on local training steps.
         """
@@ -262,5 +262,5 @@ class FedNovaNew(BaseAlgorithm):
         # Apply the aggregated normalized updates to the global model parameters
         utils.apply_model_delta(self.global_model, aggregated_deltas, scale=lr)
 
-        # Update the local model to match the updated global model
-        self.local_model = copy.deepcopy(self.global_model)
+        # Return the updated global model as the new local model
+        return copy.deepcopy(self.global_model)

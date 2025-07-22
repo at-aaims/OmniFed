@@ -162,7 +162,7 @@ class FedProxNew(BaseAlgorithm):
         # Update the reference global model (self.local_model already contains latest from aggregate())
         self.global_model.load_state_dict(self.local_model.state_dict())
 
-    def _aggregate(self) -> None:
+    def _aggregate(self) -> nn.Module:
         """
         FedProx aggregation: weighted averaging of model parameters.
         """
@@ -184,7 +184,7 @@ class FedProxNew(BaseAlgorithm):
 
         # Aggregate weighted model parameters from all clients
         # NOTE: This aggregate() call returns the updated global model, so the local_model is now the aggregated global model
-        self.local_model = self.local_comm.aggregate(
+        return self.local_comm.aggregate(
             self.local_model,
             reduction=ReductionType.SUM,
         )
