@@ -98,22 +98,3 @@ class BaseCommunicator(SetupMixin, ABC):
         """Clean up communication resources."""
         pass
 
-    def get_msg_info(self, msg: MsgT) -> dict:
-        info = {}
-
-        # Extract tensor metadata for logging
-        if isinstance(msg, torch.Tensor):
-            tensor = msg
-        elif isinstance(msg, nn.Module):
-            tensor = next(msg.parameters(), None)
-        elif isinstance(msg, dict):
-            tensor = next(
-                (t for t in msg.values() if isinstance(t, torch.Tensor)), None
-            )
-        else:
-            raise TypeError(f"Unsupported message type: {type(msg)}")
-
-        info["dtype"] = str(tensor.dtype)
-        info["device"] = str(tensor.device)
-
-        return info

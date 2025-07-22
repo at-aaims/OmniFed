@@ -20,8 +20,7 @@ import rich.repr
 import torch
 from omegaconf import DictConfig
 
-from ..Node import Node
-from .BaseTopology import BaseTopology
+from .BaseTopology import BaseTopology, NodeConfig
 
 # ======================================================================================
 
@@ -41,6 +40,7 @@ class CentralizedTopology(BaseTopology):
         num_clients: int,
         local_comm: DictConfig,
         init_delay: float = 1.0,
+        **kwargs: Any,
     ):
         """
         Initialize centralized topology.
@@ -50,22 +50,20 @@ class CentralizedTopology(BaseTopology):
             local_comm: Local communication configuration (required)
             init_delay (float): Simulated delay in seconds between node initializations (default: 1.0s)
         """
-        super().__init__()
+        super().__init__(**kwargs)
         self.num_clients: int = num_clients
         self.local_comm_cfg = local_comm
         self.init_delay: float = init_delay
 
-    def create_nodes(
+    def configure_nodes(
         self,
         algo_cfg: DictConfig,
         model_cfg: DictConfig,
         data_cfg: DictConfig,
-        log_dir: str,
-        node_rayopts: Dict[str, Any] = {},
         **kwargs: Any,
-    ) -> List[Node]:
+    ) -> List[NodeConfig]:
         """
-        Create nodes for centralized topology.
+        Configure nodes for centralized topology.
 
         In centralized topology:
         - Rank 0: Aggregator (no training data, coordinates aggregation)
@@ -74,64 +72,40 @@ class CentralizedTopology(BaseTopology):
         The global_comm_cfg parameter allows MultiGroupTopology to provide
         additional communication configuration for specific nodes.
         """
-        total_nodes: int = self.num_clients + 1  # 1 server + N clients
-        # Request GPU resources if available
-        if torch.cuda.is_available():
-            node_rayopts.setdefault("num_gpus", 1.0 / total_nodes)
+        world_size: int = self.num_clients + 1  # 1 server + N clients
 
-        nodes: List[Node] = []
+        node_configs: List[NodeConfig] = []
 
         # ----------------------------------------------------------------
-        # INIT ALL NODES
+        # CONFIGURE ALL NODES
 
-        for rank in range(total_nodes):
-            # Configure Ray actor options
-
+        for rank in range(world_size):
             # Create communicator configs with injected rank and world_size
             __local_comm_cfg = DictConfig(
                 {
                     **self.local_comm_cfg,
                     "rank": rank,
-                    "world_size": total_nodes,
+                    "world_size": world_size,
                 }
             )
 
-            # Extract global_comm_cfg from kwargs if provided (for multi-group scenarios)
-            global_comm_cfg = kwargs.get("global_comm_cfg", None)
-
-            # Generate node ID
-            node_id_base = f"L{rank}"
-            if global_comm_cfg is not None:
-                global_rank = global_comm_cfg["rank"]
-                node_id_base = f"G{global_rank}{node_id_base}"
-
             if rank == 0:
-                node_id = f"{node_id_base}-SERVER"
+                node_id = "SERVER"
                 # Create node-specific data config for server (no training data)
                 node_data_cfg = data_cfg.copy()
                 node_data_cfg.train = None
-                # Only server gets global_comm_cfg for inter-group communication
-                __global_comm_cfg = global_comm_cfg
             else:
-                node_id = f"{node_id_base}-Client"  # Purposefully using different casing for log readability
+                node_id = "Client"
                 node_data_cfg = data_cfg
-                # Clients don't participate in inter-group communication
-                __global_comm_cfg = None
 
-            node = Node.options(**node_rayopts).remote(
+            node_config = NodeConfig(
                 id=node_id,
                 local_comm_cfg=__local_comm_cfg,
-                global_comm_cfg=__global_comm_cfg,
                 algo_cfg=algo_cfg,
-                model_cfg=model_cfg,
-                data_cfg=node_data_cfg,
-                log_dir=os.path.join(log_dir, node_id),
+                local_model_cfg=model_cfg,
+                local_data_cfg=node_data_cfg,
             )
 
-            nodes.append(node)
+            node_configs.append(node_config)
 
-            # Add simulated delay between node initializations
-            time.sleep(self.init_delay)
-
-        # NOTE: node setup is handled externally by Engine
-        return nodes
+        return node_configs

@@ -13,6 +13,5 @@
 # limitations under the License.
 
 from .BaseCommunicator import BaseCommunicator, ReductionType
-from .DummyCommunicator import DummyCommunicator
 from .TorchDistCommunicator import TorchDistCommunicator
 from .grpc_communicator import GrpcCommunicator

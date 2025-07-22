@@ -21,7 +21,7 @@ import torch
 
 from . import ReductionType, grpc_communicator_pb2
 from . import grpc_communicator_pb2_grpc
-from .protobuf_utils import tensordict_to_proto, proto_to_tensordict
+from .utils import get_msg_info, proto_to_tensordict, tensordict_to_proto
 
 
 @rich.repr.auto
@@ -104,7 +104,7 @@ class GrpcClient:
                 response = self.stub.GetBroadcastState(request)
                 if response.is_ready:
                     tensordict = proto_to_tensordict(response.tensor_dict)
-                    print(f"[BCAST-RECEIVED] Got model with {len(tensordict)} tensors")
+                    print(f"[BCAST-RECEIVED] {get_msg_info(tensordict)}")
                     return tensordict
                 poll_count += 1
                 print(
@@ -144,7 +144,9 @@ class GrpcClient:
 
     def get_aggregation_result(self) -> Dict[str, torch.Tensor]:
         """Retrieve aggregation result from server with timeout."""
-        print(f"[AGG-WAIT] Waiting for server to aggregate models (timeout={self.client_timeout}s)")
+        print(
+            f"[AGG-WAIT] Waiting for server to aggregate models (timeout={self.client_timeout}s)"
+        )
 
         start_time = time.time()
         poll_count = 0
@@ -160,7 +162,7 @@ class GrpcClient:
                 if response.is_ready:
                     tensordict = proto_to_tensordict(response.tensor_dict)
                     print(
-                        f"[AGG-RECEIVED] Got aggregated model with {len(tensordict)} tensors (waited {elapsed:.1f}s)"
+                        f"[AGG-RECEIVED] {get_msg_info(tensordict)} (waited {elapsed:.1f}s)"
                     )
                     return tensordict
                 poll_count += 1

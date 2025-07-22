@@ -23,6 +23,7 @@ from . import BaseCommunicator, grpc_communicator_pb2_grpc
 from .BaseCommunicator import ReductionType
 from .grpc_client import GrpcClient
 from .grpc_server import CentralServerServicer
+from .utils import get_msg_info
 
 
 @rich.repr.auto
@@ -144,13 +145,12 @@ class GrpcCommunicator(BaseCommunicator):
         """Broadcast from source rank to all ranks."""
         if self.is_server:
             tensordict = self._extract_tensordict_from_msg(msg)
-            print(f"[BCAST-SEND] {type(msg).__name__} | {len(tensordict)} tensors")
+            print(f"[BCAST-SEND] {get_msg_info(msg)} | src={src}")
             self.servicer.set_broadcast_state(tensordict)
             return msg
-        else:
-            tensordict = self.client.get_broadcast_state()
-            print(f"[BCAST-RECV] {type(msg).__name__} | {len(tensordict)} tensors")
-            return self._apply_tensordict_to_msg(msg, tensordict)
+        tensordict = self.client.get_broadcast_state()
+        print(f"[BCAST-RECV] {get_msg_info(msg)} | src={src}")
+        return self._apply_tensordict_to_msg(msg, tensordict)
 
     def aggregate(
         self,
@@ -161,9 +161,7 @@ class GrpcCommunicator(BaseCommunicator):
         # Extract tensors and perform aggregation
         tensordict = self._extract_tensordict_from_msg(msg)
 
-        print(
-            f"[COMM-AGG] {type(msg).__name__} | {len(tensordict)} tensors | reduction={reduction} | info={self.get_msg_info(msg)}"
-        )
+        print(f"[COMM-AGG] {get_msg_info(msg)} | reduction={reduction}")
 
         aggregated_tensordict = self._grpc_aggregate(tensordict, reduction)
 
