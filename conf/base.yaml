@@ -3,6 +3,11 @@
 #
 # This is the foundational configuration that provides common defaults for all FLORA experiments.
 # Other configurations should extend this base and override specific sections as needed.
+#
+# Docs:
+# - https://hydra.cc/docs/patterns/extending_configs/
+# - https://hydra.cc/docs/patterns/configuring_experiments/
+# - https://hydra.cc/docs/advanced/defaults_list/
 # ------------------------------------------------------------------------------
 
 defaults:
@@ -29,6 +34,9 @@ topology: ??? # Must be specified by extending configs
 global_rounds: ???
 
 # ───────────── Hydra Config
+# Docs:
+# - https://hydra.cc/docs/configure_hydra/intro/
+# - https://hydra.cc/docs/configure_hydra/job/
 
 hydra:
   job:
@@ -60,9 +68,10 @@ hydra:
 
   run:
     # Output directory for FL experiment results and logs
+    # Docs: https://hydra.cc/docs/configure_hydra/workdir/
     dir: outputs/${now:%Y-%m-%d}/${hydra.job.config_name}
 
-    # Alternative patterns:
+    # Alternative example patterns:
     # dir: outputs/${now:%Y-%m-%d}/${now:%H-%M-%S}              # Group by date/time
     # dir: outputs/${hydra.job.name}/${now:%Y-%m-%d_%H-%M-%S}   # Group by job name
     # dir: outputs/${algorithm._target_}/${now:%Y-%m-%d}        # Group by algorithm
