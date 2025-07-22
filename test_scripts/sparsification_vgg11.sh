@@ -9,7 +9,7 @@ cd ../
 #masterport=28670
 #worldsize=3
 interface='lo0'
-dir='/ccsopen/home/ssq/datasets/'
+dir='/ccsopen/home/ssq/datasets2/'
 masterport=28670
 worldsize=8
 interface='eth1'
@@ -24,7 +24,7 @@ weightdecay=5e-4
 model='vgg11'
 dataset='cifar100'
 compression='topK'
-compressratio=0.1
+compressratio=0.001
 
 for val in $(seq 1 $worldsize)
 do

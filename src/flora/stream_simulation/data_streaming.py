@@ -12,18 +12,77 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import time
+import pickle
+import threading
+from kafka import KafkaProducer
 
-from src.flora.stream_simulation import TrainingDataset
+from src.flora.datasets.image_classification import cifar
 
 
-class DataStreaming:
+class DataStreamPublisher:
     def __init__(
         self,
-        dataset_type=TrainingDataset.CIFAR10,
+        dataset_type='cifar10',
         kafka_host="127.0.0.1",
         kafka_port=9092,
         stream_rate=32,
         datadir="~/",
-        kafka_dir="~/kafka",
+        total_clients=1,
     ):
-        pass
+        self.dataset_type = dataset_type
+        self.kafka_host = kafka_host
+        self.kafka_port = kafka_port
+        self.stream_rate = stream_rate
+        self.datadir = datadir
+        self.total_clients = total_clients
+
+        if self.dataset_type is None:
+            raise ValueError(
+                "Must specify either dataset or dataset_type TrainingDataset"
+            )
+
+        if self.dataset_type == "cifar10":
+            self.train_dataset = cifar.cifar10Data(client_id=0,
+                                                   total_clients=1,
+                                                   datadir=self.datadir,
+                                                   is_test=False,
+                                                   get_training_dataset=True)
+
+        elif self.dataset_type == "cifar100":
+            self.train_dataset = cifar.cifar100Data(client_id=0,
+                                                    total_clients=1,
+                                                    datadir=self.datadir,
+                                                    is_test=False,
+                                                    get_training_dataset=True)
+
+        self.producer = KafkaProducer(bootstrap_servers=self.kafka_host + ":" + str(self.kafka_port),
+                                      value_serializer=self.serialize_sample)
+
+
+    def serialize_sample(self, sample):
+        image, label = sample
+        return pickle.dumps({
+            'image': image.numpy(),
+            'label': label
+        })
+
+    def stream_data(self, topic):
+        try:
+            while True:
+                for i, sample in enumerate(self.train_dataset):
+                    self.producer.send(topic=topic, value=sample)
+                    time.sleep(1 / self.stream_rate)
+        finally:
+            self.producer.flush()
+
+    def publish_data_to_clients(self):
+        for ix in range(self.total_clients):
+            client_id = "client-{}".format(ix)
+            print("going to publish data to client {}".format(client_id))
+            thread = threading.Thread(target=self.stream_data, args=(client_id,))
+            thread.start()
+
+
+class DataStreamSubscriber:
+    def __init__()
