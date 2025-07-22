@@ -8,7 +8,6 @@
 defaults:
   - test_mnist_base
   - topology: centralized
-  - _self_
 
 # ───────────── Topology Config
 

@@ -180,10 +180,6 @@ class ScaffoldNew(BaseAlgorithm):
     Gradient correction and control variate updates are performed each round.
     """
 
-    def __init__(self, **kwargs):
-        """Initialize SCAFFOLD algorithm with granularity validation."""
-        super().__init__(**kwargs)
-
     def _setup(self, device: torch.device) -> None:
         """
         SCAFFOLD-specific setup: initialize control variates and tracking structures.

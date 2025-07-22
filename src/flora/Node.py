@@ -50,7 +50,7 @@ class NodeConfig:
     """Configuration for creating a Ray actor Node."""
 
     id: str
-    algo_cfg: DictConfig
+    algorithm_cfg: DictConfig
     local_comm_cfg: DictConfig
     local_model_cfg: DictConfig
     local_data_cfg: DictConfig
@@ -99,8 +99,8 @@ class Node(SetupMixin):
         # self.tb_writer: SummaryWriter = SummaryWriter(log_dir=log_dir)
 
         # Federated learning algorithm
-        self.algo: BaseAlgorithm = instantiate(
-            cfg.algo_cfg,
+        self.algorithm: BaseAlgorithm = instantiate(
+            cfg.algorithm_cfg,
             local_comm=self.local_comm,
             global_comm=self.global_comm,
             local_model=self.local_model,
@@ -143,7 +143,7 @@ class Node(SetupMixin):
             self.global_comm.setup()
 
         # Setup algorithm
-        self.algo.setup(device=self.device)
+        self.algorithm.setup(device=self.device)
         # summary(self.model, verbose=1)
 
     def round_exec(self, round_idx: int) -> dict[str, float]:
@@ -158,9 +158,9 @@ class Node(SetupMixin):
             Dictionary with training metrics and results
         """
         if not self.is_ready:
-            raise RuntimeError(f"Node {self.id} not ready - call setup() first")
+            raise RuntimeError(f"Node not ready - call setup() first")
 
-        metrics = self.algo.round_exec(
+        metrics = self.algorithm.round_exec(
             self.datamodule,
             round_idx,
         )

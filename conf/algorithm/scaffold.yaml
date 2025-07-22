@@ -1,0 +1,12 @@
+# ------------------------------------------------------------------------------
+# SCAFFOLD Algorithm Configuration
+#
+# SCAFFOLD uses control variates to address client drift in federated learning
+# ------------------------------------------------------------------------------
+
+defaults:
+  - base
+
+# Dotpath to class implementation
+_target_: src.flora.algorithms.ScaffoldNew
+# SCAFFOLD has no additional parameters beyond the base algorithm
