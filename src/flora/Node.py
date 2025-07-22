@@ -13,6 +13,7 @@
 # limitations under the License.
 
 import time
+from dataclasses import dataclass
 from typing import Any, Optional
 
 import ray
@@ -44,6 +45,19 @@ from .mixins import SetupMixin
 #     # VALIDATOR = "validator"      # Validates updates or models
 
 
+@dataclass
+class NodeConfig:
+    """Configuration for creating a Ray actor Node."""
+
+    id: str
+    algo_cfg: DictConfig
+    local_comm_cfg: DictConfig
+    local_model_cfg: DictConfig
+    local_data_cfg: DictConfig
+    global_comm_cfg: Optional[DictConfig] = None  # For inter-group communication
+    device: str = "auto"
+
+
 @ray.remote
 class Node(SetupMixin):
     """
@@ -61,53 +75,41 @@ class Node(SetupMixin):
     - Should enable any topology pattern through consistent and generalizable interfaces
     """
 
-    def __init__(
-        self,
-        id: str,
-        # roles: Set[NodeRole],
-        local_comm_cfg: DictConfig,
-        global_comm_cfg: DictConfig | None,  # For inter-group communication
-        algo_cfg: DictConfig,
-        model_cfg: DictConfig,
-        data_cfg: DictConfig,
-        log_dir: str,
-        device: str = "auto",
-        **kwargs: Any,
-    ):
+    def __init__(self, cfg: NodeConfig):
         super().__init__()
-        print(f"[NODE-INIT] {id}")
-        self.id: str = id
+        print(f"[NODE-INIT] {cfg.id}")
+        self.cfg = cfg
         # self.roles: Set[NodeRole] = roles
 
-        # Communication backend instantiation
-        self.local_comm: BaseCommunicator = instantiate(local_comm_cfg)
-
-        # Extract rank information from local communicator for device selection and other uses
-        self.device: torch.device = self.select_device(
-            device, rank=getattr(self.local_comm, "rank", None)
-        )
+        # Local communicator for intra-group communication
+        self.local_comm: BaseCommunicator = instantiate(cfg.local_comm_cfg)
 
         # Global communicator for inter-group coordination (optional)
         self.global_comm: Optional[BaseCommunicator] = None
-        if global_comm_cfg is not None:
-            self.global_comm = instantiate(global_comm_cfg)
+        if cfg.global_comm_cfg is not None:
+            self.global_comm = instantiate(cfg.global_comm_cfg)
 
         # PyTorch model
-        self.local_model: nn.Module = instantiate(model_cfg)
+        self.local_model: nn.Module = instantiate(cfg.local_model_cfg)
 
         # Data module
-        self.datamodule: DataModule = instantiate(data_cfg)
+        self.datamodule: DataModule = instantiate(cfg.local_data_cfg)
 
         # TensorBoard setup
         # self.tb_writer: SummaryWriter = SummaryWriter(log_dir=log_dir)
 
         # Federated learning algorithm
         self.algo: BaseAlgorithm = instantiate(
-            algo_cfg,
+            cfg.algo_cfg,
             local_comm=self.local_comm,
             global_comm=self.global_comm,
             local_model=self.local_model,
             tb_writer=None,
+        )
+
+        # Extract rank information from local communicator for device selection and other uses
+        self.device: torch.device = self.select_device(
+            cfg.device, rank=self.local_comm.rank
         )
 
     def __repr__(self) -> str:
@@ -121,7 +123,11 @@ class Node(SetupMixin):
         # return f"Node {self.id}: {role_names}"
         _time = time.strftime("%H:%M:%S", time.gmtime())
         # _time = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
-        return f"{self.id} {_time}"
+
+        prefix = f"G{self.global_comm.rank}" if self.global_comm else ""
+        prefix += f"L{self.local_comm.rank}"
+
+        return f"{prefix}_{self.cfg.id} {_time}"
 
     def _setup(self) -> None:
         """

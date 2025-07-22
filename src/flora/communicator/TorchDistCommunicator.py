@@ -13,7 +13,6 @@
 # limitations under the License.
 
 import datetime
-from typing import Union
 
 import rich.repr
 import torch
@@ -21,7 +20,7 @@ import torch.distributed as dist
 from torch import nn
 
 from .BaseCommunicator import BaseCommunicator, ReductionType
-from ..algorithms import utils
+from .utils import get_msg_info
 
 # ======================================================================================
 
@@ -153,7 +152,7 @@ class TorchDistCommunicator(BaseCommunicator):
         Returns:
             Broadcasted message
         """
-        print(f"[COMM-BCAST] {type(msg).__name__} | src: {src}")
+        print(f"[COMM-BCAST] {get_msg_info(msg)} | src={src}")
 
         if isinstance(msg, nn.Module):
             for _, p in msg.named_parameters():
@@ -185,9 +184,7 @@ class TorchDistCommunicator(BaseCommunicator):
             Aggregated message
         """
 
-        print(
-            f"[COMM-AGG] {type(msg).__name__} | reduction={reduction} | info={self.get_msg_info(msg)}"
-        )
+        print(f"[COMM-AGG] {get_msg_info(msg)} | reduction={reduction}")
 
         # Map reduction type to PyTorch operation
         reduction_ops = {

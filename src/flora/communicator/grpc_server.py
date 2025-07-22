@@ -21,7 +21,7 @@ import torch
 
 from . import grpc_communicator_pb2, grpc_communicator_pb2_grpc
 from .BaseCommunicator import ReductionType
-from .protobuf_utils import proto_to_tensordict, tensordict_to_proto
+from .utils import get_msg_info, proto_to_tensordict, tensordict_to_proto
 
 
 @rich.repr.auto
@@ -70,7 +70,7 @@ class CentralServerServicer(grpc_communicator_pb2_grpc.CentralServerServicer):
         """Set broadcast state for client retrieval."""
         with self.lock:
             self._broadcast_state = tensordict
-        print(f"[COMM-BCAST] Stored | {len(tensordict)} tensors")
+        print(f"[COMM-BCAST] Stored | {get_msg_info(tensordict)}")
 
     def perform_aggregation_if_ready(
         self, session_state: Dict, current_session: int

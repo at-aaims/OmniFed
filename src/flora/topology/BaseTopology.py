@@ -19,14 +19,13 @@ import rich.repr
 from omegaconf import DictConfig
 
 from .. import utils
-from ..Node import Node
-from ..mixins import SetupMixin
+from ..Node import NodeConfig
 
 # ======================================================================================
 
 
 @rich.repr.auto
-class BaseTopology(SetupMixin, ABC):
+class BaseTopology(ABC):
     """
     Abstract network topology interface.
 
@@ -35,70 +34,83 @@ class BaseTopology(SetupMixin, ABC):
     Each topology implementation determines how nodes are configured and how they communicate with each other.
     """
 
-    def __init__(self):
+    def __init__(
+        self,
+        algo_cfg: DictConfig,
+        model_cfg: DictConfig,
+        data_cfg: DictConfig,
+        **kwargs: Any,
+    ):
         """
         Initialize topology.
         """
-        super().__init__()
         utils.log_sep(f"{self.__class__.__name__} Init")
-        self.__nodes: List[Node] = []
+        self.algo_cfg: DictConfig = algo_cfg
+        self.model_cfg: DictConfig = model_cfg
+        self.data_cfg: DictConfig = data_cfg
+        self.node_kwargs: Dict[str, Any] = kwargs
 
-    def _setup(
-        self,
-        algo_cfg: DictConfig,
-        model_cfg: DictConfig,
-        data_cfg: DictConfig,
-        log_dir: str,
-        **kwargs: Any,
-    ):
-        self.__nodes = self.create_nodes(
-            algo_cfg=algo_cfg,
-            model_cfg=model_cfg,
-            data_cfg=data_cfg,
-            log_dir=log_dir,
-            **kwargs,
-        )
+        # Lazy-initialized node configurations list
+        self.__node_configs: Optional[List[NodeConfig]] = None
 
-        if not self.__nodes:
-            raise ValueError("Topology.create_nodes() must return at least one node.")
+    @property
+    def node_configs(self) -> List[NodeConfig]:
+        """
+        Get the list of node configurations in this topology.
+        """
+        if self.__node_configs is None:
+            self.__node_configs = self.configure_nodes(
+                algo_cfg=self.algo_cfg,
+                model_cfg=self.model_cfg,
+                data_cfg=self.data_cfg,
+                **self.node_kwargs,
+            )
+            print(
+                f"[{self.__class__.__name__}] Configured {len(self.__node_configs)} nodes"
+            )
+
+        if not self.__node_configs:
+            raise ValueError(
+                "Topology.configure_nodes() must return at least one node configuration."
+            )
+
+        return self.__node_configs
 
     @abstractmethod
-    def create_nodes(
+    def configure_nodes(
         self,
         algo_cfg: DictConfig,
         model_cfg: DictConfig,
         data_cfg: DictConfig,
-        log_dir: str,
-        node_rayopts: Dict[str, Any] = {},
         **kwargs: Any,
-    ) -> List[Node]:
+    ) -> List[NodeConfig]:
         """
-        Create and configure nodes for this topology.
+        Configure node configurations for this topology.
 
         This method is responsible for:
-        1. Creating nodes with appropriate configuration
+        1. Creating node configurations with appropriate parameters
         2. Establishing communication relationships between nodes
         3. Setting up any topology-specific state
 
         Returns:
-            List of configured nodes
+            List of node configuration dictionaries
         """
         pass
 
     def __len__(self) -> int:
         """
-        Get the number of nodes in this topology.
+        Get the number of node configurations in this topology.
         """
-        return len(self.__nodes)
+        return len(self.node_configs)
 
-    def __getitem__(self, index: int) -> Node:
+    def __getitem__(self, index: int) -> NodeConfig:
         """
-        Get a node by index.
+        Get a node configuration by index.
         """
-        return self.__nodes[index]
+        return self.node_configs[index]
 
     def __iter__(self):
         """
-        Iterate over nodes in this topology.
+        Iterate over node configurations in this topology.
         """
-        return iter(self.__nodes)
+        return iter(self.node_configs)

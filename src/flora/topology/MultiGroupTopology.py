@@ -12,16 +12,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import os
-from typing import Dict, List
+from typing import Any, List
 
 import rich.repr
-import torch
 from hydra.utils import instantiate
-from omegaconf import DictConfig, OmegaConf
+from omegaconf import DictConfig
 
-from ..Node import Node
-from .BaseTopology import BaseTopology
+from .BaseTopology import BaseTopology, NodeConfig
 
 # ======================================================================================
 
@@ -41,7 +38,12 @@ class MultiGroupTopology(BaseTopology):
     The topology composes multiple CentralizedTopology instances.
     """
 
-    def __init__(self, groups: List[DictConfig], global_comm: DictConfig):
+    def __init__(
+        self,
+        groups: List[DictConfig],
+        global_comm: DictConfig,
+        **kwargs: Any,
+    ):
         """
         Initialize with a list of group configurations.
 
@@ -54,7 +56,7 @@ class MultiGroupTopology(BaseTopology):
         Raises:
             ValueError: If no groups provided
         """
-        super().__init__()
+        super().__init__(**kwargs)
         self.global_comm_cfg = global_comm
 
         if not groups:
@@ -64,65 +66,46 @@ class MultiGroupTopology(BaseTopology):
         self.topologies: List[BaseTopology] = [
             instantiate(
                 topology,
+                **kwargs,
                 _recursive_=False,
             )
             for topology in groups
         ]
 
-    def create_nodes(
-        self,
-        algo_cfg: DictConfig,
-        model_cfg: DictConfig,
-        data_cfg: DictConfig,
-        log_dir: str,
-        node_rayopts: Dict[str, any] = {},
-        **kwargs,
-    ) -> List[Node]:
+    def configure_nodes(self, *args, **kwargs: Any) -> List[NodeConfig]:
         """
-        Create nodes for all groups and configure cross-group communication.
+        Configure nodes for all groups and set up cross-group communication.
 
-        Each group gets its own communication setup for local training.
-        Group servers additionally get global communication configuration for coordinating
-        with other institutions.
+        Each group topology has already been instantiated and configured through
+        the constructor's instantiate() call, so their node configurations already exist.
+        This method retrieves those existing configurations and injects global
+        communicators for local rank 0 nodes (group servers) only.
 
-        Args:
-            algo_cfg: Algorithm configuration
-            model_cfg: Model configuration
-            data_cfg: Data configuration
-            log_dir: Base logging directory
+        Group servers (local rank 0 nodes) get global communication configuration
+        for coordinating across institutional boundaries.
 
         Returns:
-            Flattened list of all nodes across all groups
+            Flattened list of all node configurations across all groups with
+            global communicators injected for group servers
         """
 
-        # Prevent GPU over-allocation when multiple groups share infrastructure
-        total_nodes = sum(group.num_clients + 1 for group in self.topologies)
-        if torch.cuda.is_available():
-            node_rayopts.setdefault("num_gpus", 1.0 / total_nodes)
-
-        all_nodes: List[Node] = []
+        all_node_configs: List[NodeConfig] = []
 
         for group_idx, group_topology in enumerate(self.topologies):
-            # Inject group's global rank into gRPC configuration for inter-group communication
-            __global_comm_cfg = DictConfig(
-                {
-                    **self.global_comm_cfg,
-                    "rank": group_idx,  # Group index becomes global rank
-                    "world_size": len(self.topologies),
-                }
-            )
+            # Inject global communicator for local rank 0 nodes only
+            # Note: group_topology.__iter__() returns node_configs directly
+            for node_config in group_topology:
+                # Check if this is a local rank 0 node (server/aggregator)
+                if node_config.local_comm_cfg["rank"] == 0:
+                    # Inject group's global rank into gRPC configuration for inter-group communication
+                    node_config.global_comm_cfg = DictConfig(
+                        {
+                            **self.global_comm_cfg,
+                            "rank": group_idx,  # Group index becomes global rank
+                            "world_size": len(self.topologies),
+                        }
+                    )
 
-            # Each group topology handle node creation
-            group_nodes = group_topology.create_nodes(
-                algo_cfg=algo_cfg,
-                model_cfg=model_cfg,
-                data_cfg=data_cfg,
-                log_dir=os.path.join(log_dir, f"Group{group_idx}"),
-                node_rayopts=node_rayopts,
-                global_comm_cfg=__global_comm_cfg,  # Pass global_comm_cfg through kwargs for inter-group coordination
-                **kwargs,
-            )
+                all_node_configs.append(node_config)
 
-            all_nodes.extend(group_nodes)
-
-        return all_nodes
+        return all_node_configs
