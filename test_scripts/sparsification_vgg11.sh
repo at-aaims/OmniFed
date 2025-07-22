@@ -8,9 +8,15 @@ cd ../
 #dir='/Users/ssq/Desktop/datasets/flora_test/'
 #masterport=28670
 #worldsize=3
-interface='lo0'
+#interface='lo0'
+#dir='/ccsopen/home/ssq/datasets/'
+#masterport=28670
+#dir='/ccsopen/home/ssq/datasets2/'
+#masterport=29860
 dir='/ccsopen/home/ssq/datasets3/'
-masterport=28670
+masterport=27340
+#dir='/ccsopen/home/ssq/datasets4/'
+#masterport=26290
 worldsize=8
 interface='eth1'
 bsz=32
