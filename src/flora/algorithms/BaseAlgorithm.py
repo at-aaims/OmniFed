@@ -314,7 +314,7 @@ class BaseAlgorithm(SetupMixin):
         self.local_model = self.local_model.to(device)
 
         # Standard federated learning setup: broadcast initial model from server
-        self.local_model = self.local_comm.broadcast(self.local_model, src=0)
+        self.local_model = self.local_comm.broadcast(self.local_model)
         # TODO: maybe require this to return the local model or perhaps a whole state object? (should we do the same to aggregate?)
 
     # =============================================================================
@@ -365,7 +365,7 @@ class BaseAlgorithm(SetupMixin):
         pass
 
     @abstractmethod
-    def _aggregate(self) -> None:
+    def _aggregate(self) -> nn.Module:
         """
         Perform local aggregation within the group (REQUIRED override).
 
@@ -373,78 +373,75 @@ class BaseAlgorithm(SetupMixin):
         (controlled by agg_level and agg_freq). Use self.local_comm for communication.
 
         Common patterns:
-        - FedAvg: self.local_model = self.local_comm.aggregate(self.local_model, ReductionType.MEAN)
-        - Custom: Aggregate gradients, apply server-side optimization, broadcast result
+        - FedAvg: return self.local_comm.aggregate(self.local_model, ReductionType.MEAN)
+        - Custom: Scale local weights → aggregate → apply optimizations → return result
 
-        Available communication operations:
-        - self.local_comm.aggregate(model, ReductionType.MEAN/SUM): All-reduce aggregation
-        - self.local_comm.broadcast(model, src=0): Broadcast from specific rank
-        - self.local_comm.all_gather(tensors): Gather tensors from all ranks
+        Returns:
+            Aggregated local model
 
         Example:
             # Simple FedAvg aggregation
-            self.local_model = self.local_comm.aggregate(self.local_model, ReductionType.MEAN)
+            return self.local_comm.aggregate(self.local_model, ReductionType.MEAN)
         """
         pass
 
-    def _perform_aggregation(self) -> None:
+    def __synchronize(self) -> None:
         """
-        Coordinate model aggregation across local groups and (optionally) between groups.
+        Coordinate model aggregation within and across federated learning groups.
 
-        This gets called from three places depending on agg_level:
-        - ROUND: After complete federated rounds (typical case)
+        Called at different granularities based on agg_level:
+        - ROUND: After complete training rounds (most common)
         - EPOCH: After local training epochs
         - ITER: After individual training batches
 
-        The flow works in phases:
-        1. Everyone does local aggregation within their group
-        2. Group servers (rank=0 nodes with global_comm) coordinate between groups
-        3. All nodes participate in final broadcast to avoid race conditions
+        Three-phase execution:
+        1. Intra-group aggregation: All nodes use local_comm.aggregate()
+        2. Inter-group coordination: Group servers aggregate via global_comm
+        3. Conditional broadcast: Only when inter-group coordination occurred
 
-        The race condition fix in phase 3 is critical - without it, clients finish
-        their local work and disconnect before servers complete inter-group coordination,
-        causing broadcast timeouts. Making everyone participate prevents this.
+        Single-group topologies skip Phase 3 since Phase 1 all-reduce already synchronized all participants.
 
-        Note: Only group servers have global_comm set. Regular clients have global_comm=None
-        and only participate in local aggregation + receiving the final result.
-
-        Multi-group coordination requires consistent agg_freq across all groups.
+        Multi-group requires Phase 3 to distribute globally aggregated models from group servers to their clients.
         """
-        # Phase 1: Local aggregation
-        self._aggregate()
+        # Dynamic context based on aggregation level
+        match self.agg_level:
+            case AggLevel.ROUND:
+                context = f"Round {self.round_idx + 1}"
+            case AggLevel.EPOCH:
+                context = f"Round {self.round_idx + 1} Epoch {self.epoch_idx + 1}"
+            case AggLevel.ITER:
+                context = f"Round {self.round_idx + 1} Epoch {self.epoch_idx + 1} Batch {self.batch_idx + 1}"
+            case _:
+                raise ValueError(f"Unknown aggregation level: {self.agg_level}")
 
-        # Phase 2: Inter-group coordination (only nodes with global_comm participate)
+        # Phase 1: Intra-group aggregation via all-reduce
+        print(f"[LOCAL-AGG] {context} | Start", flush=True)
+        self.local_model = self._aggregate()
+        print(f"[LOCAL-AGG] {context} | Complete", flush=True)
+
+        # Phase 2: Inter-group coordination (group servers only)
         if self.global_comm is not None:
-            print(
-                f"[AGG-INTER-START] Round {self.round_idx + 1} | Server initiating inter-group aggregation",
-                flush=True,
-            )
-
-            # Exchange and combine models with other group servers
+            print(f"[GLOBAL-AGG] {context} | Start", flush=True)
             self.local_model = self.global_comm.aggregate(
-                self.local_model,
-                reduction=ReductionType.SUM,
+                self.local_model, reduction=ReductionType.MEAN
             )
+            print(f"[GLOBAL-AGG] {context} | Complete", flush=True)
 
-            print(
-                f"[AGG-INTER-DONE] Round {self.round_idx + 1} | Inter-group coordination complete",
-                flush=True,
+        # Phase 3: Conditional broadcast to distribute global results
+        needs_final_broadcast = (
+            self.local_comm.aggregate(
+                torch.tensor(1.0 if self.global_comm is not None else 0.0),
+                ReductionType.MAX,
             )
+            > 0
+        )
 
-        # Phase 3: Final broadcast - all nodes participate to prevent race conditions
-        # TODO: This broadcast is unnecessary overhead for single-group topologies since
-        # local aggregation already synchronized the model. Should only do this extra
-        # broadcast step when we actually have multi-group coordination happening.
-        node_role = "Server" if self.global_comm is not None else "Client"
-        print(
-            f"[AGG-FINAL-START] Round {self.round_idx + 1} | {node_role} entering final broadcast phase",
-            flush=True,
-        )
-        self.local_model = self.local_comm.broadcast(self.local_model, src=0)
-        print(
-            f"[AGG-FINAL-DONE] Round {self.round_idx + 1} | {node_role} {'broadcast' if self.global_comm is not None else 'received'} final model",
-            flush=True,
-        )
+        if needs_final_broadcast:
+            print(f"[LOCAL-BCAST] {context} | Start", flush=True)
+            self.local_model = self.local_comm.broadcast(self.local_model)
+            print(f"[LOCAL-BCAST] {context} | Complete", flush=True)
+        else:
+            print(f"[LOCAL-BCAST] {context} | Skipped", flush=True)
 
     # =============================================================================
     # =============================================================================
@@ -516,11 +513,7 @@ class BaseAlgorithm(SetupMixin):
         # Check if aggregation should occur based on level & frequency
         if self.agg_level == AggLevel.ROUND:
             if self.round_idx % self.agg_freq == 0:
-                print(
-                    f"[AGG-TRIGGER] Round {self.round_idx + 1} | Level=ROUND | Freq={self.agg_freq} | Executing aggregation",
-                    flush=True,
-                )
-                self._perform_aggregation()
+                self.__synchronize()
             else:
                 next_agg = ((self.round_idx // self.agg_freq) + 1) * self.agg_freq + 1
                 print(
@@ -602,11 +595,7 @@ class BaseAlgorithm(SetupMixin):
             # Batch-level aggregation
             if self.agg_level == AggLevel.ITER:
                 if self.batch_idx % self.agg_freq == 0:
-                    print(
-                        f"[AGG-TRIGGER] Round {self.round_idx + 1} Epoch {self.epoch_idx + 1} Batch {self.batch_idx + 1} | Level=ITER | Freq={self.agg_freq} | Executing aggregation",
-                        flush=True,
-                    )
-                    self._perform_aggregation()
+                    self.__synchronize()
                 else:
                     next_agg = (
                         (self.batch_idx // self.agg_freq) + 1
@@ -647,17 +636,7 @@ class BaseAlgorithm(SetupMixin):
         # Epoch-level aggregation
         if self.agg_level == AggLevel.EPOCH:
             if self.epoch_idx % self.agg_freq == 0:
-                print(
-                    f"[AGG-TRIGGER] Round {self.round_idx + 1} Epoch {self.epoch_idx + 1} | Level=EPOCH | Freq={self.agg_freq} | Samples={self.local_sample_count} | Executing aggregation",
-                    flush=True,
-                )
-                _t_start = time.time()
-                self._perform_aggregation()
-                agg_time = time.time() - _t_start
-                print(
-                    f"[AGG-COMPLETE] Round {self.round_idx + 1} Epoch {self.epoch_idx + 1} | Level=EPOCH | Duration={agg_time:.4f}s",
-                    flush=True,
-                )
+                self.__synchronize()
             else:
                 next_agg = ((self.epoch_idx // self.agg_freq) + 1) * self.agg_freq + 1
                 print(

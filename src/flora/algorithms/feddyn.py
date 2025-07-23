@@ -190,7 +190,7 @@ class FedDynNew(BaseAlgorithm):
         total_loss = base_loss + regularization_loss
         return total_loss, inputs.size(0)
 
-    def _aggregate(self) -> None:
+    def _aggregate(self) -> nn.Module:
         """
         FedDyn aggregation: weighted averaging with dynamic regularization momentum.
         """
@@ -233,5 +233,5 @@ class FedDynNew(BaseAlgorithm):
                 # Update server momentum: h = h + alpha * (local - global)
                 self.server_momentum[name].add_(model_diff, alpha=self.alpha)
 
-        # Update local model to aggregated result
-        self.local_model = aggregated_model
+        # Return aggregated result
+        return aggregated_model

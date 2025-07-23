@@ -1,0 +1,12 @@
+# ------------------------------------------------------------------------------
+# FedAvg Algorithm Configuration
+#
+# Federated Averaging - the baseline federated learning algorithm
+# ------------------------------------------------------------------------------
+
+defaults:
+  - base
+
+# Dotpath to class implementation
+_target_: src.flora.algorithms.FedAvgNew
+# FedAvg has no additional parameters beyond the base algorithm

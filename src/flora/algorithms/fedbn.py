@@ -150,7 +150,7 @@ class FedBNNew(BaseAlgorithm):
         loss = torch.nn.functional.cross_entropy(outputs, targets)
         return loss, inputs.size(0)
 
-    def _aggregate(self) -> None:
+    def _aggregate(self) -> nn.Module:
         """
         FedBN aggregation: aggregate non-BatchNorm parameters while keeping BN layers local.
         """
@@ -179,15 +179,17 @@ class FedBNNew(BaseAlgorithm):
                 param.data.mul_(data_proportion)
 
         # Aggregate non-BN parameters
-        self.local_model = self.local_comm.aggregate(
+        aggregated_model = self.local_comm.aggregate(
             self.local_model,
             reduction=ReductionType.SUM,
         )
 
         # Restore local BN parameters
-        for name, param in self.local_model.named_parameters():
+        for name, param in aggregated_model.named_parameters():
             if self._is_bn_layer(name) and name in local_bn_params:
                 param.data.copy_(local_bn_params[name])
+
+        return aggregated_model
 
     def _is_bn_layer(self, param_name: str) -> bool:
         """

@@ -192,7 +192,7 @@ class FedMomNew(BaseAlgorithm):
         # Update global model reference (self.local_model already contains latest from aggregate())
         self.global_model.load_state_dict(self.local_model.state_dict())
 
-    def _aggregate(self) -> None:
+    def _aggregate(self) -> nn.Module:
         """
         FedMom aggregation: server-side momentum on aggregated parameter deltas.
         """
@@ -237,5 +237,5 @@ class FedMomNew(BaseAlgorithm):
                 # Update global model parameters using alpha argument
                 param.data.sub_(self.velocity[name], alpha=self.local_lr)
 
-        # Update local model to match updated global model
-        self.local_model = copy.deepcopy(self.global_model)
+        # Return updated global model as new local model
+        return copy.deepcopy(self.global_model)

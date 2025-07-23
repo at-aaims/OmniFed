@@ -180,10 +180,6 @@ class ScaffoldNew(BaseAlgorithm):
     Gradient correction and control variate updates are performed each round.
     """
 
-    def __init__(self, **kwargs):
-        """Initialize SCAFFOLD algorithm with granularity validation."""
-        super().__init__(**kwargs)
-
     def _setup(self, device: torch.device) -> None:
         """
         SCAFFOLD-specific setup: initialize control variates and tracking structures.
@@ -251,7 +247,7 @@ class ScaffoldNew(BaseAlgorithm):
             if param.grad is not None and name in self.server_cv:
                 param.grad.add_(self.server_cv[name] - self.client_cv[name])
 
-    def _aggregate(self) -> None:
+    def _aggregate(self) -> nn.Module:
         """
         SCAFFOLD aggregation: aggregate model deltas and control variate deltas.
         """
@@ -293,4 +289,6 @@ class ScaffoldNew(BaseAlgorithm):
             if name in aggregated_cv_deltas:
                 self.server_cv[name].add_(aggregated_cv_deltas[name])
 
-        self.local_model.load_state_dict(self.global_model.state_dict())
+        # Create and return the updated local model
+        updated_local_model = copy.deepcopy(self.global_model)
+        return updated_local_model

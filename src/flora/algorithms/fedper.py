@@ -191,7 +191,7 @@ class FedPerNew(BaseAlgorithm):
         loss = torch.nn.functional.cross_entropy(outputs, targets)
         return loss, inputs.size(0)
 
-    def _aggregate(self) -> None:
+    def _aggregate(self) -> nn.Module:
         """
         FedPer aggregation: aggregate base model while preserving personal layers.
         """
@@ -219,12 +219,14 @@ class FedPerNew(BaseAlgorithm):
                 personal_params[name] = param.data.clone()
 
         # Aggregate entire model (including personal layers)
-        self.local_model = self.local_comm.aggregate(
+        aggregated_model = self.local_comm.aggregate(
             self.local_model,
             reduction=ReductionType.SUM,
         )
 
         # Restore personal layer parameters (keep them local)
-        for name, param in self.local_model.named_parameters():
+        for name, param in aggregated_model.named_parameters():
             if name in personal_params:
                 param.data.copy_(personal_params[name])
+
+        return aggregated_model

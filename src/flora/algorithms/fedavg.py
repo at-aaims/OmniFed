@@ -136,7 +136,7 @@ class FedAvgNew(BaseAlgorithm):
         batch_size = inputs.size(0)
         return loss, batch_size
 
-    def _aggregate(self) -> None:
+    def _aggregate(self) -> nn.Module:
         """
         Aggregate model parameters across clients and update the local model with the weighted average.
         """
@@ -159,8 +159,7 @@ class FedAvgNew(BaseAlgorithm):
 
         # Aggregate models across all clients
         # NOTE: This aggregate() call returns the updated global model, so the local_model is now the aggregated global model
-        self.local_model = self.local_comm.aggregate(
+        return self.local_comm.aggregate(
             self.local_model,
             reduction=ReductionType.SUM,
         )
-        # TODO: should we require all aggregate functions to return the updated global model nn.Module? or would that be incompatible with some algorithms? that might improve clarity and consistency of the API and data flow.
