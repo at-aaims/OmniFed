@@ -15,7 +15,9 @@
 import time
 import pickle
 import threading
-from kafka import KafkaProducer
+from kafka import KafkaProducer, KafkaConsumer
+
+import torch
 
 from src.flora.datasets.image_classification import cifar
 
@@ -58,7 +60,7 @@ class DataStreamPublisher:
 
         self.producer = KafkaProducer(bootstrap_servers=self.kafka_host + ":" + str(self.kafka_port),
                                       value_serializer=self.serialize_sample)
-
+        print("Producer started...")
 
     def serialize_sample(self, sample):
         image, label = sample
@@ -85,4 +87,32 @@ class DataStreamPublisher:
 
 
 class DataStreamSubscriber:
-    def __init__()
+    def __init__(self,
+        kafka_host="127.0.0.1",
+        kafka_port=9092,
+        client_id=0,
+    ):
+        self.kafka_host = kafka_host
+        self.kafka_port = kafka_port
+        self.topic = "client-{}".format(client_id)
+
+        self.consumer = KafkaConsumer(self.topic,
+                                      bootstrap_servers=self.kafka_host + ":" + str(self.kafka_port),
+                                      auto_offset_reset='earliest',
+                                      enable_auto_commit=True)
+        print("Consumer started...")
+
+    def deserialize_sample(self, msg_bytes):
+        data_dict = pickle.loads(msg_bytes)
+        image_np = data_dict['image']
+        label = data_dict['label']
+        # [C, H, W]
+        image_tensor = torch.tensor(image_np, dtype=torch.float32)
+        label_tensor = torch.tensor(label, dtype=torch.long)
+
+        return image_tensor, label_tensor
+
+    def stream_data(self):
+        for message in self.consumer:
+            img_tensor, label_tensor = self.deserialize_sample(message.value)
+            print(f"received sample label {label_tensor.item()} image tensor shape {img_tensor.shape}")
