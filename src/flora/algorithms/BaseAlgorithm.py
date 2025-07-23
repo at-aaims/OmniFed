@@ -399,12 +399,9 @@ class BaseAlgorithm(SetupMixin):
         2. Inter-group coordination: Group servers aggregate via global_comm
         3. Conditional broadcast: Only when inter-group coordination occurred
 
-        Optimization: Single-group topologies skip Phase 3 since Phase 1 all-reduce
-        already synchronized all participants. Multi-group requires Phase 3 to
-        distribute globally aggregated models from group servers to their clients.
+        Single-group topologies skip Phase 3 since Phase 1 all-reduce already synchronized all participants.
 
-        Requirements: Only rank-0 nodes have global_comm. All nodes participate
-        in coordination detection to maintain collective operation contracts.
+        Multi-group requires Phase 3 to distribute globally aggregated models from group servers to their clients.
         """
         # Dynamic context based on aggregation level
         if self.agg_level == AggLevel.ROUND:
