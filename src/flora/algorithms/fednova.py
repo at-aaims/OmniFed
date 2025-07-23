@@ -226,9 +226,11 @@ class FedNovaNew(BaseAlgorithm):
 
         # Compute normalized parameter deltas for each trainable parameter
         normalized_deltas: Dict[str, torch.Tensor] = {}
+        # Create parameter dictionary once for efficiency
+        global_param_dict = dict(self.global_model.named_parameters())
         for name, param in self.local_model.named_parameters():
             if param.requires_grad:
-                global_param = dict(self.global_model.named_parameters())[name]
+                global_param = global_param_dict[name]
                 normalized_deltas[name] = (global_param.data - param.data) / alpha
 
         # Aggregate local sample counts to compute federation total
