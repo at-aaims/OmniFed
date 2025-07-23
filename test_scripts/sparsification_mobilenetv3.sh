@@ -10,12 +10,12 @@ cd ../
 #interface='lo0'
 #masterport=28670
 
-#dir='/ccsopen/home/ssq/datasets/'
-#masterport=24870
+dir='/ccsopen/home/ssq/datasets/'
+masterport=25781
 #dir='/ccsopen/home/ssq/datasets2/'
 #masterport=29860
-dir='/ccsopen/home/ssq/datasets3/'
-masterport=28130
+#dir='/ccsopen/home/ssq/datasets3/'
+#masterport=28130
 #dir='/ccsopen/home/ssq/datasets4/'
 #masterport=26290
 worldsize=8
@@ -33,7 +33,7 @@ momentum=0.9
 lrstepsize=40
 numclasses=257
 compression='topK'
-compressratio=0.1
+compressratio=0.001
 
 for val in $(seq 1 $worldsize)
 do
