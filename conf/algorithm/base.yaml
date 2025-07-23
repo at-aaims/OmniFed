@@ -1,0 +1,13 @@
+# ------------------------------------------------------------------------------
+# Base Algorithm Configuration
+# ------------------------------------------------------------------------------
+
+# Required fields (must be overridden by each algorithm config)
+_target_: ???
+
+local_lr: ???
+max_epochs_per_round: ???
+
+# Defaults
+agg_level: ROUND
+agg_freq: 1

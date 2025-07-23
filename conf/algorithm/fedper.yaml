@@ -1,0 +1,14 @@
+# ------------------------------------------------------------------------------
+# FedPer Algorithm Configuration
+#
+# FedPer - personalized layers kept local, only base model is aggregated
+# ------------------------------------------------------------------------------
+
+defaults:
+  - base
+
+# Dotpath to class implementation
+_target_: src.flora.algorithms.FedPerNew
+
+# Defaults
+personal_layers: ["classifier", "head", "fc"]  # Layer names to keep local (not aggregated)

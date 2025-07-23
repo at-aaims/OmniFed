@@ -153,14 +153,12 @@ class DiLoCoNew(BaseAlgorithm):
         self,
         outer_lr: float = 0.7,
         outer_momentum: float = 0.9,
-        inner_steps: int = 5,
         **kwargs,
     ):
         """Initialize DiLoCo algorithm with distributed optimizer parameters."""
         super().__init__(**kwargs)
         self.outer_lr = outer_lr
         self.outer_momentum = outer_momentum
-        self.inner_steps = inner_steps
 
     def _setup(self, device: torch.device) -> None:
         """

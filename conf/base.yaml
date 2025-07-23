@@ -3,6 +3,11 @@
 #
 # This is the foundational configuration that provides common defaults for all FLORA experiments.
 # Other configurations should extend this base and override specific sections as needed.
+#
+# Docs:
+# - https://hydra.cc/docs/patterns/extending_configs/
+# - https://hydra.cc/docs/patterns/configuring_experiments/
+# - https://hydra.cc/docs/advanced/defaults_list/
 # ------------------------------------------------------------------------------
 
 defaults:
@@ -29,7 +34,44 @@ topology: ??? # Must be specified by extending configs
 global_rounds: ???
 
 # ───────────── Hydra Config
+# Docs:
+# - https://hydra.cc/docs/configure_hydra/intro/
+# - https://hydra.cc/docs/configure_hydra/job/
 
 hydra:
+  job:
+    env_set:
+      # Environment variables for the Hydra job
+      # These can be used to configure the runtime environment for FL workers.
+      # Note: These variables will be copied to all FL workers
+
+      FLORA_ENV_DUMMY1: "dummy_value1" # Example variable for demonstration
+
+      # Example settings:
+
+      # GPU & threading:
+      # CUDA_VISIBLE_DEVICES: "0,1"        # Assign specific GPUs
+      # OMP_NUM_THREADS: 4                 # Limit CPU threads per client
+
+      # PyTorch debugging:
+      # NCCL_DEBUG: INFO                   # GPU communication debug
+      # TORCH_DISTRIBUTED_DEBUG: DETAIL    # Distributed training debug
+      # TORCH_CPP_LOG_LEVEL: INFO          # PyTorch C++ logs
+
+      # Framework logging:
+      # TF_CPP_MIN_LOG_LEVEL: 3            # Suppress TensorFlow warnings
+      # GRPC_VERBOSITY: ERROR              # Minimize gRPC logging
+
+    # Copy local environment variables to FL workers:
+    # env_copy:
+    #   - WANDB_API_KEY # W&B experiment tracking
+
   run:
+    # Output directory for FL experiment results and logs
+    # Docs: https://hydra.cc/docs/configure_hydra/workdir/
     dir: outputs/${now:%Y-%m-%d}/${hydra.job.config_name}
+
+    # Alternative example patterns:
+    # dir: outputs/${now:%Y-%m-%d}/${now:%H-%M-%S}              # Group by date/time
+    # dir: outputs/${hydra.job.name}/${now:%Y-%m-%d_%H-%M-%S}   # Group by job name
+    # dir: outputs/${algorithm._target_}/${now:%Y-%m-%d}        # Group by algorithm
