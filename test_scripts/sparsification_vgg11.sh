@@ -9,10 +9,10 @@ cd ../
 #masterport=28670
 #worldsize=3
 #interface='lo0'
-dir='/ccsopen/home/ssq/datasets/'
-masterport=24870
-#dir='/ccsopen/home/ssq/datasets2/'
-#masterport=29860
+#dir='/ccsopen/home/ssq/datasets/'
+#masterport=24870
+dir='/ccsopen/home/ssq/datasets2/'
+masterport=26610
 #dir='/ccsopen/home/ssq/datasets3/'
 #masterport=27340
 #dir='/ccsopen/home/ssq/datasets4/'
@@ -29,8 +29,8 @@ momentum=0.9
 weightdecay=5e-4
 model='vgg11'
 dataset='cifar100'
-compression='topK'
-compressratio=0.1
+compression='dgc'
+compressratio=0.001
 
 for val in $(seq 1 $worldsize)
 do
