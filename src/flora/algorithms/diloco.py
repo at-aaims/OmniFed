@@ -197,7 +197,7 @@ class DiLoCoNew(BaseAlgorithm):
         # Update global model reference (self.local_model already contains latest from aggregate())
         self.global_model.load_state_dict(self.local_model.state_dict())
 
-    def _aggregate(self) -> None:
+    def _aggregate(self) -> nn.Module:
         """
         DiLoCo aggregation: distributed low-communication with server-side momentum.
         """
@@ -228,5 +228,5 @@ class DiLoCoNew(BaseAlgorithm):
                 # Update global model parameters (param += v)
                 param.data.add_(self.velocity[name])
 
-        # Update local model to match global model
-        self.local_model = copy.deepcopy(self.global_model)
+        # Return updated global model as new local model
+        return copy.deepcopy(self.global_model)

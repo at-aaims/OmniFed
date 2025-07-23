@@ -49,12 +49,20 @@ from .mixins import SetupMixin
 class NodeConfig:
     """Configuration for creating a Ray actor Node."""
 
+    # Node identity
     id: str
+    # roles: list[str]  # List of NodeRole names
+    # ---
+    # Algorithm / Model / Data
     algorithm_cfg: DictConfig
-    local_comm_cfg: DictConfig
     local_model_cfg: DictConfig
     local_data_cfg: DictConfig
+    # ---
+    # Communicators
+    local_comm_cfg: DictConfig
     global_comm_cfg: Optional[DictConfig] = None  # For inter-group communication
+    # ---
+    # Miscellaneous
     device: str = "auto"
 
 
