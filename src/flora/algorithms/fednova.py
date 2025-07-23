@@ -15,15 +15,16 @@
 import copy
 from typing import Any, Dict, Tuple
 
+import rich.repr
 import torch
 import torch.nn as nn
 
-from src.flora.communicator import Communicator
 from src.flora.helper.node_config import NodeConfig
 from src.flora.helper.training_params import FedNovaTrainingParameters
 
+from ..communicator import BaseCommunicator, ReductionType
 from . import utils
-from .BaseAlgorithm import Algorithm
+from .BaseAlgorithm import BaseAlgorithm
 
 
 class FedNova:
@@ -37,7 +38,7 @@ class FedNova:
         self,
         model: torch.nn.Module,
         train_data: torch.utils.data.DataLoader,
-        communicator: Communicator,
+        communicator: BaseCommunicator,
         total_clients: int,
         train_params: FedNovaTrainingParameters,
     ):
@@ -101,7 +102,7 @@ class FedNova:
                 target_param.copy_((weight_scaling * (param1 - param2)) / alpha)
 
         self.diff_params = self.communicator.aggregate(
-            msg=self.diff_params, communicate_params=True, compute_mean=False
+            msg=self.diff_params, compute_mean=False
         )
 
     def model_update(self):
@@ -148,7 +149,8 @@ class FedNova:
 # ======================================================================================
 
 
-class FedNovaNew(Algorithm):
+@rich.repr.auto
+class FedNovaNew(BaseAlgorithm):
     """
     Implementation of Federated Normalized Averaging (FedNova).
 
@@ -156,30 +158,29 @@ class FedNovaNew(Algorithm):
     accounting for varying numbers of local steps and learning dynamics across clients.
     """
 
-    def __init__(
-        self,
-        local_model: nn.Module,
-        comm: Communicator,
-        lr: float = 0.01,
-        weight_decay: float = 0.0,
-    ):
-        super().__init__(local_model, comm)
-        self.lr = lr
+    def __init__(self, weight_decay: float = 0.0, **kwargs):
+        """Initialize FedNova algorithm with weight decay parameter."""
+        super().__init__(**kwargs)
         self.weight_decay = weight_decay
 
-        # ---
-        self.global_model = copy.deepcopy(local_model)
+    def _setup(self, device: torch.device) -> None:
+        """
+        FedNova-specific setup: initialize global model and step counter.
+        """
+        super()._setup(device=device)
+
+        self.global_model = copy.deepcopy(self.local_model)
         self.local_steps_this_round: int = 0
 
-    def configure_optimizer(self) -> torch.optim.Optimizer:
+    def _configure_local_optimizer(self, local_lr: float) -> torch.optim.Optimizer:
         """
         SGD optimizer with weight decay.
         """
         return torch.optim.SGD(
-            self.local_model.parameters(), lr=self.lr, weight_decay=self.weight_decay
+            self.local_model.parameters(), lr=local_lr, weight_decay=self.weight_decay
         )
 
-    def train_step(self, batch: Any, batch_idx: int) -> Tuple[torch.Tensor, int]:
+    def _train_step(self, batch: Any) -> tuple[torch.Tensor, int]:
         """
         Perform a forward pass and compute cross-entropy loss for a batch.
         """
@@ -188,20 +189,23 @@ class FedNovaNew(Algorithm):
         loss = torch.nn.functional.cross_entropy(outputs, targets)
         return loss, inputs.size(0)
 
-    def round_start(self, round_idx: int) -> None:
+    def _round_start(self) -> None:
         """
-        Synchronize the local model with the global model at the start of each round.
+        Update global model reference and reset step counter at the start of each round.
+
+        # TODO: check whether we can safely just move all this logic in round_start() for all algorithms to the end of aggregate() method and remove round_start() overrides altogether
+        # TODO: should this logic be linked with the same granularity as aggregate(), rather than always on round_start?
         """
-        # Receive the latest global model from the server
-        self.local_model = self.comm.broadcast(self.local_model, src=0)
+        # Update global model reference (self.local_model already contains latest from aggregate())
         self.global_model.load_state_dict(self.local_model.state_dict())
+        # Reset local step counter for normalization calculations
         self.local_steps_this_round = 0
 
-    def optimizer_step(self, batch_idx: int) -> None:
+    def _optimizer_step(self) -> None:
         """
         Perform an optimizer step and increment the local step counter for normalization.
         """
-        self.optimizer.step()
+        self.local_optimizer.step()
         self.local_steps_this_round += 1
 
     def _compute_alpha(self, lr: float, local_steps: int) -> float:
@@ -217,11 +221,11 @@ class FedNovaNew(Algorithm):
         alpha *= lr
         return alpha
 
-    def round_end(self, round_idx: int) -> None:
+    def _aggregate(self) -> None:
         """
-        Apply FedNova normalized averaging and update the global model with aggregated updates.
+        FedNova aggregation: normalized averaging based on local training steps.
         """
-        lr = self.optimizer.param_groups[0]["lr"]
+        lr = self.local_optimizer.param_groups[0]["lr"]
         alpha = self._compute_alpha(lr, self.local_steps_this_round)
 
         # Compute normalized parameter deltas for each trainable parameter
@@ -233,29 +237,26 @@ class FedNovaNew(Algorithm):
 
         # Aggregate local sample counts to compute federation total
 
-        global_samples = self.comm.aggregate(
-            torch.tensor([self.local_samples], dtype=torch.float32),
-            communicate_params=False,
-            compute_mean=False,
+        global_samples = self.local_comm.aggregate(
+            torch.tensor([self.local_sample_count], dtype=torch.float32),
+            reduction=ReductionType.SUM,
         ).item()
 
         # Handle edge cases safely - all nodes must participate in distributed operations
         if global_samples <= 0:
-            print(
-                "WARN: No samples processed across entire federation - participating with zero weight"
-            )
             data_proportion = 0.0
         else:
             # Calculate the proportion of data this client contributed
-            data_proportion = self.local_samples / global_samples
+            data_proportion = self.local_sample_count / global_samples
 
         # Scale normalized deltas by the data proportion for weighted aggregation
         for name, delta in normalized_deltas.items():
             delta.mul_(data_proportion)
 
-        # All nodes participate regardless of sample count
-        aggregated_deltas = self.comm.aggregate(
-            msg=normalized_deltas, compute_mean=False
+        # Aggregate normalized deltas
+        aggregated_deltas = self.local_comm.aggregate(
+            msg=normalized_deltas,
+            reduction=ReductionType.SUM,
         )
 
         # Apply the aggregated normalized updates to the global model parameters

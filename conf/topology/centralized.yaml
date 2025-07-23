@@ -2,4 +2,6 @@
 
 _target_: src.flora.topology.CentralizedTopology
 
-num_nodes: ???
+num_clients: ???
+
+local_comm: ???

@@ -12,20 +12,19 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import Optional, Union
+from typing import Union
 
 import rich.repr
 import torch
 import torch.nn as nn
 
-from .BaseCommunicator import Communicator
-
+from .BaseCommunicator import BaseCommunicator
 
 # ======================================================================================
 
 
 @rich.repr.auto
-class DummyCommunicator(Communicator):
+class DummyCommunicator(BaseCommunicator):
     """
     Mock communicator for development with no-ops.
     """
@@ -37,56 +36,53 @@ class DummyCommunicator(Communicator):
         group_name: str = "default",
         **kwargs,  # Accept additional parameters for compatibility with other communicators
     ):
+        super().__init__()
         self.rank = rank
         self.world_size = world_size
         self.group_name = group_name
-        print(f"DummyCommunicator | rank={rank}/{world_size} | group={group_name}")
+        print(f"[COMM-INIT] rank={rank}/{world_size} | group={group_name}")
 
-    def setup(self):
-        print("DummyCommunicator | setup called")
+    def _setup(self):
+        print("[COMM-SETUP] no-op")
 
     def broadcast(
         self,
-        msg: Communicator.MsgT,
+        msg: BaseCommunicator.MsgT,
         src: int = 0,
-    ) -> Communicator.MsgT:
-        print(f"DummyCommunicator | broadcast called from src={src}")
+    ) -> BaseCommunicator.MsgT:
+        print(f"[COMM-BCAST] src=rank{src} | {type(msg).__name__}")
         return msg
 
     def aggregate(
         self,
-        msg: Communicator.MsgT,
-        communicate_params: bool = True,
+        msg: BaseCommunicator.MsgT,
         compute_mean: bool = True,
-    ) -> Communicator.MsgT:
-        print("DummyCommunicator | aggregate called")
+    ) -> BaseCommunicator.MsgT:
+        print(f"[COMM-AGG] {type(msg).__name__} | no-op")
         return msg
 
     def send(
         self,
-        msg: Communicator.MsgT,
+        msg: BaseCommunicator.MsgT,
         dst: int,
-        communicate_params: bool = True,
-    ) -> Communicator.MsgT:
-        print(f"DummyCommunicator | send called to dst={dst}")
+    ) -> BaseCommunicator.MsgT:
+        print(f"[COMM-SEND] dst=rank{dst}")
         return msg
 
     def receive(
         self,
-        msg: Communicator.MsgT,
+        msg: BaseCommunicator.MsgT,
         src: int,
-        communicate_params: bool = True,
-    ) -> Communicator.MsgT:
-        print(f"DummyCommunicator | receive called from src={src}")
+    ) -> BaseCommunicator.MsgT:
+        print(f"[COMM-RECV] src=rank{src}")
         return msg
 
     def collect(
         self,
         msg: Union[nn.Module, torch.Tensor, float, int],
-        communicate_params: bool = True,
-    ) -> list[tuple[int, Communicator.MsgT]]:
-        print("DummyCommunicator | collect called")
+    ) -> list[tuple[int, BaseCommunicator.MsgT]]:
+        print("[COMM-COLLECT] no-op")
         return [(self.rank, msg)]
 
     def close(self):
-        print("DummyCommunicator | close called")
+        print("[COMM-CLOSE] cleanup")

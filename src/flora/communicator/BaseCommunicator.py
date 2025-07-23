@@ -13,35 +13,35 @@
 # limitations under the License.
 
 from abc import ABC, abstractmethod
-from typing import Union, TypeVar, Dict
+from enum import Enum
+from typing import Dict, TypeVar
 
-import rich.repr
 import torch
 import torch.nn as nn
 
+from ..mixins import SetupMixin
 
 # ======================================================================================
 
 
-@rich.repr.auto
-class Communicator(ABC):
-    """
-    Abstract communication interface.
+class ReductionType(str, Enum):
+    """Aggregation reduction operations."""
 
-    - Defines standard communication primitives
-    - Abstracts away protocol-specific implementation details
-    - Abstractions should be topology-agnostic
+    SUM = "SUM"
+    MEAN = "MEAN"
+    MAX = "MAX"
+
+
+class BaseCommunicator(SetupMixin, ABC):
+    """
+    Abstract communication interface for federated learning message transport.
+
+    Provides protocol-agnostic message passing operations (broadcast, aggregate)
+    across different communication backends. Algorithms handle aggregation logic;
+    communicators handle pure transport.
     """
 
     MsgT = TypeVar("MsgT", nn.Module, torch.Tensor, Dict[str, torch.Tensor])
-
-    @abstractmethod
-    def setup(self):
-        """
-        Initialize the communication layer.
-        This method should be called before any communication operations.
-        """
-        pass
 
     @abstractmethod
     def broadcast(
@@ -49,74 +49,52 @@ class Communicator(ABC):
         msg: MsgT,
         src: int = 0,
     ) -> MsgT:
-        """
-        Broadcast a model to all nodes in the communication layer.
-
-        Args:
-            model: The model to broadcast
-            src: The source node index (default is 0)
-        Returns:
-            The broadcasted model on all nodes
-        """
+        """Broadcast message from source to all ranks."""
         pass
 
     @abstractmethod
     def aggregate(
         self,
         msg: MsgT,
-        communicate_params: bool = True,
-        compute_mean: bool = True,
+        reduction: ReductionType,
     ) -> MsgT:
-        """
-        Aggregate an object (model or tensor) across nodes.
-
-        Args:
-            obj: The object to aggregate (model or tensor)
-            mean: Whether to compute the mean (default is True)
-            num_samples: Optional number of samples for weighted aggregation
-        Returns:
-            The aggregated object
-        """
+        """Aggregate message across all ranks with specified reduction."""
         pass
 
-    @abstractmethod
-    def send(
-        self,
-        msg: MsgT,
-        dst: int,
-        communicate_params: bool = True,
-    ) -> MsgT:
-        """
-        Send model parameters or tensor to a given destination rank.
-        """
-        pass
+    # @abstractmethod
+    # def send(
+    #     self,
+    #     msg: MsgT,
+    #     dst: int,
+    # ) -> MsgT:
+    #     """
+    #     Send model parameters or tensor to a given destination rank.
+    #     """
+    #     pass
 
-    @abstractmethod
-    def receive(
-        self,
-        msg: MsgT,
-        src: int,
-        communicate_params: bool = True,
-    ) -> MsgT:
-        """
-        Receive model parameters or tensor from a given source rank.
-        """
-        pass
+    # @abstractmethod
+    # def receive(
+    #     self,
+    #     msg: MsgT,
+    #     src: int,
+    # ) -> MsgT:
+    #     """
+    #     Receive model parameters or tensor from a given source rank.
+    #     """
+    #     pass
 
-    @abstractmethod
-    def collect(
-        self,
-        msg: Union[nn.Module, torch.Tensor, float, int],
-        communicate_params: bool = True,
-    ) -> list:
-        """
-        Gather an object from all ranks and return a list of (rank, data).
-        """
-        pass
+    # @abstractmethod
+    # def collect(
+    #     self,
+    #     msg: Union[nn.Module, torch.Tensor, float, int],
+    # ) -> list:
+    #     """
+    #     Gather an object from all ranks and return a list of (rank, data).
+    #     """
+    #     pass
 
     @abstractmethod
     def close(self):
-        """
-        Clean up any resources used by the communicator.
-        """
+        """Clean up communication resources."""
         pass
+

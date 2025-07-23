@@ -2,14 +2,14 @@
 
 # Defines a reusable datamodule config using the torchvision MNIST dataset.
 
-_target_: src.flora.dataset.DataModule
+_target_: src.flora.data.DataModule
 
 # ─────────────
 
 train:
   _target_: torch.utils.data.DataLoader
 
-  dataset: 
+  dataset:
     _target_: torchvision.datasets.MNIST
     root: /tmp/torchvision-mnist
     train: true
@@ -24,15 +24,15 @@ train:
 
   shuffle: true
 
-  batch_size: ???
+  batch_size: ??? # Mandatory marker; composer must override this value
   num_workers: 2
 
-# ─────────────
+# ───────────── Validation DataLoader Config (Optional)
 
 val: # TODO: Currently unused
   _target_: torch.utils.data.DataLoader
 
-  dataset: 
+  dataset:
     _target_: torchvision.datasets.MNIST
     root: /tmp/torchvision-mnist
     train: false
@@ -47,13 +47,10 @@ val: # TODO: Currently unused
 
   shuffle: false
 
-  batch_size: ???
+  batch_size: ??? # Mandatory marker; composer must override this value
   num_workers: 2
-
-# ─────────────
+# ───────────── Test DataLoader Config (Optional)
 
 # test: # Optional
 # ...
-
-
 

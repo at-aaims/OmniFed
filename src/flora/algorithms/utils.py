@@ -13,10 +13,16 @@
 # limitations under the License.
 
 import copy
-from typing import Any, Dict, List, Optional
+import hashlib
+import math
+import warnings
+from functools import wraps
+
+# from torch.utils.tensorboard import SummaryWriter
+from typing import Any, Callable, Dict, List, Optional
+
 import torch
 from torch import nn
-import hashlib
 
 
 def get_param_norm(model: nn.Module) -> float:
@@ -63,6 +69,9 @@ def clip_grads(model: nn.Module, max_norm: float) -> float:
         model: Model to clip gradients for
         max_norm: Maximum gradient norm threshold
     """
+    print(f"[UTIL-GRAD-CLIP] max_norm={max_norm:.4f}")
+    if max_norm <= 0:
+        raise ValueError("max_norm must be positive for gradient clipping")
     return torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm).item()
 
 
@@ -74,6 +83,7 @@ def scale_grads(model: nn.Module, scale_factor: float) -> None:
         model: Model to scale gradients for
         scale_factor: Factor to scale gradients by
     """
+    print(f"[UTIL-GRAD-SCALE] scale_factor={scale_factor:.4f}")
     for param in model.parameters():
         if param.grad is not None:
             param.grad.mul_(scale_factor)
@@ -87,6 +97,7 @@ def scale_params(model: nn.Module, scale_factor: float) -> None:
         model: Model to scale parameters for
         scale_factor: Factor to scale parameters by
     """
+    print(f"[UTIL-PARAM-SCALE] scale_factor={scale_factor:.4f}")
     with torch.no_grad():
         for param in model.parameters():
             if param.requires_grad:
@@ -293,3 +304,91 @@ def hash_model_params(model: nn.Module) -> str:
 
     # Generate deterministic hash
     return hashlib.sha256(param_bytes).hexdigest()[:16]  # First 16 chars for brevity
+
+
+def log_param_changes(func: Callable[..., Any]) -> Callable[..., Any]:
+    """Decorator to automatically track parameter changes for a method"""
+
+    # if TYPE_CHECKING:
+    # from .BaseAlgorithm import Algorithm
+
+    @wraps(func)
+    def wrapper(algo: "Algorithm", *args: Any, **kwargs: Any) -> Any:
+        phase = func.__name__  # Automatically get the function name
+        before_norm = get_param_norm(algo.local_model)
+        before_hash = hash_model_params(algo.local_model)
+
+        # Fatal check: model must have valid parameters before operation
+        if before_norm == 0.0:
+            raise RuntimeError(
+                f"Model has zero parameter norm before {phase}(). All parameters are zero."
+            )
+        if math.isnan(before_norm) or math.isinf(before_norm):
+            raise RuntimeError(
+                f"Model has invalid parameter norm before {phase}(). Contains NaN or Inf values."
+            )
+
+        # Execute the original function
+        result = func(algo, *args, **kwargs)
+
+        after_norm = get_param_norm(algo.local_model)
+        after_hash = hash_model_params(algo.local_model)
+
+        delta = after_norm - before_norm
+        changed = before_hash != after_hash
+
+        print(
+            f"[{phase.upper()}] local_model hash: {before_hash[:8]} → {after_hash[:8]} | "
+            f"norm: {before_norm:.4f} → {after_norm:.4f} (Δ={delta:.6f}) | "
+            f"{'CHANGED' if changed else 'UNCHANGED'}"
+        )
+
+        # Fatal check: operation must not break the model
+        if after_norm == 0.0:
+            raise RuntimeError(
+                f"Operation {phase}() zeroed all model parameters. Norm became 0.0."
+            )
+        if math.isnan(after_norm) or math.isinf(after_norm):
+            raise RuntimeError(
+                f"Operation {phase}() caused numerical instability. Norm is now NaN or Inf."
+            )
+
+        if algo.tb_writer:
+            algo.tb_writer.add_scalar(
+                f"param_norm/{phase}_pre", before_norm, algo.tb_global_step
+            )
+            algo.tb_writer.add_scalar(
+                f"param_norm/{phase}_post", after_norm, algo.tb_global_step
+            )
+            algo.tb_writer.add_scalar(
+                f"param_norm/{phase}_delta", delta, algo.tb_global_step
+            )
+
+        # Non-fatal warnings for concerning patterns
+        if phase == "_aggregate" and not changed:
+            warnings.warn(
+                f"Aggregation operation {phase}() completed but parameters unchanged. "
+                f"No model updates occurred. "
+                f"Check if nodes have training data and aggregation weights are non-zero.",
+                UserWarning,
+            )
+
+        if after_norm > before_norm * 10:
+            warnings.warn(
+                f"Parameter norm explosion in {phase}(). "
+                f"Increased {after_norm / before_norm:.1f}x from {before_norm:.4f} to {after_norm:.4f}. "
+                f"Consider reducing learning rate or adding gradient clipping.",
+                UserWarning,
+            )
+
+        if after_norm < before_norm * 0.1:
+            warnings.warn(
+                f"Parameter norm vanishing in {phase}(). "
+                f"Decreased {before_norm / after_norm:.1f}x from {before_norm:.4f} to {after_norm:.4f}. "
+                f"Check for gradient vanishing, excessive regularization, or incorrect scaling.",
+                UserWarning,
+            )
+
+        return result
+
+    return wrapper

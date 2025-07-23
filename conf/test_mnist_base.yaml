@@ -1,0 +1,49 @@
+# ------------------------------------------------------------------------------
+# FLORA Test Configuration – Base MNIST Setup
+#
+# This configuration file provides the baseline settings for testing a simple
+# Convolutional Neural Network (CNN) on the MNIST dataset. It includes default
+# settings for the model, dataset configuration, FL topology, and FL algorithm.
+#
+# This file is intended to be extended by other configurations which override
+# the communication settings.
+# ------------------------------------------------------------------------------
+
+defaults:
+  - base
+  - model: simple_cnn
+  - data: mnist
+  - _self_
+
+# ───────────── FL Algorithm Config
+
+algo:
+  _target_: src.flora.algorithms.FedAvgNew
+  local_lr: 0.01
+  max_epochs_per_round: 2
+  agg_freq: 1
+  agg_level: ROUND
+
+# ───────────── Model Config
+
+model: # overrides the default simple_cnn model
+  backbone:
+    in_channels: 1 # e.g. MNIST has 1 channel
+  head:
+    num_classes: 10 # 10 digits
+
+# ───────────── Data Config
+
+data: # overrides the default mnist datamodule
+  train:
+    batch_size: 16
+  val:
+    batch_size: 16
+
+# ───────────── Topology and Communication Config
+
+topology: ??? # Mandatory marker; composer must override this value
+
+# ───────────── FL Engine Config
+
+global_rounds: 2

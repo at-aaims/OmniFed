@@ -15,15 +15,16 @@
 import copy
 from typing import Any, Dict, Tuple
 
+import rich.repr
 import torch
 from torch import nn
 
-from src.flora.communicator import Communicator
 from src.flora.helper.node_config import NodeConfig
 from src.flora.helper.training_params import FedDynTrainingParameters
 
+from ..communicator import BaseCommunicator, ReductionType
 from . import utils
-from .BaseAlgorithm import Algorithm
+from .BaseAlgorithm import BaseAlgorithm
 
 
 class FedDyn:
@@ -37,7 +38,7 @@ class FedDyn:
         self,
         model: torch.nn.Module,
         train_data: torch.utils.data.DataLoader,
-        communicator: Communicator,
+        communicator: BaseCommunicator,
         total_clients: int,
         train_params: FedDynTrainingParameters,
     ):
@@ -111,7 +112,7 @@ class FedDyn:
                     param.data *= weight_scaling
 
                 self.global_model = self.communicator.aggregate(
-                    msg=self.model, communicate_params=True, compute_mean=False
+                    msg=self.model, compute_mean=False
                 )
                 self.model.load_state_dict(self.global_model.state_dict())
                 self.training_samples = 0
@@ -129,37 +130,37 @@ class FedDyn:
 # ======================================================================================
 
 
-class FedDynNew(Algorithm):
+@rich.repr.auto
+class FedDynNew(BaseAlgorithm):
     """
     Federated Dynamic Regularization (FedDyn) algorithm implementation.
 
     FedDyn introduces a dynamic regularization term to address objective inconsistency in federated learning and improve convergence in heterogeneous environments.
     """
 
-    def __init__(
-        self,
-        local_model: nn.Module,
-        comm: Communicator,
-        lr: float = 0.01,
-        alpha: float = 0.1,
-    ):
-        super().__init__(local_model, comm)
-        self.lr = lr
+    def __init__(self, alpha: float = 0.1, **kwargs):
+        """Initialize FedDyn algorithm with regularization parameter and granularity validation."""
+        super().__init__(**kwargs)
         self.alpha = alpha
 
-        # ---
+    def _setup(self, device: torch.device) -> None:
+        """
+        FedDyn-specific setup: initialize server momentum.
+        """
+        super()._setup(device=device)
+
         self.server_momentum: Dict[str, torch.Tensor] = {}
-        for name, param in local_model.named_parameters():
+        for name, param in self.local_model.named_parameters():
             if param.requires_grad:
                 self.server_momentum[name] = torch.zeros_like(param.data)
 
-    def configure_optimizer(self) -> torch.optim.Optimizer:
+    def _configure_local_optimizer(self, local_lr: float) -> torch.optim.Optimizer:
         """
         SGD optimizer for local updates.
         """
-        return torch.optim.SGD(self.local_model.parameters(), lr=self.lr)
+        return torch.optim.SGD(self.local_model.parameters(), lr=local_lr)
 
-    def train_step(self, batch: Any, batch_idx: int) -> Tuple[torch.Tensor, int]:
+    def _train_step(self, batch: Any) -> tuple[torch.Tensor, int]:
         """
         Perform a forward pass and compute the FedDyn loss for a single batch.
         """
@@ -189,19 +190,9 @@ class FedDynNew(Algorithm):
         total_loss = base_loss + regularization_loss
         return total_loss, inputs.size(0)
 
-    def round_start(self, round_idx: int) -> None:
+    def _aggregate(self) -> None:
         """
-        Synchronize the local model with the global model at the start of each round.
-        """
-        # Receive global model via broadcast from rank 0 (aggregator)
-        self.local_model = self.comm.broadcast(
-            self.local_model,
-            src=0,
-        )
-
-    def round_end(self, round_idx: int) -> None:
-        """
-        Aggregate model parameters across clients and update the local model and server momentum.
+        FedDyn aggregation: weighted averaging with dynamic regularization momentum.
         """
 
         # Store local model before aggregation for momentum update
@@ -211,31 +202,25 @@ class FedDynNew(Algorithm):
                 local_model_params[name] = param.data.clone()
 
         # Aggregate local sample counts to compute federation total
-
-        global_samples = self.comm.aggregate(
-            torch.tensor([self.local_samples], dtype=torch.float32),
-            communicate_params=False,
-            compute_mean=False,  # Sum all sample counts
+        global_samples = self.local_comm.aggregate(
+            torch.tensor([self.local_sample_count], dtype=torch.float32),
+            reduction=ReductionType.SUM,
         ).item()
 
         # Handle edge cases safely - all nodes must participate in distributed operations
         if global_samples <= 0:
-            print(
-                "WARN: No samples processed across entire federation - participating with zero weight"
-            )
             data_proportion = 0.0
         else:
             # Calculate data proportion for weighted aggregation
-            data_proportion = self.local_samples / global_samples
+            data_proportion = self.local_sample_count / global_samples
 
         # All nodes participate regardless of sample count
         utils.scale_params(self.local_model, data_proportion)
 
         # Aggregate weighted model parameters
-        aggregated_model = self.comm.aggregate(
+        aggregated_model = self.local_comm.aggregate(
             self.local_model,
-            communicate_params=True,
-            compute_mean=False,  # Sum pre-weighted models
+            reduction=ReductionType.SUM,
         )
 
         # Update server momentum (dynamic regularizer)

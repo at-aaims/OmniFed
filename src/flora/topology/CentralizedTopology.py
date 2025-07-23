@@ -12,22 +12,21 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import os
+import time
 from typing import Any, Dict, List
 
-import ray
 import rich.repr
 import torch
 from omegaconf import DictConfig
 
-from .. import utils
-from ..Node import Node
-from .BaseTopology import Topology
+from .BaseTopology import BaseTopology, NodeConfig
 
 # ======================================================================================
 
 
 @rich.repr.auto
-class CentralizedTopology(Topology):
+class CentralizedTopology(BaseTopology):
     """
     Template for centralized federated learning topology with aggregator-trainer architecture.
 
@@ -36,76 +35,77 @@ class CentralizedTopology(Topology):
     - All communication flows through the aggregator
     """
 
-    def __init__(self, num_nodes: int):
+    def __init__(
+        self,
+        num_clients: int,
+        local_comm: DictConfig,
+        init_delay: float = 1.0,
+        **kwargs: Any,
+    ):
         """
         Initialize centralized topology.
 
         Args:
-            self.node_cfg (DictConfig): Default configuration for nodes
+            num_clients (int): Number of client nodes (server node is added automatically)
+            local_comm: Local communication configuration (required)
+            init_delay (float): Simulated delay in seconds between node initializations (default: 1.0s)
         """
-        super().__init__()
-        self.num_nodes: int = num_nodes
+        super().__init__(**kwargs)
+        self.num_clients: int = num_clients
+        self.local_comm_cfg = local_comm
+        self.init_delay: float = init_delay
 
-    def create_nodes(
+    def configure_nodes(
         self,
-        comm_cfg: DictConfig,
         algo_cfg: DictConfig,
         model_cfg: DictConfig,
         data_cfg: DictConfig,
-    ) -> List[Node]:
+        **kwargs: Any,
+    ) -> List[NodeConfig]:
         """
-        Create nodes for centralized topology.
+        Configure nodes for centralized topology.
 
         In centralized topology:
         - Rank 0: Aggregator (no training data, coordinates aggregation)
         - Ranks 1+: Trainers (training data, perform local training)
 
-        Returns:
-            List of configured nodes
+        The global_comm_cfg parameter allows MultiGroupTopology to provide
+        additional communication configuration for specific nodes.
         """
-        utils.log_sep("Node Creation")
-        print(f"create_nodes: num_nodes={self.num_nodes}")
+        world_size: int = self.num_clients + 1  # 1 server + N clients
 
-        nodes: List[Node] = []
+        node_configs: List[NodeConfig] = []
 
         # ----------------------------------------------------------------
-        # INIT ALL NODES
+        # CONFIGURE ALL NODES
 
-        for rank in range(self.num_nodes):
-            # Configure Ray actor options
-            node_rayopts: Dict[str, Any] = {}
-
-            # Request GPU resources if available, but don't assign specific devices here
-            if torch.cuda.is_available():
-                node_rayopts["num_gpus"] = 1.0 / self.num_nodes
+        for rank in range(world_size):
+            # Create communicator configs with injected rank and world_size
+            __local_comm_cfg = DictConfig(
+                {
+                    **self.local_comm_cfg,
+                    "rank": rank,
+                    "world_size": world_size,
+                }
+            )
 
             if rank == 0:
-                node_id = f"R{rank}-SERVER"
+                node_id = "SERVER"
+                # Create node-specific data config for server (no training data)
+                node_data_cfg = data_cfg.copy()
+                node_data_cfg.train = None
             else:
-                node_id = f"R{rank}-Client"  # Purposefully using different casing for log readability
+                node_id = "Client"
+                node_data_cfg = data_cfg
 
-            node = Node.options(**node_rayopts).remote(
+            node_config = NodeConfig(
                 id=node_id,
-                comm_cfg=comm_cfg,
-                model_cfg=model_cfg,
+                local_comm_cfg=__local_comm_cfg,
                 algo_cfg=algo_cfg,
-                data_cfg=data_cfg,
-                rank=rank,
-                world_size=self.num_nodes,
+                local_model_cfg=model_cfg,
+                local_data_cfg=node_data_cfg,
             )
 
-            nodes.append(node)
+            node_configs.append(node_config)
 
-        # ----------------------------------------------------------------
-        # SETUP ALL NODES
-        setup_futures = []
-        for rank, node in enumerate(nodes):
-            future = node.setup.remote(
-                # rank=rank,
-                # world_size=self.num_nodes,
-            )
-            setup_futures.append(future)
-
-        # Wait for all setups to complete
-        ray.get(setup_futures)
-        return nodes
+        return node_configs
