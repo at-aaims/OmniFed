@@ -85,6 +85,9 @@ class DataStreamPublisher:
             thread = threading.Thread(target=self.stream_data, args=(client_id,))
             thread.start()
 
+    def create_topic(self, topic):
+
+
 
 class DataStreamSubscriber:
     def __init__(self,
