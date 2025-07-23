@@ -9,7 +9,6 @@
 defaults:
   - test_mnist_base
   - topology: multigroup
-  - _self_
 
 # ───────────── Topology Config
 

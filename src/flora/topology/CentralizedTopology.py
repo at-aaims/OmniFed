@@ -101,7 +101,7 @@ class CentralizedTopology(BaseTopology):
             node_config = NodeConfig(
                 id=node_id,
                 local_comm_cfg=__local_comm_cfg,
-                algo_cfg=algo_cfg,
+                algorithm_cfg=algo_cfg,
                 local_model_cfg=model_cfg,
                 local_data_cfg=node_data_cfg,
             )

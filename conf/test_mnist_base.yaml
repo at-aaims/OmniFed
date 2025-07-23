@@ -11,18 +11,15 @@
 
 defaults:
   - base
+  - algorithm: fedavg
   - model: simple_cnn
   - data: mnist
-  - _self_
 
 # ───────────── FL Algorithm Config
 
-algo:
-  _target_: src.flora.algorithms.FedAvgNew
+algorithm:
   local_lr: 0.01
   max_epochs_per_round: 2
-  agg_freq: 1
-  agg_level: ROUND
 
 # ───────────── Model Config
 
@@ -39,10 +36,6 @@ data: # overrides the default mnist datamodule
     batch_size: 16
   val:
     batch_size: 16
-
-# ───────────── Topology and Communication Config
-
-topology: ??? # Mandatory marker; composer must override this value
 
 # ───────────── FL Engine Config
 

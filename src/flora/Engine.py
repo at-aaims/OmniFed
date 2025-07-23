@@ -58,7 +58,7 @@ class Engine(SetupMixin):
 
         self.topology: BaseTopology = instantiate(
             self.flora_cfg.topology,
-            algo_cfg=self.flora_cfg.algo,
+            algo_cfg=self.flora_cfg.algorithm,
             model_cfg=self.flora_cfg.model,
             data_cfg=self.flora_cfg.data,
             log_dir=self.hydra_cfg.runtime.output_dir,
