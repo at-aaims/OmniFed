@@ -86,7 +86,7 @@ class DataStreamPublisher:
             thread.start()
 
     def create_topic(self, topic):
-
+        pass
 
 
 class DataStreamSubscriber:
