@@ -155,10 +155,15 @@ class FedMomNew(BaseAlgorithm):
         FedMom-specific setup: initialize global model and velocity buffers.
         """
         super()._setup(device=device)
-
+        # Deep-copy retains requires_grad state from local_model
         self.global_model = copy.deepcopy(self.local_model)
+        # Global model is reference-only, disable gradients and set eval mode
+        self.global_model.eval()  # eval() does NOT turn off gradient tracking.
+        for param in self.global_model.parameters():
+            param.requires_grad = False
 
-        # Initialize velocity (server-side momentum) to zero
+        # Initialize velocity (server-side momentum)
+        # all zero-initialized tensors based on param.data have requires_grad=False by default
         self.velocity: Dict[str, torch.Tensor] = {}
         for name, param in self.local_model.named_parameters():
             if param.requires_grad:
@@ -181,16 +186,6 @@ class FedMomNew(BaseAlgorithm):
         outputs = self.local_model(inputs)
         loss = torch.nn.functional.cross_entropy(outputs, targets)
         return loss, inputs.size(0)
-
-    def _round_start(self) -> None:
-        """
-        Update global model reference at the start of each round.
-
-        # TODO: check whether we can safely just move all this logic in round_start() for all algorithms to the end of aggregate() method and remove round_start() overrides altogether
-        # TODO: should this logic be linked with the same granularity as aggregate(), rather than always on round_start?
-        """
-        # Update global model reference (self.local_model already contains latest from aggregate())
-        self.global_model.load_state_dict(self.local_model.state_dict())
 
     def _aggregate(self) -> nn.Module:
         """
@@ -229,13 +224,15 @@ class FedMomNew(BaseAlgorithm):
         )
 
         # Apply server-side momentum to aggregated deltas
-        for name, param in self.global_model.named_parameters():
-            if param.requires_grad and name in self.velocity:
-                # Update velocity with momentum using in-place operations
-                self.velocity[name].mul_(self.momentum).add_(aggregated_deltas[name])
+        with torch.no_grad():
+            for name, param in self.global_model.named_parameters():
+                if param.requires_grad and name in self.velocity:
+                    # Update velocity with momentum
+                    self.velocity[name].mul_(self.momentum).add_(
+                        aggregated_deltas[name]
+                    )
 
-                # Update global model parameters using alpha argument
-                param.data.sub_(self.velocity[name], alpha=self.local_lr)
-
-        # Return updated global model as new local model
+                    # Update global model parameters
+                    param.data.sub_(self.velocity[name], alpha=self.local_lr)
+        # Copy the current global model becomes the new local model
         return copy.deepcopy(self.global_model)

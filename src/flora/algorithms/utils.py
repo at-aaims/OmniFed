@@ -13,13 +13,14 @@
 # limitations under the License.
 
 import copy
+import fnmatch
 import hashlib
 import math
 import warnings
 from functools import wraps
 
 # from torch.utils.tensorboard import SummaryWriter
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Set
 
 import torch
 from torch import nn
@@ -89,19 +90,75 @@ def scale_grads(model: nn.Module, scale_factor: float) -> None:
             param.grad.mul_(scale_factor)
 
 
-def scale_params(model: nn.Module, scale_factor: float) -> None:
+def scale_params(
+    model: nn.Module,
+    scale_factor: float,
+    *,
+    requires_grad: Optional[bool] = None,  # Filter parameters by gradient requirement
+    include_buffers: bool = False,  # Whether to scale buffers (BN stats, etc.)
+    filter_fn: Optional[Callable[[str, torch.Tensor], bool]] = None,  # Custom filter
+) -> None:
     """
-    Scale all trainable model parameters by a constant factor.
+    Scale model parameters and optionally buffers by a constant factor.
+
+    By default, scales only parameters (preserves local buffer statistics).
+
+    Tensor operations performed in-place within a torch.no_grad() context to avoid interfering with autograd and ensure efficient updates.
 
     Args:
-        model: Model to scale parameters for
-        scale_factor: Factor to scale parameters by
+        model: Model to scale tensors for
+        scale_factor: Factor to scale tensors by
+        requires_grad: Filter parameters by gradient requirement (None=all, True=trainable, False=frozen)
+        include_buffers: Whether to scale buffers (BN stats, etc.)
+        filter_fn: Custom filter function(name, tensor) -> bool
+
+    Examples:
+        # Default: Scale only parameters (preserves local BN stats)
+        scale_params(model, 0.5)
+
+        # Scale only trainable parameters
+        scale_params(model, 0.5, requires_grad=True)
+
+        # Exclude integer tensors
+        scale_params(model, 0.5, include_buffers=True, filter_fn=lambda name, tensor: tensor.dtype.is_floating_point)
     """
-    print(f"[UTIL-PARAM-SCALE] scale_factor={scale_factor:.4f}")
+
+    def should_scale(name: str, tensor: torch.Tensor) -> bool:
+        """Check if tensor should be scaled based on filtering criteria."""
+
+        # Filter by gradient requirement (trainable vs non-trainable)
+        if requires_grad is not None and tensor.requires_grad != requires_grad:
+            return False
+
+        # Apply custom filter (e.g., exclude integer tensors, exclude BN layers)
+        if filter_fn is not None and not filter_fn(name, tensor):
+            return False
+
+        return True
+
+    params_scaled = params_total = buffers_scaled = buffers_total = 0
+
     with torch.no_grad():
-        for param in model.parameters():
-            if param.requires_grad:
+        # Scale parameters (filtered by requires_grad and filter_fn)
+        for name, param in model.named_parameters():
+            params_total += 1
+            if should_scale(name, param):
                 param.data.mul_(scale_factor)
+                params_scaled += 1
+
+        # Scale buffers if requested (filtered by requires_grad and filter_fn)
+        if include_buffers:
+            for name, buffer in model.named_buffers():
+                buffers_total += 1
+                if should_scale(name, buffer):
+                    buffer.mul_(scale_factor)
+                    buffers_scaled += 1
+        else:
+            buffers_total = len(list(model.named_buffers()))
+
+    print(
+        f"[UTIL-PARAM-SCALE] scaled {params_scaled}/{params_total} params, {buffers_scaled}/{buffers_total} buffers | scale_factor={scale_factor:.4f}"
+    )
 
 
 def weighted_avg_models(
@@ -231,11 +288,13 @@ def compute_model_delta(
     return deltas
 
 
-def apply_model_delta(
-    model: nn.Module, deltas: Dict[str, torch.Tensor], scale: float = 1.0
+def add_model_deltas(
+    model: nn.Module, deltas: Dict[str, torch.Tensor], alpha: float = 1.0
 ) -> None:
     """
-    Apply parameter deltas to a model: model += scale * deltas.
+    Apply parameter deltas to a model: model += alpha * deltas.
+
+    Tensor operations performed in-place within a torch.no_grad() context to avoid interfering with autograd and ensure efficient updates.
 
     Args:
         model: Model to update
@@ -257,7 +316,7 @@ def apply_model_delta(
                     f"Parameter '{name}' shape mismatch: {param.shape} vs {delta.shape}"
                 )
 
-            param.add_(delta, alpha=scale)
+            param.add_(delta, alpha=alpha)
 
 
 def calculate_batch_size(batch: Any) -> int:

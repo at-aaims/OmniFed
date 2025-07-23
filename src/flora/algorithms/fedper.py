@@ -214,9 +214,10 @@ class FedPerNew(BaseAlgorithm):
 
         # Store personal layer parameters before aggregation
         personal_params = {}
-        for name, param in self.local_model.named_parameters():
-            if self._is_personal_layer(name):
-                personal_params[name] = param.data.clone()
+        with torch.no_grad():
+            for name, param in self.local_model.named_parameters():
+                if self._is_personal_layer(name):
+                    personal_params[name] = param.data.clone()
 
         # Aggregate entire model (including personal layers)
         aggregated_model = self.local_comm.aggregate(
@@ -225,8 +226,9 @@ class FedPerNew(BaseAlgorithm):
         )
 
         # Restore personal layer parameters (keep them local)
-        for name, param in aggregated_model.named_parameters():
-            if name in personal_params:
-                param.data.copy_(personal_params[name])
+        with torch.no_grad():
+            for name, param in aggregated_model.named_parameters():
+                if name in personal_params:
+                    param.data.copy_(personal_params[name])
 
         return aggregated_model

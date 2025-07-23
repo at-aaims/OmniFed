@@ -155,6 +155,7 @@ class DittoNew(BaseAlgorithm):
         """
         super()._setup(device=device)
 
+        # Deep-copy retains requires_grad state from local_model
         self.global_model = copy.deepcopy(self.local_model)
         self.global_optimizer = torch.optim.SGD(
             self.global_model.parameters(), lr=self.global_lr
@@ -195,17 +196,6 @@ class DittoNew(BaseAlgorithm):
         total_loss = personal_loss + 0.5 * self.ditto_lambda * proximal_reg
 
         return total_loss, batch_size
-
-    def _round_start(self) -> None:
-        """
-        Synchronize the global model at the start of each round.
-
-        # NOTE: Ditto requires this broadcast because aggregate() updates self.global_model and all clients need to receive the updated global model for personalization
-
-        # TODO: check whether we can safely just move all this logic in round_start() for all algorithms to the end of aggregate() method and remove round_start() overrides altogether
-        # TODO: should this logic be linked with the same granularity as aggregate(), rather than always on round_start?
-        """
-        self.global_model = self.local_comm.broadcast(self.global_model)
 
     def _aggregate(self) -> nn.Module:
         """

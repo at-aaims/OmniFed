@@ -229,8 +229,14 @@ class MOONNew(BaseAlgorithm):
 
         super()._setup(device=device)
 
+        # Deep-copy retains requires_grad state from local_model
         self.global_model = copy.deepcopy(self.local_model)
-        self.global_model.eval()
+        # Global model is reference-only for contrastive learning, disable gradients and set eval mode
+        self.global_model.eval()  # eval() does NOT turn off gradient tracking.
+        for param in self.global_model.parameters():
+            param.requires_grad = False
+
+        # Initialize previous models history for contrastive learning
         self.prev_models = []
 
     def _configure_local_optimizer(self, local_lr: float) -> torch.optim.Optimizer:
@@ -258,7 +264,7 @@ class MOONNew(BaseAlgorithm):
             # Get global model representation (positive sample)
             _, global_repr = self.global_model(inputs)
 
-            # Get negative representations from previous models
+            # Get representations from previous models for contrastive learning
             negative_reprs = []
             if len(self.prev_models) > 0:
                 negative_reprs = [
@@ -295,18 +301,6 @@ class MOONNew(BaseAlgorithm):
 
         return total_loss, inputs.size(0)
 
-    def _round_start(self) -> None:
-        """
-        Update global model reference and set to eval mode at the start of each round.
-
-        # TODO: check whether we can safely just move all this logic in round_start() for all algorithms to the end of aggregate() method and remove round_start() overrides altogether
-        # TODO: should this logic be linked with the same granularity as aggregate(), rather than always on round_start?
-        """
-        # Update global model reference (self.local_model already contains latest from aggregate())
-        self.global_model.load_state_dict(self.local_model.state_dict())
-        # Set global model to eval mode for contrastive learning
-        self.global_model.eval()
-
     def _aggregate(self) -> nn.Module:
         """
         MOON aggregation: weighted averaging with model history for contrastive learning.
@@ -341,7 +335,7 @@ class MOONNew(BaseAlgorithm):
         model_copy.eval()
 
         # Maintain history of previous models
-        if len(self.prev_models) == self.num_prev_models:
+        if len(self.prev_models) >= self.num_prev_models:
             self.prev_models.pop()  # Remove oldest
         self.prev_models.insert(0, model_copy)  # Add newest at front
 

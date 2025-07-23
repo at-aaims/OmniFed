@@ -159,7 +159,9 @@ class FedAvgNew(BaseAlgorithm):
 
         # Aggregate models across all clients
         # NOTE: This aggregate() call returns the updated global model, so the local_model is now the aggregated global model
-        return self.local_comm.aggregate(
+        aggregated_model = self.local_comm.aggregate(
             self.local_model,
             reduction=ReductionType.SUM,
         )
+
+        return aggregated_model

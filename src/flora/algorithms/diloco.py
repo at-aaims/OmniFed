@@ -165,8 +165,15 @@ class DiLoCoNew(BaseAlgorithm):
         DiLoCo-specific setup: initialize global model and velocity.
         """
         super()._setup(device=device)
-
+        # Deep-copy retains requires_grad state from local_model
         self.global_model = copy.deepcopy(self.local_model)
+        # Global model is reference-only for delta computation, set eval mode and disable gradients
+        self.global_model.eval()  # eval() does NOT turn off gradient tracking.
+        for param in self.global_model.parameters():
+            param.requires_grad = False
+
+        # Initialize velocity (server-side momentum)
+        # all zero-initialized tensors based on param.data have requires_grad=False by default
         self.velocity: Dict[str, torch.Tensor] = {}
         for name, param in self.local_model.named_parameters():
             if param.requires_grad:
@@ -187,16 +194,6 @@ class DiLoCoNew(BaseAlgorithm):
         loss = torch.nn.functional.cross_entropy(outputs, targets)
         return loss, inputs.size(0)
 
-    def _round_start(self) -> None:
-        """
-        Update global model reference at the start of each round.
-
-        # TODO: check whether we can safely just move all this logic in round_start() for all algorithms to the end of aggregate() method and remove round_start() overrides altogether
-        # TODO: should this logic be linked with the same granularity as aggregate(), rather than always on round_start?
-        """
-        # Update global model reference (self.local_model already contains latest from aggregate())
-        self.global_model.load_state_dict(self.local_model.state_dict())
-
     def _aggregate(self) -> nn.Module:
         """
         DiLoCo aggregation: distributed low-communication with server-side momentum.
@@ -215,18 +212,19 @@ class DiLoCoNew(BaseAlgorithm):
         )
 
         # Apply DiLoCo outer step with momentum using aggregated deltas
-        for name, param in self.global_model.named_parameters():
-            if (
-                param.requires_grad
-                and name in self.velocity
-                and name in aggregated_deltas
-            ):
-                # Update velocity with momentum (v = momentum * v + lr_outer * delta)
-                self.velocity[name].mul_(self.outer_momentum).add_(
-                    aggregated_deltas[name], alpha=self.outer_lr
-                )
-                # Update global model parameters (param += v)
-                param.data.add_(self.velocity[name])
+        with torch.no_grad():
+            for name, param in self.global_model.named_parameters():
+                if (
+                    param.requires_grad
+                    and name in self.velocity
+                    and name in aggregated_deltas
+                ):
+                    # Update velocity with momentum (v = momentum * v + lr_outer * delta)
+                    self.velocity[name].mul_(self.outer_momentum).add_(
+                        aggregated_deltas[name], alpha=self.outer_lr
+                    )
+                    # Update global model parameters (param += v)
+                    param.data.add_(self.velocity[name])
 
-        # Return updated global model as new local model
+        # Copy the current global model becomes the new local model
         return copy.deepcopy(self.global_model)

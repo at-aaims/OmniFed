@@ -126,7 +126,12 @@ class FedProxNew(BaseAlgorithm):
         """
         super()._setup(device=device)
 
+        # Deep-copy retains requires_grad state from local_model
         self.global_model = copy.deepcopy(self.local_model)
+        # Global model is reference-only for proximal term, set eval mode and disable gradients
+        self.global_model.eval()  # eval() does NOT turn off gradient tracking.
+        for param in self.global_model.parameters():
+            param.requires_grad = False
 
     def _configure_local_optimizer(self, local_lr: float) -> torch.optim.Optimizer:
         """
@@ -184,7 +189,9 @@ class FedProxNew(BaseAlgorithm):
 
         # Aggregate weighted model parameters from all clients
         # NOTE: This aggregate() call returns the updated global model, so the local_model is now the aggregated global model
-        return self.local_comm.aggregate(
+        aggregated_model = self.local_comm.aggregate(
             self.local_model,
             reduction=ReductionType.SUM,
         )
+
+        return aggregated_model
