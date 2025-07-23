@@ -215,18 +215,18 @@ class DiLoCoNew(BaseAlgorithm):
 
         # Apply DiLoCo outer step with momentum using aggregated deltas
         with torch.no_grad():
-            for local_pname, global_pval in self.global_model.named_parameters():
+            for global_pname, global_pval in self.global_model.named_parameters():
                 if (
                     global_pval.requires_grad
-                    and local_pname in self.velocity
-                    and local_pname in aggregated_deltas
+                    and global_pname in self.velocity
+                    and global_pname in aggregated_deltas
                 ):
                     # Update velocity with momentum (v = momentum * v + lr_outer * delta)
-                    self.velocity[local_pname].mul_(self.outer_momentum).add_(
-                        aggregated_deltas[local_pname], alpha=self.outer_lr
+                    self.velocity[global_pname].mul_(self.outer_momentum).add_(
+                        aggregated_deltas[global_pname], alpha=self.outer_lr
                     )
                     # Update global model parameters (param += v)
-                    global_pval.data.add_(self.velocity[local_pname])
+                    global_pval.data.add_(self.velocity[global_pname])
 
         # Return updated global model as the new local model for next training period
         return copy.deepcopy(self.global_model)

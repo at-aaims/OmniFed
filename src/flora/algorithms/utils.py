@@ -80,6 +80,8 @@ def scale_grads(model: nn.Module, scale_factor: float) -> None:
     """
     Scale all parameter gradients by a constant factor.
 
+    TODO: add filter_fn support similar to scale_params for > flexibility?
+
     Args:
         model: Model to scale gradients for
         scale_factor: Factor to scale gradients by
