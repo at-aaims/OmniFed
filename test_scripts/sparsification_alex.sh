@@ -15,7 +15,7 @@ cd ../
 #dir='/ccsopen/home/ssq/datasets2/'
 #masterport=29118
 dir='/ccsopen/home/ssq/datasets3/'
-masterport=23456
+masterport=23457
 #dir='/ccsopen/home/ssq/datasets4/'
 #masterport=26290
 interface='eth1'
