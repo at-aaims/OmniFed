@@ -156,6 +156,8 @@ class FedNovaNew(BaseAlgorithm):
 
     FedNova normalizes local updates to address objective inconsistency in federated learning,
     accounting for varying numbers of local steps and learning dynamics across clients.
+
+    [FedNova](https://arxiv.org/abs/2007.07481) | Jianyu Wang | 2020-07-15
     """
 
     def __init__(self, weight_decay: float = 0.0, **kwargs):
@@ -257,5 +259,9 @@ class FedNovaNew(BaseAlgorithm):
         # Apply the aggregated normalized updates to the global model parameters
         utils.add_model_deltas(self.global_model, aggregated_deltas, alpha=lr)
 
-        # Copy the current global model becomes the new local model
+        # Reset optimizer steps counter after aggregation since we're starting new local training
+        # so that control variates are properly normalized for the next aggregation period
+        self.optimizer_steps = 0
+
+        # Return updated global model as the new local model for next training period
         return copy.deepcopy(self.global_model)

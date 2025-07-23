@@ -147,6 +147,8 @@ class DiLoCoNew(BaseAlgorithm):
 
     DiLoCo combines local SGD with server-side momentum updates to
     reduce communication frequency while maintaining convergence properties.
+
+    [DiLoCo](https://arxiv.org/abs/2311.08105) | Arthur Douillard | 2023-11-14
     """
 
     def __init__(
@@ -200,10 +202,10 @@ class DiLoCoNew(BaseAlgorithm):
         """
         # Compute local model update (delta from global model)
         local_deltas: Dict[str, torch.Tensor] = {}
-        for name, param in self.local_model.named_parameters():
-            if param.requires_grad and name in self.velocity:
-                global_param = dict(self.global_model.named_parameters())[name]
-                local_deltas[name] = param.data - global_param.data
+        for local_pname, local_pval in self.local_model.named_parameters():
+            if local_pval.requires_grad and local_pname in self.velocity:
+                global_pval = dict(self.global_model.named_parameters())[local_pname]
+                local_deltas[local_pname] = local_pval.data - global_pval.data
 
         # DiLoCo uses mean aggregation rather than weighted aggregation
         aggregated_deltas = self.local_comm.aggregate(
@@ -213,18 +215,18 @@ class DiLoCoNew(BaseAlgorithm):
 
         # Apply DiLoCo outer step with momentum using aggregated deltas
         with torch.no_grad():
-            for name, param in self.global_model.named_parameters():
+            for local_pname, global_pval in self.global_model.named_parameters():
                 if (
-                    param.requires_grad
-                    and name in self.velocity
-                    and name in aggregated_deltas
+                    global_pval.requires_grad
+                    and local_pname in self.velocity
+                    and local_pname in aggregated_deltas
                 ):
                     # Update velocity with momentum (v = momentum * v + lr_outer * delta)
-                    self.velocity[name].mul_(self.outer_momentum).add_(
-                        aggregated_deltas[name], alpha=self.outer_lr
+                    self.velocity[local_pname].mul_(self.outer_momentum).add_(
+                        aggregated_deltas[local_pname], alpha=self.outer_lr
                     )
                     # Update global model parameters (param += v)
-                    param.data.add_(self.velocity[name])
+                    global_pval.data.add_(self.velocity[local_pname])
 
-        # Copy the current global model becomes the new local model
+        # Return updated global model as the new local model for next training period
         return copy.deepcopy(self.global_model)

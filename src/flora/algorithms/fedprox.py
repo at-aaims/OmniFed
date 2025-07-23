@@ -113,6 +113,8 @@ class FedProxNew(BaseAlgorithm):
 
     FedProx extends FedAvg by adding a proximal term to the loss, which helps stabilize training in heterogeneous environments.
     The proximal term penalizes deviation from the global model during local updates.
+
+    [FedProx](https://arxiv.org/abs/1812.06127) | Tian Li | 2018-12-14
     """
 
     def __init__(self, mu: float = 0.01, **kwargs):
@@ -156,16 +158,6 @@ class FedProxNew(BaseAlgorithm):
                 prox_term += ((param - global_param).pow(2)).sum()
         loss += (self.mu / 2) * prox_term
         return loss, inputs.size(0)
-
-    def _round_start(self) -> None:
-        """
-        Update the reference global model at the start of each round.
-
-        # TODO: check whether we can safely just move all this logic in round_start() for all algorithms to the end of aggregate() method and remove round_start() overrides altogether
-        # TODO: should this logic be linked with the same granularity as aggregate(), rather than always on round_start?
-        """
-        # Update the reference global model (self.local_model already contains latest from aggregate())
-        self.global_model.load_state_dict(self.local_model.state_dict())
 
     def _aggregate(self) -> nn.Module:
         """

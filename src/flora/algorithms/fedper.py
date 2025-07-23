@@ -163,6 +163,8 @@ class FedPerNew(BaseAlgorithm):
     FedPer splits the model into a shared base model and a personal head.
     Only the base model is aggregated across clients;
     each client maintains its own personal head for local adaptation.
+
+    [FedPer](https://arxiv.org/abs/1912.00818) | Muhammad Ammad-ud-din | 2020-01-01
     """
 
     def __init__(self, personal_layers: Optional[list[str]] = None, **kwargs):

@@ -188,6 +188,10 @@ class ScaffoldNew(BaseAlgorithm):
 
         # Deep-copy retains requires_grad state from local_model
         self.global_model = copy.deepcopy(self.local_model)
+        # Global model is reference-only for delta computation, set eval mode and disable gradients
+        self.global_model.eval()  # eval() does NOT turn off gradient tracking.
+        for param in self.global_model.parameters():
+            param.requires_grad = False
 
         self.server_cv = {}
         self.client_cv = {}
@@ -261,7 +265,7 @@ class ScaffoldNew(BaseAlgorithm):
                 # Save current control variate state before updating
                 self.old_client_cv[global_pname].copy_(self.client_cv[global_pname])
                 update_term = (local_pval - global_pval) / (effective_comm_freq * lr)
-                # TODO: Verify control variate update formula against SCAFFOLD paper
+                # client control variate update
                 self.client_cv[global_pname].sub_(self.server_cv[global_pname]).add_(
                     update_term
                 )
@@ -294,6 +298,7 @@ class ScaffoldNew(BaseAlgorithm):
             msg=self.cv_delta, reduction=ReductionType.MEAN
         )
 
+        # Update Global model with aggregated deltas and control variates
         lr = self.local_optimizer.param_groups[0]["lr"]
         utils.add_model_deltas(self.global_model, aggregated_model_deltas, alpha=lr)
         # Update server control variates with aggregated deltas
@@ -302,5 +307,9 @@ class ScaffoldNew(BaseAlgorithm):
                 if name in aggregated_cv_deltas:
                     self.server_cv[name].add_(aggregated_cv_deltas[name])
 
-        # Copy the current global model becomes the new local model
+        # Reset optimizer steps counter after aggregation since we're starting new local training
+        # so that control variates are properly normalized for the next aggregation period
+        self.optimizer_steps = 0
+
+        # Return updated global model as the new local model for next training period
         return copy.deepcopy(self.global_model)

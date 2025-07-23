@@ -133,6 +133,8 @@ class FedBNNew(BaseAlgorithm):
 
     FedBN aggregates only non-batch normalization parameters across clients,
     allowing each client to maintain its own batch normalization statistics for improved personalization.
+
+    [FedBN](https://arxiv.org/abs/2102.07623) | Xiaoxiao Li | 2021-02-15
     """
 
     def _configure_local_optimizer(self, local_lr: float) -> torch.optim.Optimizer:

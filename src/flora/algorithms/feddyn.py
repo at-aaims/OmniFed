@@ -136,6 +136,8 @@ class FedDynNew(BaseAlgorithm):
     Federated Dynamic Regularization (FedDyn) algorithm implementation.
 
     FedDyn introduces a dynamic regularization term to address objective inconsistency in federated learning and improve convergence in heterogeneous environments.
+
+    [FedDyn](https://arxiv.org/abs/2111.04263) | Durmus Alp Emre Acar | 2021-11-08
     """
 
     def __init__(self, alpha: float = 0.1, **kwargs):
@@ -232,8 +234,8 @@ class FedDynNew(BaseAlgorithm):
                     # Compute model difference: local - global
                     model_diff = local_model_params[name] - param.data
 
-                    # TODO: Verify server momentum update direction against FedDyn paper
-                    # Update server momentum: h = h + alpha * (local - global)
+                    # Server momentum update accumulates local deviations from global model
+                    # captures the "drift" direction and is used in regularization term during training
                     self.server_momentum[name].add_(model_diff, alpha=self.alpha)
 
         # Return aggregated result

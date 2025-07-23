@@ -204,6 +204,8 @@ class MOONNew(BaseAlgorithm):
     MOON uses model-level contrastive learning to align local models
     with the global model and distinguish them from previous local models,
     improving convergence and generalization in federated learning.
+
+    [MOON](https://arxiv.org/abs/2103.16257) | Qinbin Li | 2021-03-30
     """
 
     def __init__(
@@ -333,6 +335,8 @@ class MOONNew(BaseAlgorithm):
         # Create a copy of the aggregated model for history
         model_copy = copy.deepcopy(aggregated_model)
         model_copy.eval()
+        for param in model_copy.parameters():
+            param.requires_grad = False
 
         # Maintain history of previous models
         if len(self.prev_models) >= self.num_prev_models:

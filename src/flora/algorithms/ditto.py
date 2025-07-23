@@ -141,6 +141,8 @@ class DittoNew(BaseAlgorithm):
 
     Ditto maintains both a global model (shared across clients) and a local personal model.
     The personal model is trained with a proximal regularization term to stay close to the global model.
+
+    [Ditto](https://arxiv.org/abs/2012.04221) | Tian Li | 2020-12-08
     """
 
     def __init__(self, global_lr: float = 0.01, ditto_lambda: float = 0.1, **kwargs):
@@ -157,6 +159,8 @@ class DittoNew(BaseAlgorithm):
 
         # Deep-copy retains requires_grad state from local_model
         self.global_model = copy.deepcopy(self.local_model)
+        # Ditto trains the global model actively (forward/backward/optimizer.step)
+
         self.global_optimizer = torch.optim.SGD(
             self.global_model.parameters(), lr=self.global_lr
         )
@@ -223,5 +227,5 @@ class DittoNew(BaseAlgorithm):
             reduction=ReductionType.SUM,
         )
 
-        # Return the personal local model (not the aggregated global model)
+        # Return the personal local model, not the aggregated global model
         return self.local_model

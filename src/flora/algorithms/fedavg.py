@@ -118,6 +118,8 @@ class FedAvgNew(BaseAlgorithm):
 
     FedAvg performs standard federated learning by averaging model parameters across clients after local training rounds.
     Only model parameters are aggregated; all clients synchronize with the global model at the start of each round.
+
+    [FedAvg](https://arxiv.org/abs/1602.05629) | H. Brendan McMahan | 2016-02-17
     """
 
     def _configure_local_optimizer(self, local_lr: float) -> torch.optim.Optimizer:

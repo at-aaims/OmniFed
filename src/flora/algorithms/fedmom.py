@@ -143,6 +143,8 @@ class FedMomNew(BaseAlgorithm):
     Federated Momentum (FedMom) algorithm implementation.
 
     FedMom applies momentum to the aggregation of model updates, improving convergence and stability in federated learning.
+
+    FedMom](https://arxiv.org/abs/2002.02090) | Zhouyuan Huo | 2020-02-06
     """
 
     def __init__(self, momentum: float = 0.9, **kwargs):
@@ -196,8 +198,8 @@ class FedMomNew(BaseAlgorithm):
         for name, param in self.local_model.named_parameters():
             if param.requires_grad:
                 global_param = dict(self.global_model.named_parameters())[name]
-                # Delta = global - local (original uses global - local for momentum direction)
-                local_deltas[name] = global_param.data - param.data
+                # Delta = local - global (what the client actually learned this round)
+                local_deltas[name] = param.data - global_param.data
 
         # Aggregate local sample counts to compute federation total
 
@@ -232,7 +234,9 @@ class FedMomNew(BaseAlgorithm):
                         aggregated_deltas[name]
                     )
 
-                    # Update global model parameters
-                    param.data.sub_(self.velocity[name], alpha=self.local_lr)
-        # Copy the current global model becomes the new local model
+                    # Apply server-side momentum to update global model parameters
+                    # ADD because if deltas represent "what clients learned", we add them to global model
+                    param.data.add_(self.velocity[name], alpha=self.local_lr)
+
+        # Return updated global model as the new local model for next training period
         return copy.deepcopy(self.global_model)
