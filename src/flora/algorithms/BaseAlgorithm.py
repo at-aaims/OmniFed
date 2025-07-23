@@ -404,12 +404,15 @@ class BaseAlgorithm(SetupMixin):
         Multi-group requires Phase 3 to distribute globally aggregated models from group servers to their clients.
         """
         # Dynamic context based on aggregation level
-        if self.agg_level == AggLevel.ROUND:
-            context = f"Round {self.round_idx + 1}"
-        elif self.agg_level == AggLevel.EPOCH:
-            context = f"Round {self.round_idx + 1} Epoch {self.epoch_idx + 1}"
-        else:  # AggLevel.ITER
-            context = f"Round {self.round_idx + 1} Epoch {self.epoch_idx + 1} Batch {self.batch_idx + 1}"
+        match self.agg_level:
+            case AggLevel.ROUND:
+                context = f"Round {self.round_idx + 1}"
+            case AggLevel.EPOCH:
+                context = f"Round {self.round_idx + 1} Epoch {self.epoch_idx + 1}"
+            case AggLevel.ITER:
+                context = f"Round {self.round_idx + 1} Epoch {self.epoch_idx + 1} Batch {self.batch_idx + 1}"
+            case _:
+                raise ValueError(f"Unknown aggregation level: {self.agg_level}")
 
         # Phase 1: Intra-group aggregation via all-reduce
         print(f"[LOCAL-AGG] {context} | Start", flush=True)
