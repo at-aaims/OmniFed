@@ -226,30 +226,27 @@ class FedNovaNew(BaseAlgorithm):
 
         # Compute normalized parameter deltas for each trainable parameter
         normalized_deltas: Dict[str, torch.Tensor] = {}
-        # Create parameter dictionary once for efficiency
-        global_param_dict = dict(self.global_model.named_parameters())
-        for name, param in self.local_model.named_parameters():
-            if param.requires_grad:
-                global_param = global_param_dict[name]
-                normalized_deltas[name] = (global_param.data - param.data) / alpha
+        # Pre-compute global parameters dictionary once to avoid O(n^2) complexity
+        global_params = dict(self.global_model.named_parameters())
+        for param_name, local_param in self.local_model.named_parameters():
+            if local_param.requires_grad:
+                global_param = global_params[param_name]  # O(1) lookup
+                normalized_deltas[param_name] = (
+                    local_param.data - global_param.data
+                ) / alpha
 
         # Aggregate local sample counts to compute federation total
-
         global_samples = self.local_comm.aggregate(
             torch.tensor([self.local_sample_count], dtype=torch.float32),
             reduction=ReductionType.SUM,
         ).item()
 
-        # Handle edge cases safely - all nodes must participate in distributed operations
-        if global_samples <= 0:
-            data_proportion = 0.0
-        else:
-            # Calculate the proportion of data this client contributed
-            data_proportion = self.local_sample_count / global_samples
+        # Calculate this client's data proportion for weighted aggregation
+        data_proportion = self.local_sample_count / max(global_samples, 1)
 
         # Scale normalized deltas by the data proportion for weighted aggregation
         with torch.no_grad():
-            for name, delta in normalized_deltas.items():
+            for param_name, delta in normalized_deltas.items():
                 delta.mul_(data_proportion)
 
         # Aggregate normalized deltas

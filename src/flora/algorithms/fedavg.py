@@ -149,18 +149,13 @@ class FedAvgNew(BaseAlgorithm):
             reduction=ReductionType.SUM,
         ).item()
 
-        # Handle edge cases safely - all nodes must participate in distributed operations
-        if global_samples <= 0:
-            data_proportion = 0.0
-        else:
-            # Calculate this client's data proportion for weighted aggregation
-            data_proportion = self.local_sample_count / global_samples
+        # Calculate this client's data proportion for weighted aggregation
+        data_proportion = self.local_sample_count / max(global_samples, 1)
 
         # All nodes participate regardless of sample count
         utils.scale_params(self.local_model, data_proportion)
 
         # Aggregate models across all clients
-        # NOTE: This aggregate() call returns the updated global model, so the local_model is now the aggregated global model
         aggregated_model = self.local_comm.aggregate(
             self.local_model,
             reduction=ReductionType.SUM,

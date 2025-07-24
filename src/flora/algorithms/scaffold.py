@@ -250,44 +250,35 @@ class ScaffoldNew(BaseAlgorithm):
         effective_comm_freq = max(1, self.optimizer_steps)
         lr = self.local_optimizer.param_groups[0]["lr"]
 
-        # Update client control variates
+        # Update client control variates and compute deltas
         with torch.no_grad():
-            for (global_pname, global_pval), (
-                local_pname,
-                local_pval,
+            for (global_param_name, global_param), (
+                local_param_name,
+                local_param,
             ) in zip(
                 self.global_model.named_parameters(),
                 self.local_model.named_parameters(),
             ):
-                assert global_pname == local_pname, (
-                    f"Parameter mismatch: {global_pname} vs {local_pname}"
+                assert global_param_name == local_param_name, (
+                    f"Parameter mismatch: {global_param_name} vs {local_param_name}"
                 )
+                param_name = global_param_name
+
                 # Save current control variate state before updating
-                self.old_client_cv[global_pname].copy_(self.client_cv[global_pname])
-                update_term = (local_pval - global_pval) / (effective_comm_freq * lr)
-                # client control variate update
-                self.client_cv[global_pname].sub_(self.server_cv[global_pname]).add_(
+                self.old_client_cv[param_name].copy_(self.client_cv[param_name])
+
+                # Client control variate update
+                update_term = (local_param - global_param) / (effective_comm_freq * lr)
+                self.client_cv[param_name].sub_(self.server_cv[param_name]).add_(
                     update_term
                 )
 
-        # Compute model delta and control variate delta for aggregation
-        with torch.no_grad():
-            for (global_pname, global_pval), (
-                local_pname,
-                local_pval,
-            ) in zip(
-                self.global_model.named_parameters(),
-                self.local_model.named_parameters(),
-            ):
-                assert global_pname == local_pname, (
-                    f"Parameter mismatch: {global_pname} vs {local_pname}"
+                # Compute model delta and control variate delta for aggregation
+                self.model_delta[param_name].copy_(local_param.data).sub_(
+                    global_param.data
                 )
-                # Compute deltas using efficient in-place operations
-                self.model_delta[global_pname].copy_(local_pval.data).sub_(
-                    global_pval.data
-                )
-                self.cv_delta[global_pname].copy_(self.client_cv[global_pname]).sub_(
-                    self.old_client_cv[global_pname]
+                self.cv_delta[param_name].copy_(self.client_cv[param_name]).sub_(
+                    self.old_client_cv[param_name]
                 )
 
         # SCAFFOLD uses mean aggregation rather than weighted aggregation
@@ -299,7 +290,6 @@ class ScaffoldNew(BaseAlgorithm):
         )
 
         # Update Global model with aggregated deltas and control variates
-        lr = self.local_optimizer.param_groups[0]["lr"]
         utils.add_model_deltas(self.global_model, aggregated_model_deltas, alpha=lr)
         # Update server control variates with aggregated deltas
         with torch.no_grad():

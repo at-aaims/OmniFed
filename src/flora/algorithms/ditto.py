@@ -192,10 +192,12 @@ class DittoNew(BaseAlgorithm):
 
         # Add proximal regularization term
         proximal_reg = 0.0
-        for personal_param, global_param in zip(
+        for local_param, global_param in zip(
             self.local_model.parameters(), self.global_model.parameters()
         ):
-            proximal_reg += torch.sum((personal_param - global_param.detach()) ** 2)
+            diff = local_param - global_param.detach()
+            # power is generally more expensive than multiplication
+            proximal_reg += torch.sum(diff * diff)
 
         total_loss = personal_loss + 0.5 * self.ditto_lambda * proximal_reg
 
@@ -211,12 +213,8 @@ class DittoNew(BaseAlgorithm):
             reduction=ReductionType.SUM,
         ).item()
 
-        # Handle edge cases safely - all nodes must participate in distributed operations
-        if global_samples <= 0:
-            data_proportion = 0.0
-        else:
-            # Calculate data proportion for weighted aggregation
-            data_proportion = self.local_sample_count / global_samples
+        # Calculate this client's data proportion for weighted aggregation
+        data_proportion = self.local_sample_count / max(global_samples, 1)
 
         # All nodes participate regardless of sample count
         utils.scale_params(self.global_model, data_proportion)

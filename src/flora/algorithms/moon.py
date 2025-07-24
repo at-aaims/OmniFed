@@ -275,24 +275,25 @@ class MOONNew(BaseAlgorithm):
 
         # Compute contrastive loss if we have negative samples
         if len(negative_reprs) > 0:
-            # Normalize representations
+            # batch normalize all representations together for efficiency
             local_repr = torch.nn.functional.normalize(local_repr, dim=1)
             global_repr = torch.nn.functional.normalize(global_repr, dim=1)
-            negative_reprs = [
-                torch.nn.functional.normalize(repr, dim=1) for repr in negative_reprs
-            ]
+            # Stack and batch normalize negative representations for better performance
+            if negative_reprs:
+                negative_reprs = torch.nn.functional.normalize(
+                    torch.stack(negative_reprs, dim=0), dim=2
+                )
 
             # Compute similarities with temperature scaling
             pos_sim = torch.exp(
                 torch.sum(local_repr * global_repr, dim=1) / self.temperature
             )
-            neg_sim = torch.stack(
-                [
-                    torch.exp(torch.sum(local_repr * neg, dim=1) / self.temperature)
-                    for neg in negative_reprs
-                ],
-                dim=1,
-            ).sum(dim=1)
+            # negative_reprs is now [num_prev_models, batch_size, repr_dim]
+            # local_repr is [batch_size, repr_dim]
+            neg_sim = torch.exp(
+                torch.sum(local_repr.unsqueeze(0) * negative_reprs, dim=2)
+                / self.temperature
+            ).sum(dim=0)  # Sum over previous models, keep batch dimension
 
             # Contrastive loss
             contrastive_loss = -torch.log(pos_sim / (pos_sim + neg_sim + 1e-8))
@@ -314,18 +315,13 @@ class MOONNew(BaseAlgorithm):
             reduction=ReductionType.SUM,
         ).item()
 
-        # Handle edge cases safely - all nodes must participate in distributed operations
-        if global_samples <= 0:
-            data_proportion = 0.0
-        else:
-            # Calculate data proportion for weighted aggregation
-            data_proportion = self.local_sample_count / global_samples
+        # Calculate this client's data proportion for weighted aggregation
+        data_proportion = self.local_sample_count / max(global_samples, 1)
 
         # All nodes participate regardless of sample count
         utils.scale_params(self.local_model, data_proportion)
 
         # Aggregate scaled models
-        # NOTE: This aggregate() call returns the updated global model, so the local_model is now the aggregated global model
         aggregated_model = self.local_comm.aggregate(
             self.local_model,
             reduction=ReductionType.SUM,

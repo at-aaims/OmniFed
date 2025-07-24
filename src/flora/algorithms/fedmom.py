@@ -195,29 +195,26 @@ class FedMomNew(BaseAlgorithm):
         """
         # Compute local parameter delta from global model
         local_deltas: Dict[str, torch.Tensor] = {}
-        for name, param in self.local_model.named_parameters():
-            if param.requires_grad:
-                global_param = dict(self.global_model.named_parameters())[name]
-                # Delta = local - global (what the client actually learned this round)
-                local_deltas[name] = param.data - global_param.data
+        # Pre-compute global parameters dictionary once to avoid O(n^2) complexity
+        global_params = dict(self.global_model.named_parameters())
+        for param_name, local_param in self.local_model.named_parameters():
+            if local_param.requires_grad:
+                global_param = global_params[param_name]  # O(1) lookup
+                # what the client actually learned this round
+                local_deltas[param_name] = local_param.data - global_param.data
 
         # Aggregate local sample counts to compute federation total
-
         global_samples = self.local_comm.aggregate(
             torch.tensor([self.local_sample_count], dtype=torch.float32),
             reduction=ReductionType.SUM,
         ).item()
 
-        # Handle edge cases safely - all nodes must participate in distributed operations
-        if global_samples <= 0:
-            data_proportion = 0.0
-        else:
-            # Calculate data proportion for weighted aggregation of deltas
-            data_proportion = self.local_sample_count / global_samples
+        # Calculate this client's data proportion for weighted aggregation
+        data_proportion = self.local_sample_count / max(global_samples, 1)
 
         # Scale local deltas by data proportion
-        for name in local_deltas:
-            local_deltas[name].mul_(data_proportion)
+        for param_name in local_deltas:
+            local_deltas[param_name].mul_(data_proportion)
 
         # Aggregate scaled deltas
         aggregated_deltas = self.local_comm.aggregate(
