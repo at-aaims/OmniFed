@@ -14,9 +14,6 @@
 
 defaults:
   - datamodule # Inherit base datamodule structure (includes dataloader templates)
-
-_target_: src.flora.data.DataModule
-
 # ─────────────
 
 # TRAINING DATALOADER CONFIG
@@ -35,11 +32,10 @@ train:
           mean: [0.1307]
           std: [0.3081]
 
-
 # ─────────────
 
 # VALIDATION DATALOADER CONFIG
-# Uses optional val template from datamodule.yaml (inherits from dataloader.yaml)
+# Uses optional dataloader template applied via datamodule.yaml defaults
 val:
   dataset:
     _target_: torchvision.datasets.MNIST

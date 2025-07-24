@@ -4,17 +4,17 @@
 #
 # COMPOSITION FLOW:
 # 1. Defines train/val/test structure for DataModule configurations
-# 2. Applies dataloader.yaml template to each dataloader field
+# 2. Applies dataloader.yaml template to train field (always) and val/test fields (when enabled)
 # 3. Specific dataset configs inherit this structure and override dataset-specific fields
 # 4. train field uses dataloader template with shuffle=true override
-# 5. val/test fields are optional - null by default, use dataloader template when defined
+# 5. val/test fields use optional dataloader template - only applied when overridden by inheriting configs
 #
 # INHERITANCE CHAIN: dataloader.yaml → datamodule.yaml → specific dataset configs
 
 defaults:
-  - train: dataloader # Apply dataloader.yaml template to train field
-  - optional val: dataloader # Apply dataloader.yaml template to val field (if defined)
-  - optional test: dataloader # Apply dataloader.yaml template to test field (if defined)
+  - dataloader@train
+  - optional dataloader@val: null
+  - optional dataloader@test: null
 
 _target_: src.flora.data.DataModule
 
@@ -23,7 +23,3 @@ _target_: src.flora.data.DataModule
 # Field defaults that override dataloader template values
 train:
   shuffle: true # Override dataloader.yaml default (false) - training data should be shuffled
-
-# Optional fields - inheriting configs can override these to enable val/test dataloaders
-val: null # No validation by default (override with dataloader config to enable)
-test: null # No testing by default (override with dataloader config to enable)

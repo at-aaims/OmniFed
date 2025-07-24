@@ -4,7 +4,7 @@
 #
 # COMPOSITION FLOW:
 # 1. This template provides default values and structure for individual DataLoaders
-# 2. Applied by datamodule.yaml to create train/val/test dataloader configurations
+# 2. Applied by datamodule.yaml via @-targeting to create train/val/test dataloader configurations
 # 3. Specific dataset configs inherit this structure through datamodule.yaml
 # 4. Required fields (dataset, batch_size) must be overridden by inheriting configs
 #
