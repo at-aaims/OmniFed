@@ -24,7 +24,6 @@ _target_: src.flora.data.DataModule
 # TRAINING DATALOADER CONFIG
 # Uses dataloader template with datamodule defaults, provides MNIST-specific dataset
 train:
-  # Required field from dataloader.yaml - must specify the dataset
   dataset:
     _target_: torchvision.datasets.MNIST
     root: /tmp/torchvision-mnist
@@ -38,7 +37,6 @@ train:
           mean: [0.1307]
           std: [0.3081]
 
-  # Inherited from templates: batch_size=???, shuffle=true, num_workers=2, _target_=DataLoader
 
 # ─────────────
 
@@ -58,5 +56,4 @@ val:
           mean: [0.1307]
           std: [0.3081]
 
-  # Inherited from templates: batch_size=???, shuffle=false, num_workers=2, _target_=DataLoader
   shuffle: false # Explicitly disable shuffling for validation
