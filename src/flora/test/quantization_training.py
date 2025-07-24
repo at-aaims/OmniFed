@@ -97,7 +97,7 @@ class QuantizedCompressionTrainer(object):
                 datadir=args.dir,
                 train_bsz=self.train_bsz,
                 test_bsz=self.test_bsz,
-                partition_dataset=False,
+                partition_dataset=True,
             )
         elif self.dataset_name == "caltech101":
             self.train_dataloader, self.test_dataloader = caltech.caltech101Data(
@@ -106,7 +106,7 @@ class QuantizedCompressionTrainer(object):
                 datadir=args.dir,
                 train_bsz=self.train_bsz,
                 test_bsz=self.test_bsz,
-                partition_dataset=False,
+                partition_dataset=True,
             )
         elif self.dataset_name == "cifar100":
             self.train_dataloader, self.test_dataloader = cifar.cifar100Data(
@@ -115,7 +115,7 @@ class QuantizedCompressionTrainer(object):
                 datadir=args.dir,
                 train_bsz=self.train_bsz,
                 test_bsz=self.test_bsz,
-                partition_dataset=False,
+                partition_dataset=True,
             )
         elif self.dataset_name == "caltech256":
             self.train_dataloader, self.test_dataloader = caltech.caltech256Data(
@@ -124,7 +124,7 @@ class QuantizedCompressionTrainer(object):
                 datadir=args.dir,
                 train_bsz=self.train_bsz,
                 test_bsz=self.test_bsz,
-                partition_dataset=False,
+                partition_dataset=True,
             )
 
         logging.info("initialized dataloader object...")
