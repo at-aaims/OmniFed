@@ -3,10 +3,8 @@
 # MNIST DATASET CONFIG: Configures FLORA DataModule for MNIST dataset using torchvision.
 #
 # COMPOSITION FLOW:
-# 1. Inherits from datamodule.yaml (which defines train/val/test structure)
-# 2. datamodule.yaml applies dataloader.yaml template to each dataloader field
-# 3. This config provides MNIST-specific dataset configurations and transforms
-# 4. Overrides required fields (dataset, batch_size) with MNIST-specific values
+# 1. Inherits from datamodule template
+# 2. Provides MNIST-specific dataset configuration
 #
 # INHERITANCE CHAIN: dataloader.yaml → datamodule.yaml → mnist.yaml
 #
