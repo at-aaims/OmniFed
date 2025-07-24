@@ -13,7 +13,6 @@ cd ../
 #masterport=27340
 dir='/ccsopen/home/ssq/datasets4/'
 masterport=26290
-
 interface='eth1'
 worldsize=8
 #dir='/Users/ssq/Desktop/datasets/flora_test/'
