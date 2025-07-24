@@ -29,7 +29,7 @@ from ..communicator.BaseCommunicator import BaseCommunicator, ReductionType
 from ..communicator.grpc_communicator import GrpcCommunicator
 from ..communicator.TorchDistCommunicator import TorchDistCommunicator
 from ..data.DataModule import DataModule
-from ..helper.RoundMetrics import RoundMetrics
+from ..utils.RoundMetrics import RoundMetrics
 from ..mixins import SetupMixin
 from . import utils
 from .utils import log_param_changes
