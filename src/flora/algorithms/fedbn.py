@@ -161,9 +161,9 @@ class FedBNNew(BaseAlgorithm):
         """
         # Save local BN parameters before aggregation
         local_bn_params = {}
-        for name, param in self.local_model.named_parameters():
-            if self._is_bn_layer(name):
-                local_bn_params[name] = param.data.clone()
+        for param_name, local_param in self.local_model.named_parameters():
+            if self._is_bn_layer(param_name):
+                local_bn_params[param_name] = local_param.data.clone()
 
         # Aggregate local sample counts to compute federation total
         global_samples = self.local_comm.aggregate(
@@ -171,12 +171,8 @@ class FedBNNew(BaseAlgorithm):
             reduction=ReductionType.SUM,
         ).item()
 
-        # Handle edge cases safely - all nodes must participate in distributed operations
-        if global_samples <= 0:
-            data_proportion = 0.0
-        else:
-            # Calculate data proportion for weighted aggregation
-            data_proportion = self.local_sample_count / global_samples
+        # Calculate this client's data proportion for weighted aggregation
+        data_proportion = self.local_sample_count / max(global_samples, 1)
 
         # Scale only non-BN parameters by data proportion (all nodes participate)
         utils.scale_params(
@@ -193,9 +189,9 @@ class FedBNNew(BaseAlgorithm):
 
         # Restore local BN parameters
         with torch.no_grad():
-            for name, param in aggregated_model.named_parameters():
-                if self._is_bn_layer(name) and name in local_bn_params:
-                    param.data.copy_(local_bn_params[name])
+            for param_name, aggregated_param in aggregated_model.named_parameters():
+                if self._is_bn_layer(param_name) and param_name in local_bn_params:
+                    aggregated_param.data.copy_(local_bn_params[param_name])
 
         return aggregated_model
 

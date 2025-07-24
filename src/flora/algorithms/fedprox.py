@@ -151,11 +151,13 @@ class FedProxNew(BaseAlgorithm):
         loss = torch.nn.functional.cross_entropy(outputs, targets)
         # Add proximal term to penalize deviation from the global model
         prox_term = 0.0
-        for (name, param), (_, global_param) in zip(
+        for (_, local_param), (_, global_param) in zip(
             self.local_model.named_parameters(), self.global_model.named_parameters()
         ):
-            if param.requires_grad:
-                prox_term += ((param - global_param).pow(2)).sum()
+            if local_param.requires_grad:
+                diff = local_param - global_param
+                # power is generally more expensive than multiplication
+                prox_term += torch.sum(diff * diff)
         loss += (self.mu / 2) * prox_term
         return loss, inputs.size(0)
 
@@ -169,18 +171,13 @@ class FedProxNew(BaseAlgorithm):
             reduction=ReductionType.SUM,
         ).item()
 
-        # Handle edge cases safely - all nodes must participate in distributed operations
-        if global_samples <= 0:
-            data_proportion = 0.0
-        else:
-            # Calculate the proportion of data this client contributed
-            data_proportion = self.local_sample_count / global_samples
+        # Calculate this client's data proportion for weighted aggregation
+        data_proportion = self.local_sample_count / max(global_samples, 1)
 
         # All nodes participate regardless of sample count
         utils.scale_params(self.local_model, data_proportion)
 
         # Aggregate weighted model parameters from all clients
-        # NOTE: This aggregate() call returns the updated global model, so the local_model is now the aggregated global model
         aggregated_model = self.local_comm.aggregate(
             self.local_model,
             reduction=ReductionType.SUM,

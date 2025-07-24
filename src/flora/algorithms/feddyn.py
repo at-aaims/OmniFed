@@ -176,18 +176,23 @@ class FedDynNew(BaseAlgorithm):
 
         # Add FedDyn dynamic regularization if state is available
         regularization_loss = torch.tensor(0.0, device=inputs.device)
-        # Quadratic term
-        param_norm_squared = 0.0
-        for param in self.local_model.parameters():
-            if param.requires_grad:
-                param_norm_squared += torch.sum(param**2)
+        # Quadratic term optimized using generator expression and tensor concatenation
+        param_norm_squared = torch.sum(
+            torch.stack(
+                [
+                    torch.sum(param**2)
+                    for param in self.local_model.parameters()
+                    if param.requires_grad
+                ]
+            )
+        )
         quadratic_term = (self.alpha / 2.0) * param_norm_squared
 
         # Linear term
         linear_term = 0.0
-        for name, param in self.local_model.named_parameters():
-            if param.requires_grad and name in self.server_momentum:
-                linear_term -= torch.sum(self.server_momentum[name] * param)
+        for param_name, local_param in self.local_model.named_parameters():
+            if local_param.requires_grad and param_name in self.server_momentum:
+                linear_term -= torch.sum(self.server_momentum[param_name] * local_param)
 
         regularization_loss = quadratic_term + linear_term
 
@@ -201,9 +206,9 @@ class FedDynNew(BaseAlgorithm):
 
         # Store local model before aggregation for momentum update
         local_model_params = {}
-        for name, param in self.local_model.named_parameters():
-            if param.requires_grad:
-                local_model_params[name] = param.data.clone()
+        for param_name, local_param in self.local_model.named_parameters():
+            if local_param.requires_grad:
+                local_model_params[param_name] = local_param.data.clone()
 
         # Aggregate local sample counts to compute federation total
         global_samples = self.local_comm.aggregate(
@@ -211,12 +216,8 @@ class FedDynNew(BaseAlgorithm):
             reduction=ReductionType.SUM,
         ).item()
 
-        # Handle edge cases safely - all nodes must participate in distributed operations
-        if global_samples <= 0:
-            data_proportion = 0.0
-        else:
-            # Calculate data proportion for weighted aggregation
-            data_proportion = self.local_sample_count / global_samples
+        # Calculate this client's data proportion for weighted aggregation
+        data_proportion = self.local_sample_count / max(global_samples, 1)
 
         # All nodes participate regardless of sample count
         utils.scale_params(self.local_model, data_proportion)
@@ -229,14 +230,17 @@ class FedDynNew(BaseAlgorithm):
 
         # Update server momentum (dynamic regularizer)
         with torch.no_grad():
-            for name, param in aggregated_model.named_parameters():
-                if param.requires_grad and name in self.server_momentum:
+            for param_name, aggregated_param in aggregated_model.named_parameters():
+                if (
+                    aggregated_param.requires_grad
+                    and param_name in self.server_momentum
+                ):
                     # Compute model difference: local - global
-                    model_diff = local_model_params[name] - param.data
+                    model_diff = local_model_params[param_name] - aggregated_param.data
 
                     # Server momentum update accumulates local deviations from global model
                     # captures the "drift" direction and is used in regularization term during training
-                    self.server_momentum[name].add_(model_diff, alpha=self.alpha)
+                    self.server_momentum[param_name].add_(model_diff, alpha=self.alpha)
 
         # Return aggregated result
         return aggregated_model

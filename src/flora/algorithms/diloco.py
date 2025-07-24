@@ -201,11 +201,13 @@ class DiLoCoNew(BaseAlgorithm):
         DiLoCo aggregation: distributed low-communication with server-side momentum.
         """
         # Compute local model update (delta from global model)
+        # Pre-compute global parameters dictionary once to avoid O(n^2) complexity
+        global_params = dict(self.global_model.named_parameters())
         local_deltas: Dict[str, torch.Tensor] = {}
-        for local_pname, local_pval in self.local_model.named_parameters():
-            if local_pval.requires_grad and local_pname in self.velocity:
-                global_pval = dict(self.global_model.named_parameters())[local_pname]
-                local_deltas[local_pname] = local_pval.data - global_pval.data
+        for param_name, local_param in self.local_model.named_parameters():
+            if local_param.requires_grad and param_name in self.velocity:
+                global_param = global_params[param_name]  # O(1) lookup
+                local_deltas[param_name] = local_param.data - global_param.data
 
         # DiLoCo uses mean aggregation rather than weighted aggregation
         aggregated_deltas = self.local_comm.aggregate(
@@ -214,19 +216,16 @@ class DiLoCoNew(BaseAlgorithm):
         )
 
         # Apply DiLoCo outer step with momentum using aggregated deltas
+        # Use the same pre-computed global parameters dictionary for efficiency
         with torch.no_grad():
-            for global_pname, global_pval in self.global_model.named_parameters():
-                if (
-                    global_pval.requires_grad
-                    and global_pname in self.velocity
-                    and global_pname in aggregated_deltas
-                ):
-                    # Update velocity with momentum (v = momentum * v + lr_outer * delta)
-                    self.velocity[global_pname].mul_(self.outer_momentum).add_(
-                        aggregated_deltas[global_pname], alpha=self.outer_lr
-                    )
-                    # Update global model parameters (param += v)
-                    global_pval.data.add_(self.velocity[global_pname])
+            for param_name, delta in aggregated_deltas.items():
+                # All parameters in aggregated_deltas already passed velocity and requires_grad filters
+                # Update velocity with momentum (v = momentum * v + lr_outer * delta)
+                self.velocity[param_name].mul_(self.outer_momentum).add_(
+                    delta, alpha=self.outer_lr
+                )
+                # Update global model parameters (param += v)
+                global_params[param_name].data.add_(self.velocity[param_name])
 
         # Return updated global model as the new local model for next training period
         return copy.deepcopy(self.global_model)

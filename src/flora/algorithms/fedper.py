@@ -204,22 +204,19 @@ class FedPerNew(BaseAlgorithm):
             reduction=ReductionType.SUM,
         ).item()
 
-        # Handle edge cases safely - all nodes must participate in distributed operations
-        if global_samples <= 0:
-            data_proportion = 0.0
-        else:
-            # Calculate data proportion for weighted aggregation
-            data_proportion = self.local_sample_count / global_samples
+        # Calculate this client's data proportion for weighted aggregation
+        data_proportion = self.local_sample_count / max(global_samples, 1)
 
         # All nodes participate regardless of sample count
         utils.scale_params(self.local_model, data_proportion)
 
         # Store personal layer parameters before aggregation
-        personal_params = {}
         with torch.no_grad():
-            for name, param in self.local_model.named_parameters():
-                if self._is_personal_layer(name):
-                    personal_params[name] = param.data.clone()
+            personal_params = {
+                name: param.data.clone()
+                for name, param in self.local_model.named_parameters()
+                if self._is_personal_layer(name)
+            }
 
         # Aggregate entire model (including personal layers)
         aggregated_model = self.local_comm.aggregate(
@@ -229,8 +226,8 @@ class FedPerNew(BaseAlgorithm):
 
         # Restore personal layer parameters (keep them local)
         with torch.no_grad():
-            for name, param in aggregated_model.named_parameters():
-                if name in personal_params:
-                    param.data.copy_(personal_params[name])
+            for param_name, aggregated_param in aggregated_model.named_parameters():
+                if param_name in personal_params:
+                    aggregated_param.data.copy_(personal_params[param_name])
 
         return aggregated_model
