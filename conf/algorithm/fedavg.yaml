@@ -8,5 +8,5 @@ defaults:
   - base
 
 # Dotpath to class implementation
-_target_: src.flora.algorithms.FedAvgNew
+_target_: src.flora.algorithms.FedAvg
 # FedAvg has no additional parameters beyond the base algorithm

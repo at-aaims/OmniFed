@@ -8,7 +8,7 @@ defaults:
   - base
 
 # Dotpath to class implementation
-_target_: src.flora.algorithms.FedProxNew
+_target_: src.flora.algorithms.FedProx
 
 # Defaults
 mu: 0.01 # Proximal term coefficient - controls deviation penalty from global model

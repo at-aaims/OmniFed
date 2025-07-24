@@ -8,7 +8,7 @@ defaults:
   - base
 
 # Dotpath to class implementation
-_target_: src.flora.algorithms.FedNovaNew
+_target_: src.flora.algorithms.FedNova
 
 # Defaults
 weight_decay: 0.0 # L2 regularization strength for local training

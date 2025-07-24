@@ -8,5 +8,5 @@ defaults:
   - base
 
 # Dotpath to class implementation
-_target_: src.flora.algorithms.ScaffoldNew
+_target_: src.flora.algorithms.Scaffold
 # SCAFFOLD has no additional parameters beyond the base algorithm

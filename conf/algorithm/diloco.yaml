@@ -8,7 +8,7 @@ defaults:
   - base
 
 # Dotpath to class implementation
-_target_: src.flora.algorithms.DiLoCoNew
+_target_: src.flora.algorithms.DiLoCo
 
 # Defaults
 outer_lr: 0.7 # Learning rate for server-side outer optimizer

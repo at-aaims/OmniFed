@@ -8,5 +8,5 @@ defaults:
   - base
 
 # Dotpath to class implementation
-_target_: src.flora.algorithms.FedBNNew
+_target_: src.flora.algorithms.FedBN
 # FedBN has no additional parameters beyond the base algorithm
