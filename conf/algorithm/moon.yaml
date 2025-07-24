@@ -8,7 +8,7 @@ defaults:
   - base
 
 # Dotpath to class implementation
-_target_: src.flora.algorithms.MOONNew
+_target_: src.flora.algorithms.MOON
 
 # Defaults
 mu: 1.0 # Contrastive loss weight coefficient

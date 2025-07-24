@@ -12,151 +12,21 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import copy
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Optional
 
 import rich.repr
 import torch
 import torch.nn as nn
 
-from src.flora.helper.node_config import NodeConfig
-from src.flora.helper.training_params import FedPerTrainingParameters
-
-from ..communicator import BaseCommunicator, ReductionType
+from ..communicator import ReductionType
 from . import utils
 from .BaseAlgorithm import BaseAlgorithm
-
-# Example of personal_head used by FedPerModel
-
-# class SimplePersonalModel(torch.nn.Module):
-#     def __init__(self, input_dim=5408, num_classes=10):
-#         super().__init__()
-#         self.classifier = torch.nn.Linear(input_dim, num_classes)
-#
-#     def forward(self, x):
-#         return self.classifier(x)
-
-
-class FedPerWrapper(nn.Module):
-    """
-    Model wrapper for FedPer.
-
-    Combines a shared base model and a personal head. Only the base model is aggregated across clients; the personal head remains local for client-specific adaptation.
-    """
-
-    def __init__(self, base_model: nn.Module, personal_head: nn.Module):
-        super(FedPerWrapper, self).__init__()
-        self.base_model = base_model
-        self.personal_head = personal_head
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        x = self.base_model(x)
-        return self.personal_head(x)
-
-
-class FedPer:
-    """
-    implementation of FedPer
-
-    NOTE: Original implementation kept for reference purposes
-    """
-
-    def __init__(
-        self,
-        base_model: torch.nn.Module,
-        personal_head: torch.nn.Module,
-        train_data: torch.utils.data.DataLoader,
-        communicator: BaseCommunicator,
-        total_clients: int,
-        train_params: FedPerTrainingParameters,
-    ):
-        """
-        :param model: model to train
-        :param data: data to train
-        :param communicator: communicator object
-        :param total_clients: total number of clients / world size
-        :param train_params: training hyperparameters
-        """
-        self.model = FedPerWrapper(base_model, personal_head)
-        self.train_data = train_data
-        self.communicator = communicator
-        self.total_clients = total_clients
-        self.train_params = train_params
-        self.optimizer = self.train_params.get_optimizer()
-        self.comm_freq = self.train_params.get_comm_freq()
-        self.loss = self.train_params.get_loss()
-        self.epochs = self.train_params.get_epochs()
-        self.local_step = 0
-        self.training_samples = 0
-        dev_id = NodeConfig().get_gpus() % self.total_clients
-        self.device = torch.device(
-            "cuda:" + str(dev_id) if torch.cuda.is_available() else "cpu"
-        )
-        self.model = self.model.to(self.device)
-        self.global_model = copy.deepcopy(self.model)
-        self.global_model = self.global_model.to(self.device)
-
-    def broadcast_model(self, model):
-        # broadcast model from central server with id 0
-        model = self.communicator.broadcast(msg=model, id=0)
-        return model
-
-    def train_loop(self):
-        for inputs, labels in self.train_data:
-            inputs, labels = inputs.to(self.device), labels.to(self.device)
-            pred = self.model(inputs)
-            loss = self.loss(pred, labels)
-            self.training_samples += inputs.size(0)
-
-            loss.backward()
-            self.optimizer.step()
-            self.optimizer.zero_grad()
-            self.local_step += 1
-            if self.local_step % self.comm_freq == 0:
-                # total samples processed across all clients
-                total_samples = self.communicator.aggregate(
-                    msg=torch.Tensor([self.training_samples]), compute_mean=False
-                )
-                weight_scaling = self.training_samples / total_samples.item()
-                for _, param in self.model.named_parameters():
-                    if not param.requires_grad:
-                        continue
-                    param.data *= weight_scaling
-
-                # Aggregate base model parameters across clients
-                aggregated_base_model = self.communicator.aggregate(
-                    msg=self.model.base_model,
-                    compute_mean=False,
-                )
-                # Wrap it back into FedPerModel along with current client's personal head
-                self.global_model = FedPerWrapper(
-                    base_model=aggregated_base_model,
-                    personal_head=self.model.personal_head,
-                )
-                self.global_model = self.global_model.to(self.device)
-
-                self.model.base_model.load_state_dict(
-                    self.global_model.base_model.state_dict()
-                )
-                self.training_samples = 0
-
-    def train(self):
-        self.model.train()
-        self.global_model.eval()
-        self.model = self.broadcast_model(model=self.model)
-        if self.epochs is not None and isinstance(self.epochs, int) and self.epochs > 0:
-            for epoch in range(self.epochs):
-                self.train_loop()
-        else:
-            while True:
-                self.train_loop()
-
 
 # ======================================================================================
 
 
 @rich.repr.auto
-class FedPerNew(BaseAlgorithm):
+class FedPer(BaseAlgorithm):
     """
     Federated Personalization (FedPer) algorithm implementation.
 

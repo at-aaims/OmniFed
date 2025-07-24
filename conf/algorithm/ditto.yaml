@@ -8,7 +8,7 @@ defaults:
   - base
 
 # Dotpath to class implementation
-_target_: src.flora.algorithms.DittoNew
+_target_: src.flora.algorithms.Ditto
 
 # Defaults
 global_lr: 0.01 # Learning rate for global model updates
