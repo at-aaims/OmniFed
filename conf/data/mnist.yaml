@@ -1,14 +1,30 @@
 # ./conf/data/mnist.yaml
 
-# Defines a reusable datamodule config using the torchvision MNIST dataset.
+# MNIST DATASET CONFIG: Configures FLORA DataModule for MNIST dataset using torchvision.
+#
+# COMPOSITION FLOW:
+# 1. Inherits from datamodule.yaml (which defines train/val/test structure)
+# 2. datamodule.yaml applies dataloader.yaml template to each dataloader field
+# 3. This config provides MNIST-specific dataset configurations and transforms
+# 4. Overrides required fields (dataset, batch_size) with MNIST-specific values
+#
+# INHERITANCE CHAIN: dataloader.yaml → datamodule.yaml → mnist.yaml
+#
+# References:
+# - https://docs.pytorch.org/vision/stable/generated/torchvision.datasets.MNIST.html
+# - https://docs.pytorch.org/vision/stable/transforms.html
+
+defaults:
+  - datamodule # Inherit base datamodule structure (includes dataloader templates)
 
 _target_: src.flora.data.DataModule
 
 # ─────────────
 
+# TRAINING DATALOADER CONFIG
+# Uses dataloader template with datamodule defaults, provides MNIST-specific dataset
 train:
-  _target_: torch.utils.data.DataLoader
-
+  # Required field from dataloader.yaml - must specify the dataset
   dataset:
     _target_: torchvision.datasets.MNIST
     root: /tmp/torchvision-mnist
@@ -22,16 +38,13 @@ train:
           mean: [0.1307]
           std: [0.3081]
 
-  shuffle: true
+  # Inherited from templates: batch_size=???, shuffle=true, num_workers=2, _target_=DataLoader
 
-  batch_size: ??? # Mandatory marker; composer must override this value
-  num_workers: 2
+# ─────────────
 
-# ───────────── Validation DataLoader Config (Optional)
-
-val: # TODO: Currently unused
-  _target_: torch.utils.data.DataLoader
-
+# VALIDATION DATALOADER CONFIG
+# Uses optional val template from datamodule.yaml (inherits from dataloader.yaml)
+val:
   dataset:
     _target_: torchvision.datasets.MNIST
     root: /tmp/torchvision-mnist
@@ -45,12 +58,5 @@ val: # TODO: Currently unused
           mean: [0.1307]
           std: [0.3081]
 
-  shuffle: false
-
-  batch_size: ??? # Mandatory marker; composer must override this value
-  num_workers: 2
-# ───────────── Test DataLoader Config (Optional)
-
-# test: # Optional
-# ...
-
+  # Inherited from templates: batch_size=???, shuffle=false, num_workers=2, _target_=DataLoader
+  shuffle: false # Explicitly disable shuffling for validation
