@@ -5,13 +5,25 @@ cd ../
 # kill -s 9 `ps -ef | grep src.flora.test.launch_quantization |grep -v grep | awk '{print $2}'`
 # kill -9 $(ps aux | grep src.flora.test.launch_quantization | grep -v grep | awk '{print $2}')
 
-dir='/Users/ssq/Desktop/datasets/flora_test/'
+#dir='/Users/ssq/Desktop/datasets/flora_test/'
+#masterport=28670
+#interface='lo0'
+#worldsize=4
+
+#dir='/ccsopen/home/ssq/datasets/'
+#masterport=25783
+dir='/ccsopen/home/ssq/datasets2/'
+masterport=29275
+#dir='/ccsopen/home/ssq/datasets3/'
+#masterport=28139
+#dir='/ccsopen/home/ssq/datasets4/'
+#masterport=26290
+interface='eth1'
+worldsize=8
 bsz=32
 testbsz=32
-worldsize=4
 masteraddr='127.0.0.1'
-masterport=28670
-backend='Gloo'
+backend='gloo'
 model='mobilenetv3'
 dataset='caltech256'
 lr=0.1
@@ -20,8 +32,8 @@ weightdecay=1e-4
 momentum=0.9
 lrstepsize=40
 numclasses=257
-compression='AMP'
-bitwidth=4
+compression='QSGD'
+bitwidth=8
 
 for val in $(seq 1 $worldsize)
 do
@@ -31,6 +43,6 @@ do
   --master-addr=$masteraddr --master-port=$masterport --backend=$backend --model=$model --dataset=$dataset \
   --train-dir=$dir --test-dir=$dir --compression-type=$compression --quantized-bitwidth=$bitwidth --lr=$lr \
   --gamma=$gamma --weight-decay=$weightdecay --momentum=$momentum --test-bsz=$testbsz \
-  --mobv3-lr-step-size=$lrstepsize --mobv3-num-classes=$numclasses &
+  --mobv3-lr-step-size=$lrstepsize --mobv3-num-classes=$numclasses --network-interface=$interface &
   sleep 3
 done

@@ -36,5 +36,5 @@ do
   --master-addr=$masteraddr --master-port=$masterport --backend=$backend --model=$model --dataset=$dataset \
   --train-dir=$dir --test-dir=$dir --compression-type=$compression --quantized-bitwidth=$bitwidth \
   --network-interface=$interface &
-  sleep 3
+  sleep 2
 done
