@@ -10,10 +10,10 @@ cd ../
 #interface='lo0'
 #masterport=28670
 
-dir='/ccsopen/home/ssq/datasets/'
-masterport=25783
-#dir='/ccsopen/home/ssq/datasets2/'
-#masterport=29189
+#dir='/ccsopen/home/ssq/datasets/'
+#masterport=25783
+dir='/ccsopen/home/ssq/datasets2/'
+masterport=29277
 #dir='/ccsopen/home/ssq/datasets3/'
 #masterport=28139
 #dir='/ccsopen/home/ssq/datasets4/'
@@ -25,7 +25,7 @@ masteraddr='127.0.0.1'
 backend='gloo'
 model='resnet18'
 dataset='cifar10'
-compression='QSGD'
+compression='AMP'
 bitwidth=8
 
 for val in $(seq 1 $worldsize)
