@@ -12,12 +12,16 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import os
 import time
 import pickle
 import threading
+import subprocess
+from time import perf_counter_ns
 from kafka import KafkaProducer, KafkaConsumer
 
 import torch
+from kafka.errors import KafkaError
 
 from src.flora.datasets.image_classification import cifar
 
@@ -75,8 +79,11 @@ class DataStreamPublisher:
                 for i, sample in enumerate(self.train_dataset):
                     self.producer.send(topic=topic, value=sample)
                     time.sleep(1 / self.stream_rate)
+        except KeyboardInterrupt:
+            print("Stopping stream...")
         finally:
             self.producer.flush()
+            self.producer.close()
 
     def publish_data_to_clients(self):
         for ix in range(self.total_clients):
@@ -85,18 +92,17 @@ class DataStreamPublisher:
             thread = threading.Thread(target=self.stream_data, args=(client_id,))
             thread.start()
 
-    def create_topic(self, topic):
-        pass
-
 
 class DataStreamSubscriber:
     def __init__(self,
         kafka_host="127.0.0.1",
         kafka_port=9092,
+        kafka_dir='~/',
         client_id=0,
     ):
         self.kafka_host = kafka_host
         self.kafka_port = kafka_port
+        self.kafka_dir = kafka_dir
         self.topic = "client-{}".format(client_id)
 
         self.consumer = KafkaConsumer(self.topic,
@@ -116,6 +122,61 @@ class DataStreamSubscriber:
         return image_tensor, label_tensor
 
     def stream_data(self):
-        for message in self.consumer:
-            img_tensor, label_tensor = self.deserialize_sample(message.value)
-            print(f"received sample label {label_tensor.item()} image tensor shape {img_tensor.shape}")
+        nanoTosec = 1e-9
+        msg_count = 0
+        log_interval = 100
+        strt_time = perf_counter_ns()
+        try:
+            for message in self.consumer:
+                img_tensor, label_tensor = self.deserialize_sample(message.value)
+                msg_count += 1
+                if msg_count % log_interval == 0:
+                    print(f"received sample label {label_tensor.item()} image tensor shape {img_tensor.shape}")
+                    elapsed_time = (perf_counter_ns() - strt_time) * nanoTosec
+                    stream_rate = msg_count / elapsed_time
+                    print(f"measured stream_rate {stream_rate} samples/sec on topic {self.topic}")
+
+        except KeyboardInterrupt:
+            print("Stopping consumer from keyboard")
+        finally:
+            self.consumer.close()
+
+    def create_topic(self, topic):
+        try:
+            topics = self.consumer.topics()
+            try:
+                if topic not in topics:
+                    kafka_topics_pth = os.path.join(
+                        self.kafka_dir, "bin/kafka-topics.sh"
+                    )
+                    command = [
+                        kafka_topics_pth,
+                        "--create",
+                        "--topic",
+                        topic,
+                        "--bootstrap-server",
+                        self.kafka_host + ":" + str(self.kafka_port),
+                        "--partitions",
+                        "1",
+                        "--replication-factor",
+                        "1",
+                    ]
+                    print(f"command is {command}")
+                    result = subprocess.run(
+                        command, check=True, text=True, capture_output=True
+                    )
+                    print(f"topic {topic} created successfully.")
+                    print(result.stdout)
+
+
+                else:
+                    print(f"!!!!!!!!!!!!!!!topic {topic} already exists!!!!!!!!!!!!!!!")
+
+            except subprocess.CalledProcessError as e:
+                print(f"Error creating topic {e.stderr}")
+
+        except KafkaError as e:
+            print(f"Error while checking topic existence: {e}")
+        finally:
+            print("consumer closing...")
+            self.consumer.close()
