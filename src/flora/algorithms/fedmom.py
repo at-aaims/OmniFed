@@ -143,6 +143,8 @@ class FedMomNew(BaseAlgorithm):
     Federated Momentum (FedMom) algorithm implementation.
 
     FedMom applies momentum to the aggregation of model updates, improving convergence and stability in federated learning.
+
+    FedMom](https://arxiv.org/abs/2002.02090) | Zhouyuan Huo | 2020-02-06
     """
 
     def __init__(self, momentum: float = 0.9, **kwargs):
@@ -155,10 +157,15 @@ class FedMomNew(BaseAlgorithm):
         FedMom-specific setup: initialize global model and velocity buffers.
         """
         super()._setup(device=device)
-
+        # Deep-copy retains requires_grad state from local_model
         self.global_model = copy.deepcopy(self.local_model)
+        # Global model is reference-only, disable gradients and set eval mode
+        self.global_model.eval()  # eval() does NOT turn off gradient tracking.
+        for param in self.global_model.parameters():
+            param.requires_grad = False
 
-        # Initialize velocity (server-side momentum) to zero
+        # Initialize velocity (server-side momentum)
+        # all zero-initialized tensors based on param.data have requires_grad=False by default
         self.velocity: Dict[str, torch.Tensor] = {}
         for name, param in self.local_model.named_parameters():
             if param.requires_grad:
@@ -182,16 +189,6 @@ class FedMomNew(BaseAlgorithm):
         loss = torch.nn.functional.cross_entropy(outputs, targets)
         return loss, inputs.size(0)
 
-    def _round_start(self) -> None:
-        """
-        Update global model reference at the start of each round.
-
-        # TODO: check whether we can safely just move all this logic in round_start() for all algorithms to the end of aggregate() method and remove round_start() overrides altogether
-        # TODO: should this logic be linked with the same granularity as aggregate(), rather than always on round_start?
-        """
-        # Update global model reference (self.local_model already contains latest from aggregate())
-        self.global_model.load_state_dict(self.local_model.state_dict())
-
     def _aggregate(self) -> nn.Module:
         """
         FedMom aggregation: server-side momentum on aggregated parameter deltas.
@@ -201,8 +198,8 @@ class FedMomNew(BaseAlgorithm):
         for name, param in self.local_model.named_parameters():
             if param.requires_grad:
                 global_param = dict(self.global_model.named_parameters())[name]
-                # Delta = global - local (original uses global - local for momentum direction)
-                local_deltas[name] = global_param.data - param.data
+                # Delta = local - global (what the client actually learned this round)
+                local_deltas[name] = param.data - global_param.data
 
         # Aggregate local sample counts to compute federation total
 
@@ -229,13 +226,17 @@ class FedMomNew(BaseAlgorithm):
         )
 
         # Apply server-side momentum to aggregated deltas
-        for name, param in self.global_model.named_parameters():
-            if param.requires_grad and name in self.velocity:
-                # Update velocity with momentum using in-place operations
-                self.velocity[name].mul_(self.momentum).add_(aggregated_deltas[name])
+        with torch.no_grad():
+            for name, param in self.global_model.named_parameters():
+                if param.requires_grad and name in self.velocity:
+                    # Update velocity with momentum
+                    self.velocity[name].mul_(self.momentum).add_(
+                        aggregated_deltas[name]
+                    )
 
-                # Update global model parameters using alpha argument
-                param.data.sub_(self.velocity[name], alpha=self.local_lr)
+                    # Apply server-side momentum to update global model parameters
+                    # ADD because if deltas represent "what clients learned", we add them to global model
+                    param.data.add_(self.velocity[name], alpha=self.local_lr)
 
-        # Return updated global model as new local model
+        # Return updated global model as the new local model for next training period
         return copy.deepcopy(self.global_model)

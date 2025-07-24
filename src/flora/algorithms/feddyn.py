@@ -136,6 +136,8 @@ class FedDynNew(BaseAlgorithm):
     Federated Dynamic Regularization (FedDyn) algorithm implementation.
 
     FedDyn introduces a dynamic regularization term to address objective inconsistency in federated learning and improve convergence in heterogeneous environments.
+
+    [FedDyn](https://arxiv.org/abs/2111.04263) | Durmus Alp Emre Acar | 2021-11-08
     """
 
     def __init__(self, alpha: float = 0.1, **kwargs):
@@ -149,6 +151,8 @@ class FedDynNew(BaseAlgorithm):
         """
         super()._setup(device=device)
 
+        # Initialize server momentum for dynamic regularization
+        # all zero-initialized tensors based on param.data have requires_grad=False by default
         self.server_momentum: Dict[str, torch.Tensor] = {}
         for name, param in self.local_model.named_parameters():
             if param.requires_grad:
@@ -224,14 +228,15 @@ class FedDynNew(BaseAlgorithm):
         )
 
         # Update server momentum (dynamic regularizer)
-        for name, param in aggregated_model.named_parameters():
-            if param.requires_grad and name in self.server_momentum:
-                # Compute model difference: local - global
-                model_diff = local_model_params[name] - param.data
+        with torch.no_grad():
+            for name, param in aggregated_model.named_parameters():
+                if param.requires_grad and name in self.server_momentum:
+                    # Compute model difference: local - global
+                    model_diff = local_model_params[name] - param.data
 
-                # TODO: Verify server momentum update direction against FedDyn paper
-                # Update server momentum: h = h + alpha * (local - global)
-                self.server_momentum[name].add_(model_diff, alpha=self.alpha)
+                    # Server momentum update accumulates local deviations from global model
+                    # captures the "drift" direction and is used in regularization term during training
+                    self.server_momentum[name].add_(model_diff, alpha=self.alpha)
 
         # Return aggregated result
         return aggregated_model

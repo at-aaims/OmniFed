@@ -123,10 +123,18 @@ class FedPer:
                         continue
                     param.data *= weight_scaling
 
-                self.global_model = self.communicator.aggregate(
+                # Aggregate base model parameters across clients
+                aggregated_base_model = self.communicator.aggregate(
                     msg=self.model.base_model,
                     compute_mean=False,
                 )
+                # Wrap it back into FedPerModel along with current client's personal head
+                self.global_model = FedPerWrapper(
+                    base_model=aggregated_base_model,
+                    personal_head=self.model.personal_head,
+                )
+                self.global_model = self.global_model.to(self.device)
+
                 self.model.base_model.load_state_dict(
                     self.global_model.base_model.state_dict()
                 )
@@ -155,6 +163,8 @@ class FedPerNew(BaseAlgorithm):
     FedPer splits the model into a shared base model and a personal head.
     Only the base model is aggregated across clients;
     each client maintains its own personal head for local adaptation.
+
+    [FedPer](https://arxiv.org/abs/1912.00818) | Muhammad Ammad-ud-din | 2020-01-01
     """
 
     def __init__(self, personal_layers: Optional[list[str]] = None, **kwargs):
@@ -206,9 +216,10 @@ class FedPerNew(BaseAlgorithm):
 
         # Store personal layer parameters before aggregation
         personal_params = {}
-        for name, param in self.local_model.named_parameters():
-            if self._is_personal_layer(name):
-                personal_params[name] = param.data.clone()
+        with torch.no_grad():
+            for name, param in self.local_model.named_parameters():
+                if self._is_personal_layer(name):
+                    personal_params[name] = param.data.clone()
 
         # Aggregate entire model (including personal layers)
         aggregated_model = self.local_comm.aggregate(
@@ -217,8 +228,9 @@ class FedPerNew(BaseAlgorithm):
         )
 
         # Restore personal layer parameters (keep them local)
-        for name, param in aggregated_model.named_parameters():
-            if name in personal_params:
-                param.data.copy_(personal_params[name])
+        with torch.no_grad():
+            for name, param in aggregated_model.named_parameters():
+                if name in personal_params:
+                    param.data.copy_(personal_params[name])
 
         return aggregated_model

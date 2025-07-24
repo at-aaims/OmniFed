@@ -85,6 +85,7 @@ class Moon:
         self.model = self.model.to(self.device)
         self.global_model = copy.deepcopy(self.model)
         self.global_model = self.global_model.to(self.device)
+        self.negative_reprs = []
 
     def broadcast_model(self, model):
         # broadcast model from central server with id 0
@@ -100,17 +101,17 @@ class Moon:
             with torch.no_grad():
                 _, global_repr = self.global_model(inputs)
                 if len(self.prev_models) > 0:
-                    negative_reprs = [
+                    self.negative_reprs = [
                         prev_model(inputs)[1] for prev_model in self.prev_models
                     ]
 
             loss = self.loss(pred, labels)
-            if len(negative_reprs) > 0:
+            if len(self.negative_reprs) > 0:
                 local_repr = torch.nn.functional.normalize(local_repr, dim=1)
                 global_repr = torch.nn.functional.normalize(global_repr, dim=1)
-                negative_reprs = [
+                self.negative_reprs = [
                     torch.nn.functional.normalize(repr, dim=1)
-                    for repr in negative_reprs
+                    for repr in self.negative_reprs
                 ]
                 pos_sim = torch.exp(
                     torch.sum(local_repr * global_repr, dim=1) / self.temperature
@@ -118,13 +119,13 @@ class Moon:
                 neg_sim = torch.stack(
                     [
                         torch.exp(torch.sum(local_repr * neg, dim=1) / self.temperature)
-                        for neg in negative_reprs
+                        for neg in self.negative_reprs
                     ],
                     dim=1,
                 ).sum(dim=1)
 
                 contrastive_loss = -torch.log(pos_sim / (pos_sim + neg_sim + 1e-8))
-                loss += self.mu * contrastive_loss
+                loss += self.mu * contrastive_loss.mean()
 
             loss.backward()
             self.optimizer.step()
@@ -203,6 +204,8 @@ class MOONNew(BaseAlgorithm):
     MOON uses model-level contrastive learning to align local models
     with the global model and distinguish them from previous local models,
     improving convergence and generalization in federated learning.
+
+    [MOON](https://arxiv.org/abs/2103.16257) | Qinbin Li | 2021-03-30
     """
 
     def __init__(
@@ -228,8 +231,14 @@ class MOONNew(BaseAlgorithm):
 
         super()._setup(device=device)
 
+        # Deep-copy retains requires_grad state from local_model
         self.global_model = copy.deepcopy(self.local_model)
-        self.global_model.eval()
+        # Global model is reference-only for contrastive learning, disable gradients and set eval mode
+        self.global_model.eval()  # eval() does NOT turn off gradient tracking.
+        for param in self.global_model.parameters():
+            param.requires_grad = False
+
+        # Initialize previous models history for contrastive learning
         self.prev_models = []
 
     def _configure_local_optimizer(self, local_lr: float) -> torch.optim.Optimizer:
@@ -257,7 +266,7 @@ class MOONNew(BaseAlgorithm):
             # Get global model representation (positive sample)
             _, global_repr = self.global_model(inputs)
 
-            # Get negative representations from previous models
+            # Get representations from previous models for contrastive learning
             negative_reprs = []
             if len(self.prev_models) > 0:
                 negative_reprs = [
@@ -294,18 +303,6 @@ class MOONNew(BaseAlgorithm):
 
         return total_loss, inputs.size(0)
 
-    def _round_start(self) -> None:
-        """
-        Update global model reference and set to eval mode at the start of each round.
-
-        # TODO: check whether we can safely just move all this logic in round_start() for all algorithms to the end of aggregate() method and remove round_start() overrides altogether
-        # TODO: should this logic be linked with the same granularity as aggregate(), rather than always on round_start?
-        """
-        # Update global model reference (self.local_model already contains latest from aggregate())
-        self.global_model.load_state_dict(self.local_model.state_dict())
-        # Set global model to eval mode for contrastive learning
-        self.global_model.eval()
-
     def _aggregate(self) -> nn.Module:
         """
         MOON aggregation: weighted averaging with model history for contrastive learning.
@@ -338,9 +335,11 @@ class MOONNew(BaseAlgorithm):
         # Create a copy of the aggregated model for history
         model_copy = copy.deepcopy(aggregated_model)
         model_copy.eval()
+        for param in model_copy.parameters():
+            param.requires_grad = False
 
         # Maintain history of previous models
-        if len(self.prev_models) == self.num_prev_models:
+        if len(self.prev_models) >= self.num_prev_models:
             self.prev_models.pop()  # Remove oldest
         self.prev_models.insert(0, model_copy)  # Add newest at front
 

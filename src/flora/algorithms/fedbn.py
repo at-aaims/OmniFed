@@ -133,6 +133,8 @@ class FedBNNew(BaseAlgorithm):
 
     FedBN aggregates only non-batch normalization parameters across clients,
     allowing each client to maintain its own batch normalization statistics for improved personalization.
+
+    [FedBN](https://arxiv.org/abs/2102.07623) | Xiaoxiao Li | 2021-02-15
     """
 
     def _configure_local_optimizer(self, local_lr: float) -> torch.optim.Optimizer:
@@ -153,6 +155,9 @@ class FedBNNew(BaseAlgorithm):
     def _aggregate(self) -> nn.Module:
         """
         FedBN aggregation: aggregate non-BatchNorm parameters while keeping BN layers local.
+
+        BatchNorm layers are kept local because they capture client-specific data statistics.
+        Aggregating BN parameters would mix statistics from different data distributions.
         """
         # Save local BN parameters before aggregation
         local_bn_params = {}
@@ -174,9 +179,11 @@ class FedBNNew(BaseAlgorithm):
             data_proportion = self.local_sample_count / global_samples
 
         # Scale only non-BN parameters by data proportion (all nodes participate)
-        for name, param in self.local_model.named_parameters():
-            if not self._is_bn_layer(name):
-                param.data.mul_(data_proportion)
+        utils.scale_params(
+            self.local_model,
+            data_proportion,
+            filter_fn=lambda name, tensor: not self._is_bn_layer(name),
+        )
 
         # Aggregate non-BN parameters
         aggregated_model = self.local_comm.aggregate(
@@ -185,9 +192,10 @@ class FedBNNew(BaseAlgorithm):
         )
 
         # Restore local BN parameters
-        for name, param in aggregated_model.named_parameters():
-            if self._is_bn_layer(name) and name in local_bn_params:
-                param.data.copy_(local_bn_params[name])
+        with torch.no_grad():
+            for name, param in aggregated_model.named_parameters():
+                if self._is_bn_layer(name) and name in local_bn_params:
+                    param.data.copy_(local_bn_params[name])
 
         return aggregated_model
 

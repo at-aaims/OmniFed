@@ -149,10 +149,10 @@ class Scaffold:
 
                 # update the global model and server control variates
                 for name, param in self.global_model.named_parameters():
-                    param.add_(lr * avg_model_delta[name])
-                    self.server_control_variates[name].add_(
-                        avg_control_variate_delta[name]
-                    )
+                    param.data += lr * avg_model_delta[name]
+                    self.server_control_variates[name] += avg_control_variate_delta[
+                        name
+                    ]
 
                 self.model.load_state_dict(self.global_model.state_dict())
                 del avg_model_delta, avg_control_variate_delta
@@ -186,14 +186,22 @@ class ScaffoldNew(BaseAlgorithm):
         """
         super()._setup(device=device)
 
+        # Deep-copy retains requires_grad state from local_model
+        self.global_model = copy.deepcopy(self.local_model)
+        # Global model is reference-only for delta computation, set eval mode and disable gradients
+        self.global_model.eval()  # eval() does NOT turn off gradient tracking.
+        for param in self.global_model.parameters():
+            param.requires_grad = False
+
         self.server_cv = {}
         self.client_cv = {}
         self.old_client_cv = {}
-        self.global_model = copy.deepcopy(self.local_model)
         self.model_delta = {}
         self.cv_delta = {}
         self.optimizer_steps = 0
 
+        # Initialize control variates and deltas
+        # all zero-initialized tensors based on param.data have requires_grad=False by default
         for name, param in self.local_model.named_parameters():
             self.server_cv[name] = torch.zeros_like(param.data)
             self.client_cv[name] = torch.zeros_like(param.data)
@@ -226,18 +234,6 @@ class ScaffoldNew(BaseAlgorithm):
         self.local_optimizer.step()
         self.optimizer_steps += 1
 
-    def _round_start(self) -> None:
-        """
-        Reset optimizer step count and update global model reference at the start of each round.
-
-        # TODO: check whether we can safely just move all this logic in round_start() for all algorithms to the end of aggregate() method and remove round_start() overrides altogether
-        # TODO: should this logic be linked with the same granularity as aggregate(), rather than always on round_start?
-        """
-        # Update global model reference (self.local_model already contains latest from aggregate())
-        self.global_model.load_state_dict(self.local_model.state_dict())
-        # Reset optimizer step counter for SCAFFOLD control variate calculations
-        self.optimizer_steps = 0
-
     def _backward_pass(self, loss: torch.Tensor) -> None:
         """
         Apply SCAFFOLD gradient correction after backward pass.
@@ -255,24 +251,44 @@ class ScaffoldNew(BaseAlgorithm):
         lr = self.local_optimizer.param_groups[0]["lr"]
 
         # Update client control variates
-        for (name1, param1), (name2, param2) in zip(
-            self.global_model.named_parameters(), self.local_model.named_parameters()
-        ):
-            assert name1 == name2, f"Parameter mismatch: {name1} vs {name2}"
-            self.old_client_cv[name1].copy_(self.client_cv[name1])
-            update_term = (param2 - param1) / (effective_comm_freq * lr)
-            # TODO: Verify control variate update formula against SCAFFOLD paper
-            self.client_cv[name1].sub_(self.server_cv[name1]).add_(update_term)
+        with torch.no_grad():
+            for (global_pname, global_pval), (
+                local_pname,
+                local_pval,
+            ) in zip(
+                self.global_model.named_parameters(),
+                self.local_model.named_parameters(),
+            ):
+                assert global_pname == local_pname, (
+                    f"Parameter mismatch: {global_pname} vs {local_pname}"
+                )
+                # Save current control variate state before updating
+                self.old_client_cv[global_pname].copy_(self.client_cv[global_pname])
+                update_term = (local_pval - global_pval) / (effective_comm_freq * lr)
+                # client control variate update
+                self.client_cv[global_pname].sub_(self.server_cv[global_pname]).add_(
+                    update_term
+                )
 
-        # Compute model delta and control variate delta
-        for (name1, param1), (name2, param2) in zip(
-            self.global_model.named_parameters(), self.local_model.named_parameters()
-        ):
-            assert name1 == name2, f"Parameter mismatch: {name1} vs {name2}"
-            self.model_delta[name1].copy_(param2.data).sub_(param1.data)
-            self.cv_delta[name1].copy_(self.client_cv[name1]).sub_(
-                self.old_client_cv[name1]
-            )
+        # Compute model delta and control variate delta for aggregation
+        with torch.no_grad():
+            for (global_pname, global_pval), (
+                local_pname,
+                local_pval,
+            ) in zip(
+                self.global_model.named_parameters(),
+                self.local_model.named_parameters(),
+            ):
+                assert global_pname == local_pname, (
+                    f"Parameter mismatch: {global_pname} vs {local_pname}"
+                )
+                # Compute deltas using efficient in-place operations
+                self.model_delta[global_pname].copy_(local_pval.data).sub_(
+                    global_pval.data
+                )
+                self.cv_delta[global_pname].copy_(self.client_cv[global_pname]).sub_(
+                    self.old_client_cv[global_pname]
+                )
 
         # SCAFFOLD uses mean aggregation rather than weighted aggregation
         aggregated_model_deltas = self.local_comm.aggregate(
@@ -282,12 +298,18 @@ class ScaffoldNew(BaseAlgorithm):
             msg=self.cv_delta, reduction=ReductionType.MEAN
         )
 
+        # Update Global model with aggregated deltas and control variates
         lr = self.local_optimizer.param_groups[0]["lr"]
-        utils.apply_model_delta(self.global_model, aggregated_model_deltas, scale=lr)
-        for name in self.server_cv:
-            if name in aggregated_cv_deltas:
-                self.server_cv[name].add_(aggregated_cv_deltas[name])
+        utils.add_model_deltas(self.global_model, aggregated_model_deltas, alpha=lr)
+        # Update server control variates with aggregated deltas
+        with torch.no_grad():
+            for name in self.server_cv:
+                if name in aggregated_cv_deltas:
+                    self.server_cv[name].add_(aggregated_cv_deltas[name])
 
-        # Create and return the updated local model
-        updated_local_model = copy.deepcopy(self.global_model)
-        return updated_local_model
+        # Reset optimizer steps counter after aggregation since we're starting new local training
+        # so that control variates are properly normalized for the next aggregation period
+        self.optimizer_steps = 0
+
+        # Return updated global model as the new local model for next training period
+        return copy.deepcopy(self.global_model)

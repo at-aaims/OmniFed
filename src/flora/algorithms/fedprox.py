@@ -113,6 +113,8 @@ class FedProxNew(BaseAlgorithm):
 
     FedProx extends FedAvg by adding a proximal term to the loss, which helps stabilize training in heterogeneous environments.
     The proximal term penalizes deviation from the global model during local updates.
+
+    [FedProx](https://arxiv.org/abs/1812.06127) | Tian Li | 2018-12-14
     """
 
     def __init__(self, mu: float = 0.01, **kwargs):
@@ -126,7 +128,12 @@ class FedProxNew(BaseAlgorithm):
         """
         super()._setup(device=device)
 
+        # Deep-copy retains requires_grad state from local_model
         self.global_model = copy.deepcopy(self.local_model)
+        # Global model is reference-only for proximal term, set eval mode and disable gradients
+        self.global_model.eval()  # eval() does NOT turn off gradient tracking.
+        for param in self.global_model.parameters():
+            param.requires_grad = False
 
     def _configure_local_optimizer(self, local_lr: float) -> torch.optim.Optimizer:
         """
@@ -152,16 +159,6 @@ class FedProxNew(BaseAlgorithm):
         loss += (self.mu / 2) * prox_term
         return loss, inputs.size(0)
 
-    def _round_start(self) -> None:
-        """
-        Update the reference global model at the start of each round.
-
-        # TODO: check whether we can safely just move all this logic in round_start() for all algorithms to the end of aggregate() method and remove round_start() overrides altogether
-        # TODO: should this logic be linked with the same granularity as aggregate(), rather than always on round_start?
-        """
-        # Update the reference global model (self.local_model already contains latest from aggregate())
-        self.global_model.load_state_dict(self.local_model.state_dict())
-
     def _aggregate(self) -> nn.Module:
         """
         FedProx aggregation: weighted averaging of model parameters.
@@ -184,7 +181,9 @@ class FedProxNew(BaseAlgorithm):
 
         # Aggregate weighted model parameters from all clients
         # NOTE: This aggregate() call returns the updated global model, so the local_model is now the aggregated global model
-        return self.local_comm.aggregate(
+        aggregated_model = self.local_comm.aggregate(
             self.local_model,
             reduction=ReductionType.SUM,
         )
+
+        return aggregated_model
