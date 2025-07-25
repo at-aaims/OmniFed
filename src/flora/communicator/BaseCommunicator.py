@@ -97,4 +97,3 @@ class BaseCommunicator(SetupMixin, ABC):
     def close(self):
         """Clean up communication resources."""
         pass
-
