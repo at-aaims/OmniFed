@@ -658,7 +658,7 @@ class BaseAlgorithm(SetupMixin, MetricsMixin, LifecycleHooksMixin):
         if self.datamodule.eval is None:
             raise RuntimeError(
                 f"Evaluation data not available for {self.progress_context}. "
-                "Ensure datamodule.eval is properly configured."
+                "Ensure datamodule.eval is properly configured or disable evaluation in the schedule."
             )
 
         print(f"[EVAL-{eval_type.upper()}] {self.progress_context} | Start", flush=True)

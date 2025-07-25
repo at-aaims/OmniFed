@@ -22,6 +22,7 @@ from torchmetrics import MeanMetric, SumMetric
 
 class MetricType(Enum):
     """Type of metric aggregation."""
+
     AVG = "average"
     SUM = "sum"
 
@@ -29,7 +30,7 @@ class MetricType(Enum):
 class MetricsMixin(ABC):
     """
     Mixin providing comprehensive metrics collection and tracking capabilities.
-    
+
     Usage:
     - log_metric(name, value, MetricType.AVG) for averaged metrics
     - log_metric(name, value, MetricType.SUM) for cumulative metrics
@@ -47,7 +48,9 @@ class MetricsMixin(ABC):
         )
         self.num_samples_trained = 0
 
-    def log_metric(self, name: str, value: float, metric_type: MetricType, weight: int = 1) -> None:
+    def log_metric(
+        self, name: str, value: float, metric_type: MetricType, weight: int = 1
+    ) -> None:
         """Log a metric with specified aggregation type."""
         if metric_type == MetricType.AVG:
             self._mean_metrics[name].update(value, weight)
