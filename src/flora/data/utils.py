@@ -138,3 +138,30 @@ class partioneDataset(torch.utils.data.Dataset):
         return torch.tensor(image, dtype=torch.float32), torch.tensor(
             label, dtype=torch.long
         )
+
+
+class DataSubsetNonIID(torch.utils.data.Dataset):
+    def __init__(self, dataset, labels_per_rank):
+        self.dataset = dataset
+        self.indices = [
+            i
+            for i, label in enumerate(self.dataset.targets)
+            if label in labels_per_rank
+        ]
+
+    def __len__(self):
+        return len(self.indices)
+
+    def __getitem__(self, idx):
+        real_idx = self.indices[idx]
+        return self.dataset[real_idx]
+
+
+def get_labels_per_client(number_of_labels=1, total_clients=1):
+    partitions = []
+    for i in range(total_clients):
+        start = (i * number_of_labels) // total_clients
+        end = ((i + 1) * number_of_labels) // total_clients
+        partitions.append(list(range(start, end)))
+
+    return partitions

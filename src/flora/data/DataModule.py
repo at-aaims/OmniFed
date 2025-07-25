@@ -46,7 +46,6 @@ class DataModule:
         self.val: Optional[DataLoader[Any]] = val
         self.test: Optional[DataLoader[Any]] = test
 
-
         # if self.train is None:
         #     print("NOTE: Training DataLoader is not provided.")
         # if self.val is None:

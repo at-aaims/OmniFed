@@ -1,0 +1,9 @@
+_target_: src.flora.data.dataloading.DataLoaderIID
+client_id: 0
+total_clients: 10
+data_dir: ~/
+partition: true
+train_bsz: 32
+test_bsz: 32
+
+dataset_fn: CIFAR10
