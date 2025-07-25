@@ -79,7 +79,7 @@ class HomomorphicEncryptBucketing:
     def __init__(self, poly_modulus_degree):
         super().__init__()
         # self.chunk_size = poly_modulus_degree // 2
-        self.chunk_size = 1024
+        self.chunk_size = 512
 
     def get_chunk_size(self):
         return self.chunk_size
