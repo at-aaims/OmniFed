@@ -1,0 +1,20 @@
+# ------------------------------------------------------------------------------
+# EvalDefault: Minimal evaluation pattern (production-like)
+# ------------------------------------------------------------------------------
+
+defaults:
+    - test_mnist_centralized_torchdist
+
+algorithm:
+    agg_level: ROUND
+    agg_freq: 1
+    max_epochs_per_round: 2
+    eval_schedule:
+        local_model:
+            enabled: false       # Disabled (saves compute)
+        global_model:
+            enabled: true
+            every: null           # No frequency
+            at: [0, 2]           # Only start and end
+
+global_rounds: 3

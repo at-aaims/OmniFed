@@ -1,0 +1,22 @@
+# ------------------------------------------------------------------------------
+# EvalFixed: Milestone-based evaluation (specific experiments)
+# ------------------------------------------------------------------------------
+
+defaults:
+    - test_mnist_centralized_torchdist
+
+algorithm:
+    agg_level: EPOCH
+    agg_freq: 1
+    max_epochs_per_round: 6
+    eval_schedule:
+        local_model:
+            enabled: true
+            every: null           # No frequency
+            at: [0, 2, 5]        # Only at specific milestones
+        global_model:
+            enabled: true
+            every: null           # No frequency
+            at: [1, 3]           # Different milestones
+
+global_rounds: 2

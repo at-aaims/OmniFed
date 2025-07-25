@@ -23,6 +23,24 @@ class LifecycleHooksMixin(ABC):
     lifecycle for algorithm-specific customization.
     """
 
+    def _experiment_start(self) -> None:
+        """
+        Optional lifecycle hook: Called at the start of the federated learning experiment.
+        
+        Override in subclasses for experiment initialization logic such as
+        initial model evaluation or baseline metrics collection.
+        """
+        pass
+
+    def _experiment_end(self) -> None:
+        """
+        Optional lifecycle hook: Called at the end of the federated learning experiment.
+        
+        Override in subclasses for experiment finalization logic such as
+        final model evaluation or results summarization.
+        """
+        pass
+
     def _round_start(self) -> None:
         """
         Optional lifecycle hook: Called at the start of each federated learning round.

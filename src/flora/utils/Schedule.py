@@ -98,14 +98,21 @@ class EvalSchedule:
     """
     Configuration for evaluation scheduling in federated learning.
 
+    Supports flexible evaluation timing with frequency-based and milestone-based scheduling.
+    Can combine both approaches for maximum research flexibility.
+
     Attributes:
-        pre_agg: Schedule for pre-aggregation evaluation (local model on eval data)
-        post_agg: Schedule for post-aggregation evaluation (global model on eval data)
-        at_start: Force evaluation at experiment start (step 0) regardless of schedule
-        at_end: Force evaluation at experiment end regardless of schedule
+        local_model: Local model evaluation schedule configuration
+        global_model: Global model evaluation schedule configuration
     """
 
-    pre_agg: Schedule = field(default_factory=lambda: Schedule(enabled=False))
-    post_agg: Schedule = field(default_factory=lambda: Schedule(every=25))
-    at_start: bool = False
-    at_end: bool = False
+    local_model: Schedule = field(default_factory=lambda: Schedule(enabled=False))
+    global_model: Schedule = field(default_factory=lambda: Schedule(enabled=True, every=1))
+
+    def should_run_local(self, current_step: int) -> bool:
+        """Check if local evaluation should run at current step."""
+        return self.local_model.should_run(current_step)
+
+    def should_run_global(self, current_step: int) -> bool:
+        """Check if global evaluation should run at current step."""
+        return self.global_model.should_run(current_step)
