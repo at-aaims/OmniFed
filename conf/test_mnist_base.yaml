@@ -34,7 +34,7 @@ model: # overrides the default simple_cnn model
 data: # overrides the default mnist datamodule
   train:
     batch_size: 16
-  val:
+  eval:
     batch_size: 16
 
 # ───────────── FL Engine Config

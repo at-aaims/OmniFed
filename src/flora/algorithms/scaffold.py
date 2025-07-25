@@ -71,7 +71,7 @@ class Scaffold(BaseAlgorithm):
         """
         return torch.optim.SGD(self.local_model.parameters(), lr=local_lr)
 
-    def _train_step(
+    def _batch_compute(
         self,
         batch: Any,
     ) -> Tuple[torch.Tensor, int]:

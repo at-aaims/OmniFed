@@ -65,7 +65,7 @@ class FedMom(BaseAlgorithm):
         """
         return torch.optim.SGD(self.local_model.parameters(), lr=local_lr)
 
-    def _train_step(
+    def _batch_compute(
         self,
         batch: Any,
     ) -> Tuple[torch.Tensor, int]:
@@ -93,12 +93,12 @@ class FedMom(BaseAlgorithm):
 
         # Aggregate local sample counts to compute federation total
         global_samples = self.local_comm.aggregate(
-            torch.tensor([self.local_sample_count], dtype=torch.float32),
+            torch.tensor([self.num_samples_trained], dtype=torch.float32),
             reduction=ReductionType.SUM,
         ).item()
 
         # Calculate this client's data proportion for weighted aggregation
-        data_proportion = self.local_sample_count / max(global_samples, 1)
+        data_proportion = self.num_samples_trained / max(global_samples, 1)
 
         # Scale local deltas by data proportion
         for param_name in local_deltas:

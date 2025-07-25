@@ -65,7 +65,7 @@ class FedNova(BaseAlgorithm):
             self.local_model.parameters(), lr=local_lr, weight_decay=self.weight_decay
         )
 
-    def _train_step(self, batch: Any) -> tuple[torch.Tensor, int]:
+    def _batch_compute(self, batch: Any) -> tuple[torch.Tensor, int]:
         """
         Perform a forward pass and compute cross-entropy loss for a batch.
         """
@@ -114,12 +114,12 @@ class FedNova(BaseAlgorithm):
 
         # Aggregate local sample counts to compute federation total
         global_samples = self.local_comm.aggregate(
-            torch.tensor([self.local_sample_count], dtype=torch.float32),
+            torch.tensor([self.num_samples_trained], dtype=torch.float32),
             reduction=ReductionType.SUM,
         ).item()
 
         # Calculate this client's data proportion for weighted aggregation
-        data_proportion = self.local_sample_count / max(global_samples, 1)
+        data_proportion = self.num_samples_trained / max(global_samples, 1)
 
         # Scale normalized deltas by the data proportion for weighted aggregation
         with torch.no_grad():

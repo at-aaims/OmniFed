@@ -13,5 +13,7 @@
 # limitations under the License.
 
 from .SetupMixin import SetupMixin
+from .MetricsMixin import MetricsMixin
+from .LifecycleHooksMixin import LifecycleHooksMixin
 
-__all__ = ["SetupMixin"]
+__all__ = ["SetupMixin", "MetricsMixin", "LifecycleHooksMixin"]

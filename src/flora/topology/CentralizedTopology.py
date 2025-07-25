@@ -39,7 +39,6 @@ class CentralizedTopology(BaseTopology):
         self,
         num_clients: int,
         local_comm: DictConfig,
-        init_delay: float = 1.0,
         **kwargs: Any,
     ):
         """
@@ -48,12 +47,10 @@ class CentralizedTopology(BaseTopology):
         Args:
             num_clients (int): Number of client nodes (server node is added automatically)
             local_comm: Local communication configuration (required)
-            init_delay (float): Simulated delay in seconds between node initializations (default: 1.0s)
         """
         super().__init__(**kwargs)
         self.num_clients: int = num_clients
         self.local_comm_cfg = local_comm
-        self.init_delay: float = init_delay
 
     def configure_nodes(
         self,
@@ -100,10 +97,10 @@ class CentralizedTopology(BaseTopology):
 
             node_config = NodeConfig(
                 id=node_id,
-                local_comm_cfg=__local_comm_cfg,
                 algorithm_cfg=algo_cfg,
-                local_model_cfg=model_cfg,
-                local_data_cfg=node_data_cfg,
+                model_cfg=model_cfg,
+                datamodule_cfg=node_data_cfg,
+                local_comm_cfg=__local_comm_cfg,
             )
 
             node_configs.append(node_config)

@@ -14,7 +14,7 @@
 
 import time
 from dataclasses import dataclass
-from typing import Any, Optional
+from typing import Optional
 
 import ray
 import torch
@@ -55,8 +55,8 @@ class NodeConfig:
     # ---
     # Algorithm / Model / Data
     algorithm_cfg: DictConfig
-    local_model_cfg: DictConfig
-    local_data_cfg: DictConfig
+    model_cfg: DictConfig
+    datamodule_cfg: DictConfig
     # ---
     # Communicators
     local_comm_cfg: DictConfig
@@ -98,10 +98,10 @@ class Node(SetupMixin):
             self.global_comm = instantiate(cfg.global_comm_cfg)
 
         # PyTorch model
-        self.local_model: nn.Module = instantiate(cfg.local_model_cfg)
+        self.local_model: nn.Module = instantiate(cfg.model_cfg)
 
         # Data module
-        self.datamodule: DataModule = instantiate(cfg.local_data_cfg)
+        self.datamodule: DataModule = instantiate(cfg.datamodule_cfg)
 
         # TensorBoard setup
         # self.tb_writer: SummaryWriter = SummaryWriter(log_dir=log_dir)
@@ -112,6 +112,7 @@ class Node(SetupMixin):
             local_comm=self.local_comm,
             global_comm=self.global_comm,
             local_model=self.local_model,
+            datamodule=self.datamodule,
             tb_writer=None,
         )
 
@@ -166,12 +167,9 @@ class Node(SetupMixin):
             Dictionary with training metrics and results
         """
         if not self.is_ready:
-            raise RuntimeError(f"Node not ready - call setup() first")
+            raise RuntimeError("Node not ready - call setup() first")
 
-        metrics = self.algorithm.round_exec(
-            self.datamodule,
-            round_idx,
-        )
+        metrics = self.algorithm.round_exec(round_idx)
 
         return metrics
 

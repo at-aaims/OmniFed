@@ -72,7 +72,7 @@ class DiLoCo(BaseAlgorithm):
         """
         return torch.optim.SGD(self.local_model.parameters(), lr=local_lr)
 
-    def _train_step(self, batch: Any) -> tuple[torch.Tensor, int]:
+    def _batch_compute(self, batch: Any) -> tuple[torch.Tensor, int]:
         """
         Forward pass and compute cross-entropy loss for a batch.
         """

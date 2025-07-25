@@ -24,35 +24,29 @@ import rich.repr
 class DataModule:
     """
     Base class for data modules in FLORA.
-    This class encapsulates the training, validation, and test DataLoaders.
+    This class encapsulates the training and evaluation DataLoaders.
     """
 
     def __init__(
         self,
         train: Optional[DataLoader[Any]] = None,
-        val: Optional[DataLoader[Any]] = None,
-        test: Optional[DataLoader[Any]] = None,
+        eval: Optional[DataLoader[Any]] = None,
     ):
         """
-        Initializes the DataModule with train, validation, and test DataLoaders.
+        Initializes the DataModule with train and evaluation DataLoaders.
 
         :param train: DataLoader for training data
-        :param val: DataLoader for validation data
-        :param test: DataLoader for test data
+        :param eval: DataLoader for evaluation data
         """
         print("[DATAMODULE-INIT]")
 
         self.train: Optional[DataLoader[Any]] = train
-        self.val: Optional[DataLoader[Any]] = val
-        self.test: Optional[DataLoader[Any]] = test
-
+        self.eval: Optional[DataLoader[Any]] = eval
 
         # if self.train is None:
         #     print("NOTE: Training DataLoader is not provided.")
-        # if self.val is None:
-        #     print("NOTE: Validation DataLoader is not provided.")
-        # if self.test is None:
-        #     print("NOTE: Test DataLoader is not provided.")
+        # if self.eval is None:
+        #     print("NOTE: Evaluation DataLoader is not provided.")
 
         # ---
 
@@ -72,6 +66,6 @@ class DataModule:
     #     return (
     #         f"{self.__class__.__name__}("
     #         f"{loader_info('train', self.train)} | "
-    #         f"{loader_info('val', self.val)} | "
+    #         f"{loader_info('eval', self.eval)} | "
     #         f"{loader_info('test', self.test)})"
     #     )

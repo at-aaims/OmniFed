@@ -34,9 +34,9 @@ train:
 
 # ─────────────
 
-# VALIDATION DATALOADER CONFIG
+# EVALUATION DATALOADER CONFIG
 # Uses optional dataloader template applied via datamodule.yaml defaults
-val:
+eval:
   dataset:
     _target_: torchvision.datasets.MNIST
     root: /tmp/torchvision-mnist
@@ -50,4 +50,4 @@ val:
           mean: [0.1307]
           std: [0.3081]
 
-  shuffle: false # Explicitly disable shuffling for validation
+  shuffle: false # Explicitly disable shuffling for evaluation
