@@ -5,21 +5,22 @@ cd ../
 # kill -s 9 `ps -ef | grep src.flora.privacy.launch_he |grep -v grep | awk '{print $2}'`
 # kill -9 $(ps aux | grep src.flora.privacy.launch_he | grep -v grep | awk '{print $2}')
 
-dir='/Users/ssq/Desktop/datasets/flora_test/'
-interface='lo0'
-worldsize=1
-#dir='/ccsopen/home/ssq/datasets/'
-#interface='eth1'
-#worldsize=2
+#dir='/Users/ssq/Desktop/datasets/flora_test/'
+#interface='lo0'
+#worldsize=1
+#masterport=28670
+dir='/ccsopen/home/ssq/datasets/'
+masterport=29373
+interface='eth1'
+worldsize=4
 bsz=32
 comm='Collective'
 masteraddr='127.0.0.1'
-masterport=28670
 backend='gloo'
-#model='resnet18'
-#dataset='cifar10'
-model='mobilenetv3'
-dataset='caltech256'
+model='resnet18'
+dataset='cifar10'
+#model='mobilenetv3'
+#dataset='caltech256'
 polymoddegree=32768
 
 for val in $(seq 1 $worldsize)
