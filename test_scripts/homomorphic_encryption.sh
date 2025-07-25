@@ -21,7 +21,7 @@ model='resnet18'
 dataset='cifar10'
 #model='mobilenetv3'
 #dataset='caltech256'
-polymoddegree=8192
+polymoddegree=1024
 
 for val in $(seq 1 $worldsize)
 do
