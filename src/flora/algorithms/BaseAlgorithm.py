@@ -123,6 +123,9 @@ class BaseAlgorithm(SetupMixin, MetricsMixin, LifecycleHooksMixin):
             tb_writer: TensorBoard writer for logging metrics
             **kwargs: Additional algorithm-specific parameters
         """
+        # Initialize parent mixins
+        super().__init__()
+        
         # Core federated learning components
         self.datamodule: DataModule = datamodule
         self.local_comm: BaseCommunicator = local_comm
@@ -148,7 +151,7 @@ class BaseAlgorithm(SetupMixin, MetricsMixin, LifecycleHooksMixin):
         self.eval_schedule: EvalSchedule = eval_schedule or EvalSchedule()
 
         # Infrastructure components
-        self.tb_writer = tb_writer
+        self.tb_writer: Optional[SummaryWriter] = tb_writer
 
         # Initialize state
         self.__local_optimizer: Optional[torch.optim.Optimizer] = None
@@ -379,11 +382,10 @@ class BaseAlgorithm(SetupMixin, MetricsMixin, LifecycleHooksMixin):
         }
         current_step = step_map.get(self.agg_level, 0)
 
-        if self.eval_schedule.should_run_local(current_step):
-            self.__run_eval_epoch(self.local_model, "local")
-
-        # Sync lifecycle start
+        # Pre-aggregation evaluation (local model)
         self._on_sync_start()
+        if self.eval_schedule.pre_aggregation.should_run(current_step):
+            self.run_eval_epoch(self.local_model, "local")
 
         # Phase 1: Intra-group aggregation via all-reduce
         print(f"[LOCAL-AGG] {self.progress_context} | Start", flush=True)
@@ -414,12 +416,10 @@ class BaseAlgorithm(SetupMixin, MetricsMixin, LifecycleHooksMixin):
         else:
             print(f"[LOCAL-BCAST] {self.progress_context} | Skipped", flush=True)
 
-        # Sync lifecycle end
+        # Post-aggregation evaluation (global model)
         self._on_sync_end()
-
-        # Phase 4: Post-aggregation evaluation (global model)
-        if self.eval_schedule.should_run_global(current_step):
-            self.__run_eval_epoch(self.local_model, "global")
+        if self.eval_schedule.post_aggregation.should_run(current_step):
+            self.run_eval_epoch(self.local_model, "global")
 
     def __reset_round_state(self, round_idx: int) -> None:
         """
@@ -477,7 +477,7 @@ class BaseAlgorithm(SetupMixin, MetricsMixin, LifecycleHooksMixin):
         self.local_model.train()  # Future: .eval() for evaluation phases
 
         for epoch_idx in range(self.global_max_epochs_per_round):
-            self.__run_train_epoch(epoch_idx)
+            self.run_train_epoch(epoch_idx)
 
         # ---
         # Check if aggregation should occur based on level & frequency
@@ -512,7 +512,7 @@ class BaseAlgorithm(SetupMixin, MetricsMixin, LifecycleHooksMixin):
 
         return self.get_metrics()
 
-    def __run_train_epoch(
+    def run_train_epoch(
         self,
         epoch_idx: int,
     ) -> None:
@@ -531,7 +531,7 @@ class BaseAlgorithm(SetupMixin, MetricsMixin, LifecycleHooksMixin):
 
         _t_epoch_start = time.time()
 
-        # Overridable hook for algorithm-specific logic
+        # Train epoch start hook
         self._train_epoch_start()
 
         # Initialize dataloader iterator for sequential batch processing
@@ -623,8 +623,9 @@ class BaseAlgorithm(SetupMixin, MetricsMixin, LifecycleHooksMixin):
                     flush=True,
                 )
 
-        # Overridable hook for algorithm-specific logic
+        # Train epoch end hook
         self._train_epoch_end()
+
         _t_epoch_end = time.time()
 
         self.log_metric("time/epoch", _t_epoch_end - _t_epoch_start, MetricType.AVG)
@@ -647,7 +648,7 @@ class BaseAlgorithm(SetupMixin, MetricsMixin, LifecycleHooksMixin):
             for key, value in self.get_metrics().items():
                 self.tb_writer.add_scalar(key, value, self.tb_global_epoch)
 
-    def __run_eval_epoch(self, model: nn.Module, eval_type: str) -> None:
+    def run_eval_epoch(self, model: nn.Module, eval_type: str) -> None:
         """
         Internal method: Execute a single evaluation epoch with timing and metrics.
 
@@ -655,11 +656,10 @@ class BaseAlgorithm(SetupMixin, MetricsMixin, LifecycleHooksMixin):
         for memory efficiency, with comprehensive timing and lifecycle hooks.
         """
         if self.datamodule.eval is None:
-            print(
-                f"[EVAL-SKIP] {self.progress_context} | No evaluation data available",
-                flush=True,
+            raise RuntimeError(
+                f"Evaluation data not available for {self.progress_context}. "
+                "Ensure datamodule.eval is properly configured."
             )
-            return
 
         print(f"[EVAL-{eval_type.upper()}] {self.progress_context} | Start", flush=True)
         _t_start = time.time()
@@ -673,6 +673,9 @@ class BaseAlgorithm(SetupMixin, MetricsMixin, LifecycleHooksMixin):
 
         # Initialize dataloader iterator for sequential batch processing
         dataloader_iter = iter(self.datamodule.eval or [])
+
+        # Determine metric namespace based on evaluation type
+        metric_namespace = f"eval_{eval_type}"
 
         with torch.no_grad():
             # Simple loop through eval data - no synchronization needed during eval
@@ -691,7 +694,7 @@ class BaseAlgorithm(SetupMixin, MetricsMixin, LifecycleHooksMixin):
 
                 # Execute evaluation batch computation
                 _t_batch_compute_start = time.time()
-                self.__run_eval_batch(batch)
+                self.__run_eval_batch(batch, metric_namespace)
                 _t_batch_compute_end = time.time()
 
                 # Overridable hook for algorithm-specific logic
@@ -721,7 +724,7 @@ class BaseAlgorithm(SetupMixin, MetricsMixin, LifecycleHooksMixin):
             model.train()
 
         _t_end = time.time()
-        self.log_metric(f"time/eval_{eval_type}", _t_end - _t_start, MetricType.AVG)
+        self.log_metric(f"time/{metric_namespace}", _t_end - _t_start, MetricType.AVG)
 
         print(
             f"[EVAL-{eval_type.upper()}] {self.progress_context} | End |",
@@ -732,12 +735,15 @@ class BaseAlgorithm(SetupMixin, MetricsMixin, LifecycleHooksMixin):
                 if isinstance(v, float)
                 else v
                 for k, v in self.get_metrics().items()
-                if k.startswith("eval/") or k.startswith(f"time/eval")
+                if k.startswith(f"{metric_namespace}/")
+                or k.startswith(f"time/{metric_namespace}")
             },
             flush=True,
         )
 
-    def __run_batch(self, batch: Any, prefix: str) -> tuple[torch.Tensor, int]:
+    def __run_batch(
+        self, batch: Any, metric_namespace: str
+    ) -> tuple[torch.Tensor, int]:
         """
         Internal method: Execute forward pass and metrics tracking for a single batch.
 
@@ -749,10 +755,10 @@ class BaseAlgorithm(SetupMixin, MetricsMixin, LifecycleHooksMixin):
 
         # Metric tracking
         self.log_metric(
-            f"{prefix}/loss", loss.detach().item(), MetricType.AVG, batch_size
+            f"{metric_namespace}/loss", loss.detach().item(), MetricType.AVG, batch_size
         )
-        self.log_metric(f"{prefix}/num_samples", batch_size, MetricType.SUM)
-        self.log_metric(f"{prefix}/num_batches", 1, MetricType.SUM)
+        self.log_metric(f"{metric_namespace}/num_samples", batch_size, MetricType.SUM)
+        self.log_metric(f"{metric_namespace}/num_batches", 1, MetricType.SUM)
 
         return loss, batch_size
 
@@ -775,14 +781,14 @@ class BaseAlgorithm(SetupMixin, MetricsMixin, LifecycleHooksMixin):
         )
         self._optimizer_step()
 
-    def __run_eval_batch(self, batch: Any) -> None:
+    def __run_eval_batch(self, batch: Any, metric_namespace: str) -> None:
         """
         Internal method: Execute evaluation-specific computation for a single batch.
 
         Handles evaluation-only operations with shared batch processing
         but without gradient computation or parameter updates.
         """
-        self.__run_batch(batch, "eval")
+        self.__run_batch(batch, metric_namespace)
 
     # =============================================================================
 

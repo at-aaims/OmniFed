@@ -23,13 +23,8 @@ class Schedule:
     """
     Schedule for validation/evaluation execution in federated learning.
 
-    Supports both frequency-based (every N steps) and milestone-based (at specific steps) scheduling.
+    Supports frequency-based (every N steps) and milestone-based (at specific steps) scheduling.
     Steps are interpreted based on the algorithm's aggregation level (rounds, epochs, or iterations).
-
-    Attributes:
-        enabled: Whether this schedule is active
-        every: Run every N steps (e.g., every 5 rounds)
-        at: Run at specific step milestones (e.g., at rounds [50, 100, 200])
     """
 
     enabled: bool = False
@@ -41,28 +36,24 @@ class Schedule:
         if self.enabled:
             # Check for valid configuration
             if self.every is None and not self.at:
-                print(
-                    "[WARNING] Schedule enabled but no frequency (every) or milestones (at) specified",
-                    flush=True,
+                raise ValueError(
+                    "Schedule enabled but no frequency (every) or milestones (at) specified"
                 )
 
             # Validate frequency
             if self.every is not None and self.every <= 0:
-                print(
-                    f"[WARNING] Schedule frequency 'every' must be positive, got {self.every}",
-                    flush=True,
+                raise ValueError(
+                    f"Schedule frequency 'every' must be positive, got {self.every}"
                 )
-                self.every = None
 
-            # Validate milestones
+            # Validate and sort milestones
             if self.at:
-                valid_milestones = [m for m in self.at if m >= 0]
-                if len(valid_milestones) < len(self.at):
-                    print(
-                        f"[WARNING] Negative milestones ignored in schedule: {[m for m in self.at if m < 0]}",
-                        flush=True,
+                invalid_milestones = [m for m in self.at if m < 0]
+                if invalid_milestones:
+                    raise ValueError(
+                        f"Schedule milestones must be non-negative, got: {invalid_milestones}"
                     )
-                self.at = sorted(valid_milestones)  # Sort for efficiency
+                self.at = sorted(self.at)  # Sort for efficiency
 
     def should_run(self, current_step: int) -> bool:
         """
@@ -78,7 +69,7 @@ class Schedule:
             return False
 
         # Check frequency-based execution
-        # Allow evaluation at step 0 to enable initial/baseline evaluation
+        # Allow evaluation at step 0 to enable initial evaluation
         if (
             self.every is not None
             and current_step >= 0
@@ -98,21 +89,21 @@ class EvalSchedule:
     """
     Configuration for evaluation scheduling in federated learning.
 
-    Supports flexible evaluation timing with frequency-based and milestone-based scheduling.
-    Can combine both approaches for maximum research flexibility.
+    Provides four evaluation points covering practical FL evaluation needs:
+    - experiment_start/end: Boolean flags for initial and final evaluations
+    - pre/post_aggregation: Schedules for local and global model evaluations
 
-    Attributes:
-        local_model: Local model evaluation schedule configuration
-        global_model: Global model evaluation schedule configuration
+    Example:
+        EvalSchedule(
+            pre_aggregation=Schedule(enabled=True, every=5),
+            post_aggregation=Schedule(enabled=True, at=[10, 20, 50])
+        )
     """
 
-    local_model: Schedule = field(default_factory=lambda: Schedule(enabled=False))
-    global_model: Schedule = field(default_factory=lambda: Schedule(enabled=True, every=1))
-
-    def should_run_local(self, current_step: int) -> bool:
-        """Check if local evaluation should run at current step."""
-        return self.local_model.should_run(current_step)
-
-    def should_run_global(self, current_step: int) -> bool:
-        """Check if global evaluation should run at current step."""
-        return self.global_model.should_run(current_step)
+    # Essential FL evaluation points
+    experiment_start: bool = True
+    pre_aggregation: Schedule = field(default_factory=lambda: Schedule(enabled=False))
+    post_aggregation: Schedule = field(
+        default_factory=lambda: Schedule(enabled=True, every=1)
+    )
+    experiment_end: bool = True

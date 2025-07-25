@@ -29,6 +29,7 @@ from . import utils
 from .mixins import SetupMixin
 from .Node import Node
 from .topology.BaseTopology import BaseTopology
+from .utils.MetricFormatter import MetricFormatter
 
 
 @rich.repr.auto
@@ -107,56 +108,69 @@ class Engine(SetupMixin):
             # ----------------------------------------------------------------
             utils.log_sep("FLORA Engine Start", color="blue")
 
-            summaries = []
-            for round_idx in range(self.global_rounds):
-                # utils.log_sep(f"Round {round_idx + 1}/{self.global_rounds}")
-                print()
-                print(f"# Round {round_idx + 1}/{self.global_rounds}", flush=True)
-                _t_start_round = time.time()
+            print(
+                f"# Starting {self.global_rounds} round federated learning experiment",
+                flush=True,
+            )
+            print(f"# Nodes will execute autonomously", flush=True)
 
-                results_futures = []
-                for node in self._ray_actor_refs:
-                    future = node.round_exec.remote(round_idx)
-                    results_futures.append(future)
+            _t_experiment_start = time.time()
 
-                results = ray.get(results_futures)
+            # Dispatch complete experiment to all nodes
+            experiment_futures = []
+            for node in self._ray_actor_refs:
+                future = node.run_experiment.remote(self.global_rounds)
+                experiment_futures.append(future)
 
-                # ---
-                _t_round = time.time() - _t_start_round
+            # Wait for all nodes to complete their experiments
+            print("# Waiting for nodes to complete experiments...", flush=True)
+            results = ray.get(experiment_futures)
 
-                _ct_total = len(results)
+            _t_experiment_end = time.time()
+            _experiment_duration = _t_experiment_end - _t_experiment_start
 
-                # ---
-                summaries.append(
-                    {
-                        "round_idx": round_idx,
-                        "duration": _t_round,
-                        "total_count": _ct_total,
-                    }
-                )
-                time.sleep(3)  # Give time for logs to flush
-                print(f"# Round Complete | {summaries[-1]}", flush=True)
-
-            utils.log_sep("FL Rounds End", color="blue")
+            utils.log_sep("FL Experiment Complete", color="blue")
+            print(
+                f"# Total experiment duration: {_experiment_duration:.2f}s", flush=True
+            )
+            print(f"# Completed {len(results)} node experiments", flush=True)
 
             # ----------------------------------------------------------------
 
+            # Display experiment summary
             table = Table(
-                title="Summary",
+                title="Experiment Summary",
                 box=box.ROUNDED,
                 show_header=True,
                 header_style="bold magenta",
             )
 
-            for key in summaries[0].keys():
-                table.add_column(
-                    key.replace("_", " ").title(),
-                    justify="center",
-                    style="cyan",
-                )
+            table.add_column("Metric", justify="left", style="cyan")
+            table.add_column("Value", justify="center", style="green")
 
-            for metrics in summaries:
-                table.add_row(*[str(metrics[key]) for key in metrics.keys()])
+            table.add_row("Total Rounds", str(self.global_rounds))
+            table.add_row("Nodes Completed", str(len(results)))
+            table.add_row("Experiment Duration", f"{_experiment_duration:.2f}s")
+
+            # Compute aggregated metrics across all nodes
+            if results and len(results) > 0:
+                table.add_row("", "")  # Separator
+                table.add_row("Aggregated Results", "")
+
+                # Use MetricFormatter for intelligent formatting
+                formatter = MetricFormatter()
+                formatted_metrics = formatter.format_results_summary(results)
+
+                # Display formatted metrics
+                for metric, formatted_value in formatted_metrics.items():
+                    table.add_row(f"  {metric}", formatted_value)
+
+                # Show node consistency
+                if len(results) > 1:
+                    table.add_row("", "")
+                    table.add_row(
+                        "Node Consistency", f"σ metrics across {len(results)} nodes"
+                    )
 
             utils.console.print(table)
 

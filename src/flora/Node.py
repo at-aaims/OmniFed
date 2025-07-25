@@ -155,23 +155,47 @@ class Node(SetupMixin):
         self.algorithm.setup(device=self.device)
         # summary(self.model, verbose=1)
 
-    def round_exec(self, round_idx: int) -> dict[str, float]:
+    def run_experiment(self, total_rounds: int) -> dict[str, float]:
         """
-        Execute federated learning round with algorithm-controlled communication.
-        Node provides communication infrastructure, Algorithm controls federated lifecycle.
+        Execute complete federated learning experiment autonomously.
+
+        Handles the full experiment lifecycle:
+        - Experiment start evaluation
+        - All training rounds
+        - Experiment end evaluation
 
         Args:
-            round_idx: Current training round number
+            total_rounds: Total number of federated learning rounds to execute
 
         Returns:
-            Dictionary with training metrics and results
+            Final metrics from the completed experiment
         """
         if not self.is_ready:
             raise RuntimeError("Node not ready - call setup() first")
 
-        metrics = self.algorithm.round_exec(round_idx)
+        print(
+            f"[EXPERIMENT-START] Node starting {total_rounds} round experiment",
+            flush=True,
+        )
 
-        return metrics
+        # Experiment start evaluation
+        if self.algorithm.eval_schedule.experiment_start:
+            self.algorithm.run_eval_epoch(self.local_model, "global")
+        # Execute all rounds
+        final_metrics = {}
+        for round_idx in range(total_rounds):
+            round_metrics = self.algorithm.round_exec(round_idx)
+            final_metrics.update(round_metrics)  # Keep accumulating metrics
+
+        # Experiment end evaluation
+        if self.algorithm.eval_schedule.experiment_end:
+            self.algorithm.run_eval_epoch(self.local_model, "global")
+
+        print(
+            f"[EXPERIMENT-END] Node completed {total_rounds} round experiment",
+            flush=True,
+        )
+        return final_metrics
 
     @staticmethod
     def select_device(device_hint: str, rank: Optional[int] = None) -> torch.device:

@@ -18,28 +18,10 @@ from abc import ABC
 class LifecycleHooksMixin(ABC):
     """
     Mixin providing standardized lifecycle hooks for federated learning components.
-    
+
     Defines optional override points throughout the federated learning execution
     lifecycle for algorithm-specific customization.
     """
-
-    def _experiment_start(self) -> None:
-        """
-        Optional lifecycle hook: Called at the start of the federated learning experiment.
-        
-        Override in subclasses for experiment initialization logic such as
-        initial model evaluation or baseline metrics collection.
-        """
-        pass
-
-    def _experiment_end(self) -> None:
-        """
-        Optional lifecycle hook: Called at the end of the federated learning experiment.
-        
-        Override in subclasses for experiment finalization logic such as
-        final model evaluation or results summarization.
-        """
-        pass
 
     def _round_start(self) -> None:
         """
@@ -77,7 +59,7 @@ class LifecycleHooksMixin(ABC):
     def _on_sync_start(self) -> None:
         """
         Optional lifecycle hook: Called before synchronization operations begin.
-        
+
         Override in subclasses for custom pre-synchronization logic.
         """
         pass
@@ -85,7 +67,7 @@ class LifecycleHooksMixin(ABC):
     def _on_sync_end(self) -> None:
         """
         Optional lifecycle hook: Called after synchronization operations complete.
-        
+
         Override in subclasses for custom post-synchronization logic.
         """
         pass

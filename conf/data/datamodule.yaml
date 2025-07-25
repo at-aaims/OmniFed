@@ -13,7 +13,7 @@
 
 defaults:
   - dataloader@train
-  - optional dataloader@eval: null
+  - dataloader@eval
 
 _target_: src.flora.data.DataModule
 
