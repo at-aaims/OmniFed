@@ -14,24 +14,20 @@
 
 import logging
 import time
-from abc import ABC, abstractmethod
-from functools import wraps
-from typing import Any, Optional, Union
+from abc import abstractmethod
+from typing import Any, Optional
 
 import rich.repr
 import torch
 from torch import nn
-from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 
 from ..communicator.BaseCommunicator import BaseCommunicator, ReductionType
-from ..communicator.grpc_communicator import GrpcCommunicator
-from ..communicator.TorchDistCommunicator import TorchDistCommunicator
 from ..data.DataModule import DataModule
 from ..mixins import SetupMixin
 from ..mixins.LifecycleHooksMixin import LifecycleHooksMixin
 from ..mixins.MetricsMixin import MetricReduction, MetricsMixin
-from ..utils.Scheduling import LifecycleTriggers, Schedules, Trigger
+from ..utils.Scheduling import Schedules
 from . import utils
 from .utils import log_param_changes
 
@@ -725,8 +721,6 @@ class BaseAlgorithm(SetupMixin, MetricsMixin, LifecycleHooksMixin):
             MetricReduction.AVG,
             batch_size,
         )
-        self.log_metric(f"samples/{metric_namespace}", batch_size, MetricReduction.SUM)
-        self.log_metric(f"batches/{metric_namespace}", 1, MetricReduction.SUM)
 
         return loss, batch_size
 
@@ -738,6 +732,8 @@ class BaseAlgorithm(SetupMixin, MetricsMixin, LifecycleHooksMixin):
         optimizer updates, and training-specific metrics collection.
         """
         loss, batch_size = self.__run_batch(batch, "train")
+        self.log_metric("samples/train", batch_size, MetricReduction.SUM)
+        self.log_metric("batches/train", 1, MetricReduction.SUM)
 
         # Training-only operations
         self.num_samples_trained += batch_size  # For aggregation weights only
@@ -758,7 +754,9 @@ class BaseAlgorithm(SetupMixin, MetricsMixin, LifecycleHooksMixin):
         Handles evaluation-only operations with shared batch processing
         but without gradient computation or parameter updates.
         """
-        self.__run_batch(batch, metric_namespace)
+        loss, batch_size = self.__run_batch(batch, metric_namespace)
+        self.log_metric("samples/eval", batch_size, MetricReduction.SUM)
+        self.log_metric("batches/eval", 1, MetricReduction.SUM)
 
     # =============================================================================
 

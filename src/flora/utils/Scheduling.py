@@ -197,48 +197,39 @@ class LifecycleTriggers:
             ValueError: If trigger_name is unknown or required indices are missing
         """
         # Handle boolean triggers
-        if trigger_name == "experiment_start":
-            result = self.experiment_start
+        if trigger_name in ("experiment_start", "experiment_end"):
+            result = getattr(self, trigger_name)
             if result:
-                print(f"[{trigger_name.upper()}] Trigger activated")
-            return result
-        elif trigger_name == "experiment_end":
-            result = self.experiment_end
-            if result:
-                print(f"[{trigger_name.upper()}] Trigger activated")
+                print(f"[TRIG_{trigger_name.upper()}] Trigger activated")
             return result
 
-        # Handle schedule-based triggers with explicit mapping
-        trigger_schedule_map = {
-            "round_start": self.round_start,
-            "round_end": self.round_end,
-            "epoch_start": self.epoch_start,
-            "epoch_end": self.epoch_end,
-            "batch_start": self.batch_start,
-            "batch_end": self.batch_end,
-            "pre_aggregation": self.pre_aggregation,
-            "post_aggregation": self.post_aggregation,
-        }
-
-        trigger_obj = trigger_schedule_map.get(trigger_name)
+        # Get trigger object
+        trigger_obj = getattr(self, trigger_name, None)
         if trigger_obj is None:
-            valid_triggers = list(trigger_schedule_map.keys()) + [
-                "experiment_start",
-                "experiment_end",
+            # Filter out internal fields for cleaner error message
+            valid_triggers = [
+                name
+                for name in self.__dataclass_fields__.keys()
+                if not name.startswith("_")
             ]
             raise ValueError(
-                f"Unknown trigger '{trigger_name}'. Valid triggers are: {valid_triggers}"
+                f"Unknown trigger '{trigger_name}'. Valid triggers: {valid_triggers}"
             )
 
-        # For pre/post aggregation, check all provided indices
+        # For aggregation triggers, check all provided indices
         if trigger_name in ("pre_aggregation", "post_aggregation"):
+            if not indices:
+                raise ValueError(
+                    f"Aggregation trigger '{trigger_name}' requires at least one index "
+                    f"(e.g., round_idx=0, epoch_idx=1, batch_idx=5)"
+                )
             result = any(trigger_obj.should_run(idx) for idx in indices.values())
             if result:
                 matching_indices = {
                     k: v for k, v in indices.items() if trigger_obj.should_run(v)
                 }
                 print(
-                    f"[{trigger_name.upper()}] Trigger activated at indices: {matching_indices}"
+                    f"[TRIG_{trigger_name.upper()}] Trigger activated at indices: {matching_indices}"
                 )
             return result
 
@@ -252,19 +243,19 @@ class LifecycleTriggers:
             "batch_end": "batch_idx",
         }
 
-        expected_index = index_mapping.get(trigger_name)
+        expected_index = index_mapping[trigger_name]
         if expected_index not in indices:
-            provided_indices = list(indices.keys())
+            provided = list(indices.keys()) if indices else ["none"]
             raise ValueError(
-                f"Missing required index '{expected_index}' for trigger '{trigger_name}'. "
-                f"Provided indices: {provided_indices}. "
-                f"Hint: Use should_run('{trigger_name}', {expected_index}=<value>)"
+                f"Trigger '{trigger_name}' requires '{expected_index}' parameter. "
+                f"Provided: {provided}. "
+                f"Usage: should_run('{trigger_name}', {expected_index}=<value>)"
             )
 
         result = trigger_obj.should_run(indices[expected_index])
         if result:
             print(
-                f"[{trigger_name.upper()}] Trigger activated at {expected_index}={indices[expected_index]}"
+                f"[TRIG_{trigger_name.upper()}] Trigger activated at {expected_index}={indices[expected_index]}"
             )
         return result
 
@@ -314,11 +305,15 @@ class Schedules:
 cs = ConfigStore.instance()
 
 # One good default schedule pattern
-cs.store(group="schedules", name="base", node=Schedules(
-    aggregation=LifecycleTriggers(round_end=Trigger(every=1)),
-    evaluation=LifecycleTriggers(
-        experiment_start=True,
-        post_aggregation=Trigger(every=1),
-        experiment_end=True
-    )
-))
+cs.store(
+    group="schedules",
+    name="base",
+    node=Schedules(
+        aggregation=LifecycleTriggers(round_end=Trigger(every=1)),
+        evaluation=LifecycleTriggers(
+            experiment_start=True,
+            post_aggregation=Trigger(every=1),
+            experiment_end=True,
+        ),
+    ),
+)

@@ -14,7 +14,7 @@
 
 import time
 from dataclasses import dataclass
-from typing import Optional
+from typing import Optional, List
 
 import ray
 import torch
@@ -155,7 +155,7 @@ class Node(SetupMixin):
         self.algorithm.setup(device=self.device)
         # summary(self.model, verbose=1)
 
-    def run_experiment(self, total_rounds: int) -> dict[str, float]:
+    def run_experiment(self, total_rounds: int) -> List[dict[str, float]]:
         """
         Execute complete federated learning experiment autonomously.
 
@@ -168,7 +168,7 @@ class Node(SetupMixin):
             total_rounds: Total number of federated learning rounds to execute
 
         Returns:
-            Final metrics from the completed experiment
+            List of metrics from each round (one dict per round)
         """
         if not self.is_ready:
             raise RuntimeError("Node not ready - call setup() first")
@@ -178,17 +178,18 @@ class Node(SetupMixin):
             flush=True,
         )
 
-        # Execute all rounds
-        final_metrics = {}
+        # Execute all rounds and collect metrics from each round
+        all_round_metrics = []
         for round_idx in range(total_rounds):
             round_metrics = self.algorithm.round_exec(round_idx, total_rounds)
-            final_metrics.update(round_metrics)  # Keep accumulating metrics
+            all_round_metrics.append(round_metrics)
 
         print(
             f"[EXPERIMENT-END] Node completed {total_rounds} round experiment",
             flush=True,
         )
-        return final_metrics
+        return all_round_metrics
+
 
     @staticmethod
     def select_device(device_hint: str, rank: Optional[int] = None) -> torch.device:

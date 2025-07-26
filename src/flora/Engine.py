@@ -15,6 +15,7 @@
 import time
 from typing import List
 
+import numpy as np
 import ray
 import rich.repr
 import torch
@@ -29,7 +30,7 @@ from . import utils
 from .mixins import SetupMixin
 from .Node import Node
 from .topology.BaseTopology import BaseTopology
-from .utils.MetricFormatter import MetricFormatter
+from .utils.MetricFormatter import MetricFormatter, OptimizationGoal
 
 
 @rich.repr.auto
@@ -159,10 +160,13 @@ class Engine(SetupMixin):
 
             # Display aggregated metrics if available
             if results and len(results) > 0:
+                # Extract final round metrics from each node
+                final_round_results = [node_rounds[-1] for node_rounds in results]
+
                 metrics_table = Table(
-                    title=f"Aggregated Metrics ({len(results)} nodes)"
+                    title=f"Final Round Aggregated Metrics ({len(results)} nodes)"
                     if len(results) > 1
-                    else "Metrics",
+                    else "Final Round Metrics",
                     box=box.ROUNDED,
                     show_header=True,
                     header_style="bold magenta",
@@ -176,7 +180,7 @@ class Engine(SetupMixin):
 
                 # Use MetricFormatter for intelligent formatting
                 formatter = MetricFormatter()
-                formatted_metrics = formatter.format_results_summary_tabular(results)
+                formatted_metrics = formatter.format_stats(final_round_results)
 
                 # Display formatted metrics
                 for metric, stats in formatted_metrics.items():
@@ -186,7 +190,130 @@ class Engine(SetupMixin):
 
                 utils.console.print(metrics_table)
 
+                # Display round-by-round progression if multiple rounds
+                if len(results[0]) > 1:  # More than one round
+                    self._display_round_progression(results)
+
         finally:
             print("Engine shutting down...", flush=True)
             time.sleep(3)  # Give time for final logs to flush
             ray.shutdown()
+
+    def _display_round_progression(self, results):
+        """Display round-by-round progression summary with mean, std, min, max tables."""
+
+        formatter = MetricFormatter()
+
+        # Discover all available metrics across all rounds
+        all_metrics = set()
+        for node_rounds in results:
+            for round_metrics in node_rounds:
+                all_metrics.update(round_metrics.keys())
+
+        all_metrics = sorted(all_metrics)
+        num_rounds = len(results[0])
+
+        if not all_metrics:
+            return  # No metrics to show
+
+        # Create four separate tables for different statistics
+        stats = ["Mean", "Std Dev", "Min", "Max"]
+        stat_functions = [np.mean, np.std, np.min, np.max]
+
+        for stat_name, stat_func in zip(stats, stat_functions):
+            progression_table = Table(
+                title=f"Round-by-Round Progression - {stat_name}",
+                box=box.ROUNDED,
+                show_header=True,
+                header_style="bold blue",
+            )
+
+            # Add metric column first
+            progression_table.add_column("Metric", justify="left", style="cyan")
+
+            # Add round columns with trend indicators in between
+            for round_idx in range(num_rounds):
+                progression_table.add_column(
+                    f"Round {round_idx + 1}", justify="right", style="green"
+                )
+                # Add trend column after each round (except the last)
+                if round_idx < num_rounds - 1:
+                    progression_table.add_column(
+                        "", justify="center", style="white", width=2
+                    )
+
+            # Pre-calculate all statistics for all rounds
+            metric_stats = {}
+            for metric in all_metrics:
+                metric_stats[metric] = []
+                for round_idx in range(num_rounds):
+                    round_data = [node_rounds[round_idx] for node_rounds in results]
+                    values = [
+                        r.get(metric) for r in round_data if r.get(metric) is not None
+                    ]
+
+                    if values:
+                        stat_value = (
+                            0.0
+                            if stat_func == np.std and len(values) == 1
+                            else stat_func(values)
+                        )
+                        metric_stats[metric].append(stat_value)
+                    else:
+                        metric_stats[metric].append(None)
+
+            # Build table rows
+            for metric in all_metrics:
+                row_values = [metric]
+                stats = metric_stats[metric]
+
+                for round_idx in range(num_rounds):
+                    # Add round value
+                    if stats[round_idx] is not None:
+                        formatted_value = formatter.format(metric, stats[round_idx])
+                        row_values.append(formatted_value)
+                    else:
+                        row_values.append("-")
+
+                    # Add trend indicator (except after last round)
+                    if round_idx < num_rounds - 1:
+                        current_val = stats[round_idx]
+                        next_val = stats[round_idx + 1]
+
+                        if current_val is not None and next_val is not None:
+                            trend_symbol = self._get_trend_symbol(
+                                metric, next_val, current_val, formatter
+                            )
+                        else:
+                            trend_symbol = ""
+                        row_values.append(trend_symbol)
+
+                progression_table.add_row(*row_values)
+
+            utils.console.print(progression_table)
+            print()  # Add spacing between tables
+
+    def _get_trend_symbol(
+        self, metric: str, current: float, previous: float, formatter
+    ) -> str:
+        """Get colored trend symbol based on metric change."""
+        if current == previous:
+            return "[yellow]→[/yellow]"
+
+        is_increasing = current > previous
+        goal = formatter.optimization_goal(metric)
+
+        # Handle neutral metrics (no trend judgment)
+        if goal == OptimizationGoal.NEUTRAL:
+            symbol = "↗" if is_increasing else "↘"
+            return f"[dim]{symbol}[/dim]"  # Dim gray for neutral changes
+
+        # Determine if change is good based on optimization goal
+        is_good_change = (is_increasing and goal == OptimizationGoal.MAXIMIZE) or (
+            not is_increasing and goal == OptimizationGoal.MINIMIZE
+        )
+
+        symbol = "↗" if is_increasing else "↘"
+        color = "green" if is_good_change else "red"
+
+        return f"[{color}]{symbol}[/{color}]"

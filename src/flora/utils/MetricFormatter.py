@@ -13,11 +13,20 @@
 # limitations under the License.
 
 from dataclasses import dataclass
-from typing import Callable, List, Dict, Any, Union
+from typing import Callable, List, Dict, Any, Union, Optional
+from enum import Enum
 import numpy as np
 from .matchers import contains, any_of
 
 # ======================================================================================
+
+
+class OptimizationGoal(str, Enum):
+    """Enum defining how metric values should be interpreted for trend analysis."""
+
+    MAXIMIZE = "maximize"  # Higher values are better (accuracy, F1, etc.)
+    MINIMIZE = "minimize"  # Lower values are better (loss, error, time, etc.)
+    NEUTRAL = "neutral"  # No trend judgment (counts, IDs, etc.)
 
 
 @dataclass
@@ -28,15 +37,17 @@ class MetricFormatRule:
     Attributes:
         matcher: Function that returns True if rule applies to metric name
         precision: Number of decimal places to show
-        show_total: Whether to show total sum for count-like metrics
         units: Unit suffix to append (e.g., 's' for seconds)
+        optimization_goal: How to interpret metric changes for trend analysis
+        format_as_integer: Whether to format values as integers (for counts, etc.)
         description: Human-readable description of what this rule matches
     """
 
     matcher: Callable[[str], bool]
     precision: int
-    show_total: bool = False
     units: str = ""
+    optimization_goal: OptimizationGoal = OptimizationGoal.MAXIMIZE
+    format_as_integer: bool = False
     description: str = ""
 
 
@@ -45,44 +56,53 @@ class MetricFormatRule:
 # ======================================================================================
 
 DEFAULT_FORMAT_RULES = [
-    # Time metrics with various naming patterns
+    # Time metrics with various naming patterns (lower is better)
     MetricFormatRule(
-        matcher=any_of("time", "duration", "latency"),
+        matcher=any_of("time", "duration", "latency", "communication"),
         precision=4,
-        show_total=False,
         units="s",
+        optimization_goal=OptimizationGoal.MINIMIZE,
         description="Time metrics",
     ),
-    # Loss metrics
+    # Loss metrics (lower is better)
     MetricFormatRule(
         matcher=contains("loss"),
         precision=4,
-        show_total=False,
         units="",
+        optimization_goal=OptimizationGoal.MINIMIZE,
         description="Loss metrics",
     ),
-    # Accuracy and performance metrics
+    # Error metrics (lower is better)
+    MetricFormatRule(
+        matcher=any_of("error", "mse", "mae", "rmse"),
+        precision=4,
+        units="",
+        optimization_goal=OptimizationGoal.MINIMIZE,
+        description="Error metrics",
+    ),
+    # Accuracy and performance metrics (higher is better)
     MetricFormatRule(
         matcher=any_of("accuracy", "precision", "recall", "f1"),
         precision=5,
-        show_total=False,
         units="",
+        optimization_goal=OptimizationGoal.MAXIMIZE,
         description="Performance metrics",
     ),
-    # Count metrics (samples, batches, etc.) - show totals
+    # Count metrics (samples, batches, etc.) - neutral (higher neither good nor bad)
     MetricFormatRule(
         matcher=any_of("samples", "batches", "count", "num_"),
         precision=1,
-        show_total=True,
         units="",
+        optimization_goal=OptimizationGoal.NEUTRAL,
+        format_as_integer=True,
         description="Count metrics",
     ),
-    # Gradient-related metrics (for debugging)
+    # Gradient-related metrics (context dependent, but generally lower is better)
     MetricFormatRule(
         matcher=contains("grad"),
         precision=6,
-        show_total=False,
         units="",
+        optimization_goal=OptimizationGoal.MINIMIZE,
         description="Gradient metrics",
     ),
 ]
@@ -112,65 +132,14 @@ class MetricFormatter:
         self._default_rule = MetricFormatRule(
             matcher=lambda x: True,
             precision=5,
-            show_total=False,
             units="",
+            optimization_goal=OptimizationGoal.MAXIMIZE,
             description="Default",
         )
 
-    def add_rule(self, rule: MetricFormatRule) -> None:
-        """Add a new formatting rule (inserted at beginning for priority)."""
-        self.rules.insert(0, rule)
-
-    def format_metric(
-        self, metric_name: str, numeric_values: List[Union[int, float]]
-    ) -> str:
+    def format_stats(self, results: List[Dict[str, Any]]) -> Dict[str, Dict[str, str]]:
         """
-        Format a metric with multiple values using statistical aggregation.
-
-        Args:
-            metric_name: Name of the metric
-            numeric_values: List of numeric values from different nodes
-
-        Returns:
-            Formatted string representation of the metric
-        """
-        if not numeric_values:
-            return "N/A"
-
-        # Find first matching format rule
-        matched_rule = self._default_rule
-        for rule in self.rules:
-            if rule.matcher(metric_name):
-                matched_rule = rule
-                break
-
-        return self._format_with_rule(numeric_values, matched_rule)
-
-    def _format_with_rule(
-        self, numeric_values: List[Union[int, float]], rule: MetricFormatRule
-    ) -> str:
-        """Format numeric values according to a specific rule."""
-        mean_val = np.mean(numeric_values)
-        std_val = np.std(numeric_values) if len(numeric_values) > 1 else 0
-        min_val = np.min(numeric_values)
-        max_val = np.max(numeric_values)
-        single_node = len(numeric_values) == 1
-
-        # Choose formatting strategy
-        if rule.show_total and not single_node:
-            value_str = f"Σ{sum(numeric_values):,} (mean={mean_val:.{rule.precision}f} ±{std_val:.{rule.precision}f}, range=[{min_val:.{rule.precision}f}, {max_val:.{rule.precision}f}])"
-        elif single_node:
-            value_str = f"{mean_val:.{rule.precision}f}"
-        else:
-            value_str = f"mean={mean_val:.{rule.precision}f} ±{std_val:.{rule.precision}f}, range=[{min_val:.{rule.precision}f}, {max_val:.{rule.precision}f}]"
-
-        return f"{value_str}{rule.units}"
-
-    def format_results_summary_tabular(
-        self, results: List[Dict[str, Any]]
-    ) -> Dict[str, Dict[str, str]]:
-        """
-        Format a complete results summary with separate statistical columns.
+        Format statistical summary across multiple result sets.
 
         Args:
             results: List of result dictionaries from different nodes
@@ -222,22 +191,13 @@ class MetricFormatter:
                         "max": "-",
                     }
                 else:
-                    # Multiple nodes - show all statistics
-                    if matched_rule.show_total:
-                        # For count-like metrics, show total in mean column
-                        formatted_metrics[metric] = {
-                            "mean": f"Σ{sum(numeric_values):,}{units}",
-                            "std": f"{std_val:.{precision}f}",
-                            "min": f"{min_val:.{precision}f}",
-                            "max": f"{max_val:.{precision}f}",
-                        }
-                    else:
-                        formatted_metrics[metric] = {
-                            "mean": f"{mean_val:.{precision}f}{units}",
-                            "std": f"{std_val:.{precision}f}{units}",
-                            "min": f"{min_val:.{precision}f}{units}",
-                            "max": f"{max_val:.{precision}f}{units}",
-                        }
+                    # Multiple nodes - show all statistics properly
+                    formatted_metrics[metric] = {
+                        "mean": f"{mean_val:.{precision}f}{units}",
+                        "std": f"{std_val:.{precision}f}{units}",
+                        "min": f"{min_val:.{precision}f}{units}",
+                        "max": f"{max_val:.{precision}f}{units}",
+                    }
             else:
                 # Handle non-numeric metrics
                 all_values = [str(result[metric]) for result in results]
@@ -259,14 +219,32 @@ class MetricFormatter:
 
         return formatted_metrics
 
-    def get_rule_info(self) -> List[Dict[str, str]]:
-        """Get information about all active formatting rules."""
-        return [
-            {
-                "description": rule.description,
-                "precision": str(rule.precision),
-                "show_total": str(rule.show_total),
-                "units": rule.units or "none",
-            }
-            for rule in self.rules
-        ]
+    def format(self, metric_name: str, value: float) -> str:
+        """Format a single metric value using the appropriate rule."""
+        matched_rule = self._find_rule(metric_name)
+
+        # Format with appropriate precision and units
+        if matched_rule.format_as_integer:
+            return f"{int(value):,}{matched_rule.units}"
+        else:
+            return f"{value:.{matched_rule.precision}f}{matched_rule.units}"
+
+    def optimization_goal(self, metric_name: str) -> OptimizationGoal:
+        """Get optimization goal for metric (MAXIMIZE, MINIMIZE, or NEUTRAL)."""
+        matched_rule = self._find_rule(metric_name)
+        return matched_rule.optimization_goal
+
+    def is_higher_better(self, metric_name: str) -> bool:
+        """Check if higher values are better for this metric. Returns False for MINIMIZE/NEUTRAL."""
+        return self.optimization_goal(metric_name) == OptimizationGoal.MAXIMIZE
+
+    def is_lower_better(self, metric_name: str) -> bool:
+        """Check if lower values are better for this metric. Returns False for MAXIMIZE/NEUTRAL."""
+        return self.optimization_goal(metric_name) == OptimizationGoal.MINIMIZE
+
+    def _find_rule(self, metric_name: str) -> MetricFormatRule:
+        """Find the formatting rule that matches the given metric name."""
+        for rule in self.rules:
+            if rule.matcher(metric_name):
+                return rule
+        return self._default_rule
