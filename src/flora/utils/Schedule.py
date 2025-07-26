@@ -25,35 +25,31 @@ class Schedule:
 
     Supports frequency-based (every N steps) and milestone-based (at specific steps) scheduling.
     Steps are interpreted based on the algorithm's aggregation level (rounds, epochs, or iterations).
+
+    Special cases:
+    - every=0: Run only at step 0 (initial evaluation)
+    - every=None, at=[]: Never run (natural disabled state)
     """
 
-    enabled: bool = False
     every: Optional[int] = None
     at: List[int] = field(default_factory=list)
 
     def __post_init__(self):
         """Validate schedule configuration."""
-        if self.enabled:
-            # Check for valid configuration
-            if self.every is None and not self.at:
-                raise ValueError(
-                    "Schedule enabled but no frequency (every) or milestones (at) specified"
-                )
+        # Validate frequency (allow 0 for "step 0 only", reject negative)
+        if self.every is not None and self.every < 0:
+            raise ValueError(
+                f"Schedule frequency 'every' must be non-negative, got {self.every}"
+            )
 
-            # Validate frequency
-            if self.every is not None and self.every <= 0:
+        # Validate and sort milestones
+        if self.at:
+            invalid_milestones = [m for m in self.at if m < 0]
+            if invalid_milestones:
                 raise ValueError(
-                    f"Schedule frequency 'every' must be positive, got {self.every}"
+                    f"Schedule milestones must be non-negative, got: {invalid_milestones}"
                 )
-
-            # Validate and sort milestones
-            if self.at:
-                invalid_milestones = [m for m in self.at if m < 0]
-                if invalid_milestones:
-                    raise ValueError(
-                        f"Schedule milestones must be non-negative, got: {invalid_milestones}"
-                    )
-                self.at = sorted(self.at)  # Sort for efficiency
+            self.at = sorted(self.at)  # Sort for efficiency
 
     def should_run(self, current_step: int) -> bool:
         """
@@ -65,17 +61,18 @@ class Schedule:
         Returns:
             True if should execute at this step, False otherwise
         """
-        if not self.enabled:
+        # Natural disabled state: no frequency AND no milestones
+        if self.every is None and not self.at:
             return False
 
         # Check frequency-based execution
-        # Allow evaluation at step 0 to enable initial evaluation
-        if (
-            self.every is not None
-            and current_step >= 0
-            and current_step % self.every == 0
-        ):
-            return True
+        if self.every is not None and current_step >= 0:
+            # Special case: every=0 means "run only at step 0"
+            if self.every == 0:
+                return current_step == 0
+            # Normal case: run every N steps (including step 0)
+            else:
+                return current_step % self.every == 0
 
         # Check milestone-based execution
         if current_step in self.at:
@@ -95,15 +92,13 @@ class EvalSchedule:
 
     Example:
         EvalSchedule(
-            pre_aggregation=Schedule(enabled=True, every=5),
-            post_aggregation=Schedule(enabled=True, at=[10, 20, 50])
+            pre_aggregation=Schedule(every=5),
+            post_aggregation=Schedule(at=[10, 20, 50])
         )
     """
 
     # Essential FL evaluation points
     experiment_start: bool = True
-    pre_aggregation: Schedule = field(default_factory=lambda: Schedule(enabled=False))
-    post_aggregation: Schedule = field(
-        default_factory=lambda: Schedule(enabled=True, every=1)
-    )
+    pre_aggregation: Schedule = field(default_factory=Schedule)
+    post_aggregation: Schedule = field(default_factory=Schedule)
     experiment_end: bool = True

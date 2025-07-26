@@ -148,7 +148,7 @@ class BaseAlgorithm(SetupMixin, MetricsMixin, LifecycleHooksMixin):
         self.max_epochs_per_round: int = max_epochs_per_round
 
         # Evaluation configuration
-        self.eval_schedule: EvalSchedule = eval_schedule or EvalSchedule()
+        self.eval_schedule: Optional[EvalSchedule] = eval_schedule
 
         # Infrastructure components
         self.tb_writer: Optional[SummaryWriter] = tb_writer
@@ -383,7 +383,9 @@ class BaseAlgorithm(SetupMixin, MetricsMixin, LifecycleHooksMixin):
         current_step = step_map.get(self.agg_level, 0)
 
         # Pre-aggregation evaluation (local model)
-        if self.eval_schedule.pre_aggregation.should_run(current_step):
+        if self.eval_schedule and self.eval_schedule.pre_aggregation.should_run(
+            current_step
+        ):
             self.run_eval_epoch(self.local_model, "local")
 
         # Phase 1: Intra-group aggregation via all-reduce
@@ -416,7 +418,9 @@ class BaseAlgorithm(SetupMixin, MetricsMixin, LifecycleHooksMixin):
             print(f"[LOCAL-BCAST] {self.progress_context} | Skipped", flush=True)
 
         # Post-aggregation evaluation (global model)
-        if self.eval_schedule.post_aggregation.should_run(current_step):
+        if self.eval_schedule and self.eval_schedule.post_aggregation.should_run(
+            current_step
+        ):
             self.run_eval_epoch(self.local_model, "global")
 
     def __reset_round_state(self, round_idx: int) -> None:
@@ -464,7 +468,11 @@ class BaseAlgorithm(SetupMixin, MetricsMixin, LifecycleHooksMixin):
         self.__reset_round_state(round_idx)
 
         # Experiment start evaluation (only on first round) - before any training work
-        if round_idx == 0 and self.eval_schedule.experiment_start:
+        if (
+            round_idx == 0
+            and self.eval_schedule
+            and self.eval_schedule.experiment_start
+        ):
             self.run_eval_epoch(self.local_model, "global")
 
         _t_start = time.time()
@@ -504,7 +512,11 @@ class BaseAlgorithm(SetupMixin, MetricsMixin, LifecycleHooksMixin):
         self.log_metric("time/round", _t_end - _t_start, MetricReduction.AVG)
 
         # Experiment end evaluation (only on last round)
-        if round_idx == max_rounds - 1 and self.eval_schedule.experiment_end:
+        if (
+            round_idx == max_rounds - 1
+            and self.eval_schedule
+            and self.eval_schedule.experiment_end
+        ):
             self.run_eval_epoch(self.local_model, "global")
 
         print(

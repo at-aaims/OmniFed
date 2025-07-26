@@ -11,3 +11,17 @@ max_epochs_per_round: ???
 # Defaults
 agg_level: ROUND
 agg_freq: 1
+
+eval_schedule:
+    _target_: src.flora.utils.EvalSchedule
+    experiment_start: true
+    pre_aggregation:
+        _target_: src.flora.utils.Schedule
+        # Natural disabled state - no every or at specified
+        # every: 1
+        # at: [2, 4, 6]
+    post_aggregation:
+        _target_: src.flora.utils.Schedule
+        every: 1
+        # at: [3, 5, 7]
+    experiment_end: true

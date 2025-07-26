@@ -11,7 +11,7 @@ data:
   # Only provide train data, no eval
   train:
     batch_size: 16
-  eval: null
+  eval: null # NOTE: set eval to null to skip evaluation
 
 # Use smaller topology for faster testing
 topology:
@@ -24,6 +24,4 @@ global_rounds: 1
 
 algorithm:
   max_epochs_per_round: 1
-  eval_schedule:
-    experiment_start: false
-    experiment_end: false
+  eval_schedule: null # NOTE: set eval_schedule to null to skip evaluation
