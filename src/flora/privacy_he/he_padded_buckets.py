@@ -168,6 +168,7 @@ class HEPaddedBuckets:
                     chunk_size = torch.tensor([chunk_data.size(0)], dtype=torch.long)
                     size_list = [torch.zeros_like(chunk_size) for _ in range(self.total_clients)]
 
+
                     # dist.all_gather(tensor_list=size_list, tensor=chunk_size)
                     self.communicator.he_collect(recv_buff=size_list, msg=chunk_size)
 
@@ -197,16 +198,15 @@ class HEPaddedBuckets:
 
             encrypted_sync_time = (perf_counter_ns() - init_time) / nanosec_to_millisec
 
-            # Decrypt tensors with proper size restoration
+            # CENTRALIZED DECRYPTION: Only rank 0 decrypts, then broadcasts results
             init_time = perf_counter_ns()
-            with torch.no_grad():
-                for param_idx, (param, param_chunks) in enumerate(
-                        zip(self.model.parameters(), aggregated_data)
-                ):
-                    if param.grad is None:
-                        continue
 
-                    avg_grad = []
+            if self.client_id == 0:
+                # Rank 0 performs decryption and averaging
+                decrypted_gradients = []
+
+                for param_idx, param_chunks in enumerate(aggregated_data):
+                    param_avg_grad = []
 
                     for chunk_info in param_chunks:
                         recv_data = chunk_info['data']
@@ -221,8 +221,7 @@ class HEPaddedBuckets:
                                 vec = ts.ckks_vector_from(self.context, bytes(truncated_data.tolist()))
                                 vectors.append(vec)
                             except Exception as e:
-                                print(f"Failed to deserialize chunk from worker {worker_idx}: {e}")
-                                print(f"Original size: {orig_size}, Truncated size: {truncated_data.size(0)}")
+                                print(f"Rank 0: Failed to deserialize chunk from worker {worker_idx}: {e}")
                                 raise e
 
                         # Average the vectors
@@ -231,16 +230,71 @@ class HEPaddedBuckets:
                             for vec in vectors[1:]:
                                 avg_vector += vec
                             avg_vector *= 1.0 / self.total_clients
-                            avg_grad.extend(avg_vector.decrypt())
 
-                    # Reconstruct the gradient tensor
-                    if avg_grad:
-                        avg_grad_tensor = (
-                            torch.tensor(avg_grad[: param.numel()], dtype=torch.float32)
-                            .reshape_as(param)
-                            .to(self.device)
-                        )
-                        param.grad.copy_(avg_grad_tensor)
+                            # Decrypt (only rank 0 can do this)
+                            decrypted_chunk = avg_vector.decrypt()
+                            param_avg_grad.extend(decrypted_chunk)
+
+                    decrypted_gradients.append(param_avg_grad)
+
+                # Convert to tensors for broadcasting
+                gradient_tensors = []
+                param_shapes = []
+                param_idx = 0
+
+                for param in self.model.parameters():
+                    if param.grad is None:
+                        gradient_tensors.append(None)
+                        param_shapes.append(None)
+                        continue
+
+                    if param_idx < len(decrypted_gradients):
+                        avg_grad = decrypted_gradients[param_idx]
+                        if avg_grad:
+                            avg_grad_tensor = torch.tensor(
+                                avg_grad[:param.numel()],
+                                dtype=torch.float32
+                            )
+                            gradient_tensors.append(avg_grad_tensor)
+                            param_shapes.append(param.shape)
+                        else:
+                            gradient_tensors.append(torch.zeros(param.numel(), dtype=torch.float32))
+                            param_shapes.append(param.shape)
+                        param_idx += 1
+                    else:
+                        gradient_tensors.append(torch.zeros(param.numel(), dtype=torch.float32))
+                        param_shapes.append(param.shape)
+
+            else:
+                # Non-root ranks prepare empty tensors to receive broadcasts
+                gradient_tensors = []
+                param_shapes = []
+
+                for param in self.model.parameters():
+                    if param.grad is None:
+                        gradient_tensors.append(None)
+                        param_shapes.append(None)
+                    else:
+                        gradient_tensors.append(torch.zeros(param.numel(), dtype=torch.float32))
+                        param_shapes.append(param.shape)
+
+            for i, (grad_tensor, shape) in enumerate(zip(gradient_tensors, param_shapes)):
+                if grad_tensor is not None:
+                    # dist.broadcast(tensor=grad_tensor, src=0)
+                    self.communicator.broadcast(msg=grad_tensor, id=0)
+
+            # Apply the broadcasted gradients
+            with torch.no_grad():
+                param_idx = 0
+                for param in self.model.parameters():
+                    if param.grad is None:
+                        continue
+
+                    if param_idx < len(gradient_tensors) and gradient_tensors[param_idx] is not None:
+                        grad_tensor = gradient_tensors[param_idx].reshape_as(param).to(self.device)
+                        param.grad.copy_(grad_tensor)
+
+                    param_idx += 1
 
             he_decryption_time = (perf_counter_ns() - init_time) / nanosec_to_millisec
 
