@@ -15,11 +15,11 @@ defaults:
   - model: simple_cnn
   - data: mnist
 
-# ───────────── FL Algorithm Config
+# ───────────── Algorithm Config
 
 algorithm:
   local_lr: 0.01
-  max_epochs_per_round: 2
+  # max_epochs_per_round: 2
 
 # ───────────── Model Config
 
@@ -36,7 +36,6 @@ data: # overrides the default mnist datamodule
     batch_size: 16
   eval:
     batch_size: 16
-
 # ───────────── FL Engine Config
 
-global_rounds: 2
+# global_rounds: 2

@@ -1,8 +1,8 @@
 # ------------------------------------------------------------------------------
-# Comprehensive Scheduling Test Configuration
+# Epoch-Level Aggregation Test Configuration
 #
-# Tests multiple scheduling combinations: epoch-level aggregation,
-# batch milestones, and mixed frequency evaluation patterns
+# Tests epoch-end aggregation for more frequent model synchronization
+# Evaluation uses default comprehensive pattern
 # ------------------------------------------------------------------------------
 
 defaults:
@@ -16,17 +16,10 @@ algorithm:
   schedules:
     aggregation:
       round_end:
-        every: 1
+        every: null # Disable round-end aggregation
       epoch_end:
-        every: 2 # Test epoch-level aggregation
-    evaluation:
-      experiment_start: true
-      experiment_end: true
-      pre_aggregation:
-        every: 2 # Every 2nd aggregation
-      post_aggregation:
-        every: 1 # After every aggregation
+        every: 1 # Aggregate at end of every epoch
 
 # ───────────── Engine Overrides
 
-global_rounds: 3
+global_rounds: 2

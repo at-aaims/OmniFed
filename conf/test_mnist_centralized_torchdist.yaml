@@ -6,11 +6,15 @@
 # ------------------------------------------------------------------------------
 
 defaults:
-  - test_mnist_base
+  - base_mnist_fedavg
   - topology: centralized
-  - _self_
 
-# ───────────── Topology Config
+# ───────────── Algorithm Overrides
+
+algorithm:
+  max_epochs_per_round: 2
+
+# ───────────── Topology Overrides
 
 topology:
   num_clients: 2 # 2 clients + 1 server = 3 total nodes
@@ -19,3 +23,7 @@ topology:
     # master_addr: "127.0.0.1"
     # master_port: "29500"
     # backend: "gloo"
+
+# ───────────── Engine Overrides
+
+global_rounds: 2

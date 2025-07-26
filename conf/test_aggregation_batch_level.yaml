@@ -1,0 +1,25 @@
+# ------------------------------------------------------------------------------
+# Batch-Level Aggregation Test Configuration
+#
+# Tests batch-end aggregation for very frequent model synchronization
+# Evaluation uses default comprehensive pattern
+# ------------------------------------------------------------------------------
+
+defaults:
+  - test_mnist_centralized_torchdist
+
+# ───────────── Algorithm Overrides
+algorithm:
+  max_epochs_per_round: 1 # Single epoch since batches aggregate frequently
+
+  # -- Scheduling Overrides
+  schedules:
+    aggregation:
+      round_end:
+        every: null # Disable round-end aggregation
+      batch_end:
+        every: 5 # Aggregate every 5 batches
+
+# ───────────── Engine Overrides
+
+global_rounds: 2

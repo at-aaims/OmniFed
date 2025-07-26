@@ -1,8 +1,8 @@
 # ------------------------------------------------------------------------------
-# Milestone-Based Scheduling Test Configuration
+# Round-Level Aggregation Test Configuration
 #
-# Tests specific milestone scheduling (at=[...]) for targeted evaluation
-# at specific rounds and aggregation events
+# Tests standard round-end aggregation (most common pattern)
+# Evaluation uses default comprehensive pattern
 # ------------------------------------------------------------------------------
 
 defaults:
@@ -16,14 +16,7 @@ algorithm:
   schedules:
     aggregation:
       round_end:
-        every: null # Disable frequency-based trigger
-        at: [0, 2] # Only rounds 0 and 2
-    evaluation:
-      experiment_start: true
-      experiment_end: true
-      post_aggregation:
-        every: null # Disable frequency-based trigger
-        at: [0, 1] # First two aggregation events
+        every: 1 # Aggregate at end of every round
 
 # ───────────── Engine Overrides
 
