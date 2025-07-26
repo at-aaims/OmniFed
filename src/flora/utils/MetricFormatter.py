@@ -19,10 +19,52 @@ import numpy as np
 from .matchers import contains, any_of
 
 # ======================================================================================
+# CONSTANTS AND ENUMS
+# ======================================================================================
+
+
+class MetricGroup(str, Enum):
+    """Enum defining standard metric group categories for organizing display tables."""
+
+    PERFORMANCE = "Performance"  # Accuracy, precision, recall, F1, etc.
+    TRAINING = "Training"  # Loss, error, gradient metrics
+    COMMUNICATION = "Communication"  # Time, latency, bandwidth metrics
+    DATASET = "Dataset"  # Sample counts, batch sizes, data metrics
+    OTHER = "Other"  # Default/miscellaneous metrics
+
+
+class TrendMagnitude(str, Enum):
+    """Enum defining trend change magnitude categories based on percentage change."""
+
+    SMALL = "small"  # < 2% change
+    MEDIUM = "medium"  # 2-10% change
+    LARGE = "large"  # > 10% change
+
+
+class TrendColor(str, Enum):
+    """Enum defining colors for trend indicators based on performance impact."""
+
+    GOOD = "bright_green"  # Beneficial changes (clear, vibrant green)
+    NEUTRAL = "white"  # Small/neutral changes (clear white)
+    BAD = "bright_red"  # Detrimental changes (clear, vibrant red)
 
 
 class OptimizationGoal(str, Enum):
-    """Enum defining how metric values should be interpreted for trend analysis."""
+    """
+    Enum defining how metric values should be interpreted for trend analysis.
+
+    Used by MetricFormatRule to determine trend direction and color coding.
+
+    Values:
+        MAXIMIZE: Higher values indicate better performance (accuracy, F1, precision, recall)
+        MINIMIZE: Lower values indicate better performance (loss, error, training time, latency)
+        NEUTRAL: No performance judgment - changes are neutral (counts, samples, node IDs)
+
+    Usage:
+        - Controls trend arrow colors (green for good changes, red for bad)
+        - Determines optimization direction in federated learning metrics
+        - Can be extended with additional goals like TARGET_RANGE for future use
+    """
 
     MAXIMIZE = "maximize"  # Higher values are better (accuracy, F1, etc.)
     MINIMIZE = "minimize"  # Lower values are better (loss, error, time, etc.)
@@ -32,7 +74,34 @@ class OptimizationGoal(str, Enum):
 @dataclass
 class MetricFormatRule:
     """
-    Rule for formatting metrics based on name patterns.
+    Rule-based formatting system for federated learning metrics.
+
+    This class defines how metrics should be formatted, styled, and interpreted based on name patterns.
+    Used by MetricFormatter to provide consistent, intelligent formatting across the FLORA framework.
+
+    Purpose:
+        - Format metric values with appropriate precision and units
+        - Determine optimization goals for trend analysis and color coding
+        - Provide visual indicators (emojis) for different metric types
+        - Support both floating-point and integer formatting
+
+    Usage:
+        Rules are matched against metric names using the 'matcher' function. The first matching
+        rule determines how the metric is formatted and interpreted.
+
+        Example:
+            rule = MetricFormatRule(
+                matcher=contains("loss"),
+                precision=4,
+                optimization_goal=OptimizationGoal.MINIMIZE,
+                emoji="📉"
+            )
+
+    Extensions:
+        - Add custom matchers for domain-specific metrics
+        - Extend with additional formatting options (scientific notation, percentages)
+        - Add conditional formatting based on metric values
+        - Support for locale-specific number formatting
 
     Attributes:
         matcher: Function that returns True if rule applies to metric name
@@ -40,6 +109,8 @@ class MetricFormatRule:
         units: Unit suffix to append (e.g., 's' for seconds)
         optimization_goal: How to interpret metric changes for trend analysis
         format_as_integer: Whether to format values as integers (for counts, etc.)
+        emoji: Emoji icon representing this metric type
+        group: Category group for organizing metrics in tables
         description: Human-readable description of what this rule matches
     """
 
@@ -48,12 +119,28 @@ class MetricFormatRule:
     units: str = ""
     optimization_goal: OptimizationGoal = OptimizationGoal.MAXIMIZE
     format_as_integer: bool = False
+    emoji: str = ":bar_chart:"
+    group: str = MetricGroup.OTHER
     description: str = ""
 
 
 # ======================================================================================
 # DEFAULT FORMATTING RULES
 # ======================================================================================
+
+# Trend magnitude thresholds (percentage changes)
+TREND_THRESHOLD_SMALL = 2.0  # Below this is considered small change
+TREND_THRESHOLD_LARGE = 10.0  # Above this is considered large change
+
+# Unicode symbols for trend visualization (using regular arrows with double arrows for large changes)
+TREND_ARROWS = {
+    TrendMagnitude.SMALL: "→",  # Regular horizontal arrow for small changes
+    TrendMagnitude.MEDIUM: {"up": "↑", "down": "↓"},  # Single arrows for medium changes
+    TrendMagnitude.LARGE: {
+        "up": "⇈",
+        "down": "⇊",
+    },  # Double arrows for large/significant changes
+}
 
 DEFAULT_FORMAT_RULES = [
     # Time metrics with various naming patterns (lower is better)
@@ -62,6 +149,8 @@ DEFAULT_FORMAT_RULES = [
         precision=4,
         units="s",
         optimization_goal=OptimizationGoal.MINIMIZE,
+        emoji=":stopwatch:",
+        group=MetricGroup.COMMUNICATION,
         description="Time metrics",
     ),
     # Loss metrics (lower is better)
@@ -70,6 +159,8 @@ DEFAULT_FORMAT_RULES = [
         precision=4,
         units="",
         optimization_goal=OptimizationGoal.MINIMIZE,
+        emoji=":chart_decreasing:",
+        group=MetricGroup.TRAINING,
         description="Loss metrics",
     ),
     # Error metrics (lower is better)
@@ -78,6 +169,8 @@ DEFAULT_FORMAT_RULES = [
         precision=4,
         units="",
         optimization_goal=OptimizationGoal.MINIMIZE,
+        emoji=":x:",
+        group=MetricGroup.TRAINING,
         description="Error metrics",
     ),
     # Accuracy and performance metrics (higher is better)
@@ -86,6 +179,8 @@ DEFAULT_FORMAT_RULES = [
         precision=5,
         units="",
         optimization_goal=OptimizationGoal.MAXIMIZE,
+        emoji=":dart:",
+        group=MetricGroup.PERFORMANCE,
         description="Performance metrics",
     ),
     # Count metrics (samples, batches, etc.) - neutral (higher neither good nor bad)
@@ -95,6 +190,8 @@ DEFAULT_FORMAT_RULES = [
         units="",
         optimization_goal=OptimizationGoal.NEUTRAL,
         format_as_integer=True,
+        emoji=":package:",
+        group=MetricGroup.DATASET,
         description="Count metrics",
     ),
     # Gradient-related metrics (context dependent, but generally lower is better)
@@ -103,6 +200,8 @@ DEFAULT_FORMAT_RULES = [
         precision=6,
         units="",
         optimization_goal=OptimizationGoal.MINIMIZE,
+        emoji=":chart_increasing:",
+        group=MetricGroup.TRAINING,
         description="Gradient metrics",
     ),
 ]
@@ -115,10 +214,53 @@ DEFAULT_FORMAT_RULES = [
 
 class MetricFormatter:
     """
-    Formats metrics for display with intelligent type-based formatting.
+    Intelligent rule-based formatter and trend analyzer for federated learning metrics.
 
-    Uses a rule-based system to apply appropriate precision, units, and
-    aggregation strategies based on metric names and types.
+    This class provides comprehensive formatting, styling, and trend analysis for metrics
+    in the FLORA federated learning framework. It automatically detects metric types and
+    applies appropriate formatting rules for consistent display across tables and reports.
+
+    Purpose:
+        - Format individual metric values with proper precision and units
+        - Generate statistical summaries (mean, std, min, max) across nodes
+        - Analyze trends between metric values with colored arrows and magnitude detection
+        - Provide emoji icons for enhanced visual identification
+        - Support both real-time display and final reporting
+
+    Core Features:
+        1. **Rule-based formatting**: Automatically matches metrics to formatting rules
+        2. **Statistical aggregation**: Calculates stats across federated nodes
+        3. **Trend analysis**: Colored arrows with magnitude-based symbols and performance-aware coloring
+        4. **Visual enhancement**: Provides emojis and styling for better UX
+        5. **Type flexibility**: Handles integers, floats, and specialized formats
+
+    Usage Examples:
+        # Basic formatting
+        formatter = MetricFormatter()
+        formatted = formatter.format("loss/train", 0.1234)  # "📉 0.1234"
+
+        # Statistical summary across nodes
+        results = [{"loss": 0.1}, {"loss": 0.2}, {"loss": 0.15}]
+        stats = formatter.format_stats(results)
+        # Returns: {"loss": {"mean": "0.1500", "std": "0.0500", ...}}
+
+        # Trend analysis with visual indicators
+        trend_symbol = formatter.get_trend_symbol("accuracy", 0.95, 0.90)  # "[bold green]↑[/bold green]"
+        emoji = formatter.get_emoji("time/communication")  # ":stopwatch:"
+
+    Extensibility:
+        - Add custom rules for domain-specific metrics
+        - Extend optimization goals (e.g., TARGET_RANGE)
+        - Support additional statistical measures
+        - Integrate with external visualization libraries
+        - Add conditional formatting based on threshold values
+
+    Integration:
+        Used throughout FLORA's Engine.py for:
+        - Final round metrics tables
+        - Round-by-round progression displays
+        - Real-time training dashboards
+        - Experiment result exports
     """
 
     def __init__(self, rules: List[MetricFormatRule] = None):
@@ -134,6 +276,8 @@ class MetricFormatter:
             precision=5,
             units="",
             optimization_goal=OptimizationGoal.MAXIMIZE,
+            emoji=":bar_chart:",
+            group=MetricGroup.OTHER,
             description="Default",
         )
 
@@ -229,18 +373,73 @@ class MetricFormatter:
         else:
             return f"{value:.{matched_rule.precision}f}{matched_rule.units}"
 
+    def get_rule_property(self, metric_name: str, property_name: str):
+        """Generic method to get any property from the matching rule."""
+        matched_rule = self._find_rule(metric_name)
+        return getattr(matched_rule, property_name)
+
     def optimization_goal(self, metric_name: str) -> OptimizationGoal:
         """Get optimization goal for metric (MAXIMIZE, MINIMIZE, or NEUTRAL)."""
-        matched_rule = self._find_rule(metric_name)
-        return matched_rule.optimization_goal
+        return self.get_rule_property(metric_name, "optimization_goal")
 
-    def is_higher_better(self, metric_name: str) -> bool:
-        """Check if higher values are better for this metric. Returns False for MINIMIZE/NEUTRAL."""
-        return self.optimization_goal(metric_name) == OptimizationGoal.MAXIMIZE
+    def get_emoji(self, metric_name: str) -> str:
+        """Get emoji icon for the given metric based on formatting rules."""
+        return self.get_rule_property(metric_name, "emoji")
 
-    def is_lower_better(self, metric_name: str) -> bool:
-        """Check if lower values are better for this metric. Returns False for MAXIMIZE/NEUTRAL."""
-        return self.optimization_goal(metric_name) == OptimizationGoal.MINIMIZE
+    def get_group(self, metric_name: str) -> str:
+        """Get category group for the given metric based on formatting rules."""
+        return self.get_rule_property(metric_name, "group")
+
+    def group_metrics(self, metric_names: List[str]) -> Dict[str, List[str]]:
+        """Group metrics by their category based on formatting rules."""
+        groups = {}
+        for metric_name in metric_names:
+            group = self.get_group(metric_name)
+            if group not in groups:
+                groups[group] = []
+            groups[group].append(metric_name)
+
+        # Sort metrics within each group
+        for group in groups:
+            groups[group].sort()
+
+        return groups
+
+    def get_trend_symbol(
+        self, metric_name: str, current: float, previous: float
+    ) -> str:
+        """Get colored trend symbol based on metric change magnitude and direction."""
+        # No change - neutral
+        if current == previous:
+            return f"[bold {TrendColor.NEUTRAL}]→[/bold {TrendColor.NEUTRAL}]"
+
+        # Calculate percentage change magnitude
+        pct_change = (
+            abs((current - previous) / previous * 100)
+            if previous != 0
+            else abs(current - previous) * 100
+        )
+
+        # Determine magnitude and select symbol
+        if pct_change < TREND_THRESHOLD_SMALL:
+            symbol = "→"  # Small change
+        elif pct_change < TREND_THRESHOLD_LARGE:
+            symbol = "↑" if current > previous else "↓"  # Medium change
+        else:
+            symbol = "⇈" if current > previous else "⇊"  # Large change
+
+        # Determine color based on performance impact
+        goal = self.optimization_goal(metric_name)
+
+        # Neutral metrics - no performance judgment
+        if goal == OptimizationGoal.NEUTRAL or pct_change < TREND_THRESHOLD_SMALL:
+            color = TrendColor.NEUTRAL
+        else:
+            # Good change: increase for MAXIMIZE metrics, decrease for MINIMIZE metrics
+            is_good_change = (current > previous) == (goal == OptimizationGoal.MAXIMIZE)
+            color = TrendColor.GOOD if is_good_change else TrendColor.BAD
+
+        return f"[bold {color}]{symbol}[/bold {color}]"
 
     def _find_rule(self, metric_name: str) -> MetricFormatRule:
         """Find the formatting rule that matches the given metric name."""

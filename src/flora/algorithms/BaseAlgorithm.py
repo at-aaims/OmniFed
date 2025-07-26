@@ -230,7 +230,7 @@ class BaseAlgorithm(SetupMixin, MetricsMixin, LifecycleHooksMixin):
         Always provides full context (Round + Epoch + Batch) for maximum visibility
         into where we are in the federated learning lifecycle.
         """
-        return f"Round {self.round_idx + 1} Epoch {self.epoch_idx + 1} Batch {self.batch_idx + 1}"
+        return f"ROUND {self.round_idx + 1} EPOCH {self.epoch_idx + 1} BATCH {self.batch_idx + 1}"
 
     @property
     def tb_global_epoch(self) -> int:

@@ -13,6 +13,8 @@
 # limitations under the License.
 
 import time
+from datetime import datetime
+from enum import Enum
 from typing import List
 
 import numpy as np
@@ -31,6 +33,16 @@ from .mixins import SetupMixin
 from .Node import Node
 from .topology.BaseTopology import BaseTopology
 from .utils.MetricFormatter import MetricFormatter, OptimizationGoal
+
+
+# ======================================================================================
+# ENGINE CONSTANTS
+# ======================================================================================
+
+# Timing constants (in seconds)
+NODE_STARTUP_DELAY = 1  # Sleep between node actor creation for log clarity
+LOG_FLUSH_DELAY = 1  # Sleep after experiment completion for log flushing
+SHUTDOWN_DELAY = 3  # Sleep before Ray shutdown for final log cleanup
 
 
 @rich.repr.auto
@@ -94,8 +106,8 @@ class Engine(SetupMixin):
             node_actor = Node.options(**node_rayopts).remote(node_config)
             self._ray_actor_refs.append(node_actor)
             time.sleep(
-                1
-            )  # NOTE: Sleep for debugging purposes for now to allow logs to flush before next node starts
+                NODE_STARTUP_DELAY
+            )  # Allow logs to flush before next node starts
 
         # Setup nodes
         setup_futures = [node.setup.remote() for node in self._ray_actor_refs]
@@ -130,74 +142,122 @@ class Engine(SetupMixin):
             _t_experiment_end = time.time()
             _experiment_duration = _t_experiment_end - _t_experiment_start
 
-            time.sleep(1)  # Allow time for final logs to flush
+            time.sleep(LOG_FLUSH_DELAY)  # Allow time for final logs to flush
             utils.log_sep("FL Experiment Complete", color="blue")
-            print(
-                f"# Total experiment duration: {_experiment_duration:.2f}s", flush=True
-            )
-            print(f"# Completed {len(results)} node experiments", flush=True)
 
             # ----------------------------------------------------------------
 
             # Display experiment summary
-            summary_table = Table(
-                title="Experiment Summary",
-                box=box.ROUNDED,
-                show_header=True,
-                header_style="bold magenta",
-            )
-
-            summary_table.add_column("Metric", justify="left", style="cyan")
-            summary_table.add_column("Value", justify="center", style="green")
-
-            summary_table.add_row("Total Rounds", str(self.global_rounds))
-            summary_table.add_row(
-                "Nodes Completed", f"{len(results)}/{len(self.topology)}"
-            )
-            summary_table.add_row("Experiment Duration", f"{_experiment_duration:.2f}s")
-
-            utils.console.print(summary_table)
-
-            # Display aggregated metrics if available
-            if results and len(results) > 0:
-                # Extract final round metrics from each node
-                final_round_results = [node_rounds[-1] for node_rounds in results]
-
-                metrics_table = Table(
-                    title=f"Final Round Aggregated Metrics ({len(results)} nodes)"
-                    if len(results) > 1
-                    else "Final Round Metrics",
-                    box=box.ROUNDED,
-                    show_header=True,
-                    header_style="bold magenta",
-                )
-
-                metrics_table.add_column("Metric", justify="left", style="cyan")
-                metrics_table.add_column("Mean", justify="right", style="green")
-                metrics_table.add_column("Std Dev", justify="right", style="yellow")
-                metrics_table.add_column("Min", justify="right", style="blue")
-                metrics_table.add_column("Max", justify="right", style="blue")
-
-                # Use MetricFormatter for intelligent formatting
-                formatter = MetricFormatter()
-                formatted_metrics = formatter.format_stats(final_round_results)
-
-                # Display formatted metrics
-                for metric, stats in formatted_metrics.items():
-                    metrics_table.add_row(
-                        metric, stats["mean"], stats["std"], stats["min"], stats["max"]
-                    )
-
-                utils.console.print(metrics_table)
-
-                # Display round-by-round progression if multiple rounds
-                if len(results[0]) > 1:  # More than one round
-                    self._display_round_progression(results)
+            self._display_experiment_summary(results, _experiment_duration)
 
         finally:
             print("Engine shutting down...", flush=True)
-            time.sleep(3)  # Give time for final logs to flush
+            time.sleep(SHUTDOWN_DELAY)  # Give time for final logs to flush
             ray.shutdown()
+
+    def _display_experiment_summary(self, results, duration):
+        # Display experiment summary
+        summary_table = Table(
+            title="Experiment Summary",
+            box=box.ROUNDED,
+            show_header=True,
+            header_style="bold magenta",
+        )
+
+        summary_table.add_column("Metric", justify="left", style="cyan")
+        summary_table.add_column("Value", justify="center", style="green")
+
+        summary_table.add_row("Total Rounds", str(self.global_rounds))
+        summary_table.add_row("Nodes Completed", f"{len(results)}/{len(self.topology)}")
+        summary_table.add_row("Experiment Duration", f"{duration:.2f}s")
+
+        utils.console.print(summary_table)
+        print("\n")  # Extra spacing after summary
+
+        # Display aggregated metrics if available
+        if results and len(results) > 0:
+            # Extract final round metrics from each node
+            final_round_results = [node_rounds[-1] for node_rounds in results]
+
+            # Use MetricFormatter for intelligent formatting with emojis
+            formatter = MetricFormatter()
+            formatted_metrics = formatter.format_stats(final_round_results)
+
+            # Group metrics by type
+            metric_groups = formatter.group_metrics(list(formatted_metrics.keys()))
+
+            # Create enhanced metrics table with better styling
+            timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+            metrics_table = Table(
+                title=f":dart: Final Round Aggregated Metrics ({len(results)} nodes)"
+                if len(results) > 1
+                else ":dart: Final Round Metrics",
+                box=box.HEAVY_HEAD,
+                show_header=True,
+                header_style="bold magenta",
+                caption=f":bar_chart: {len(results)} nodes • {len(formatted_metrics)} metrics in {len(metric_groups)} groups • {timestamp}",
+                caption_justify="right",
+            )
+
+            # Enhanced column headers with appropriate emojis
+            metrics_table.add_column(
+                ":bar_chart: Metric",
+                justify="left",
+                style="bold cyan",
+                no_wrap=True,
+            )
+            metrics_table.add_column(
+                ":bar_chart: Mean",
+                justify="right",
+                style="green",
+                header_style="bold green",
+            )
+            metrics_table.add_column(
+                ":straight_ruler: Std Dev",
+                justify="right",
+                style="yellow",
+                header_style="bold yellow",
+            )
+            metrics_table.add_column(
+                ":arrow_down: Min",
+                justify="right",
+                style="blue",
+                header_style="bold blue",
+            )
+            metrics_table.add_column(
+                ":arrow_up: Max",
+                justify="right",
+                style="blue",
+                header_style="bold blue",
+            )
+
+            # Display metrics with clean section separators between groups
+            first_group = True
+            for group_name, metrics in metric_groups.items():
+                if metrics:
+                    # Add section separator between groups
+                    if not first_group:
+                        metrics_table.add_section()
+                    first_group = False
+
+                    for metric in metrics:
+                        stats = formatted_metrics[metric]
+                        emoji = formatter.get_emoji(metric)
+                        metrics_table.add_row(
+                            f"{emoji} {metric}",
+                            stats["mean"],
+                            stats["std"],
+                            stats["min"],
+                            stats["max"],
+                        )
+
+            utils.console.print(metrics_table)
+            print("\n")  # Extra spacing after metrics table
+
+            # Display round-by-round progression if multiple rounds
+            if len(results[0]) > 1:  # More than one round
+                self._display_round_progression(results)
 
     def _display_round_progression(self, results):
         """Display round-by-round progression summary with mean, std, min, max tables."""
@@ -221,25 +281,40 @@ class Engine(SetupMixin):
         stat_functions = [np.mean, np.std, np.min, np.max]
 
         for stat_name, stat_func in zip(stats, stat_functions):
+            stat_emojis = {
+                "Mean": ":bar_chart:",
+                "Std Dev": ":straight_ruler:",
+                "Min": ":arrow_down:",
+                "Max": ":arrow_up:",
+            }
+
             progression_table = Table(
-                title=f"Round-by-Round Progression - {stat_name}",
-                box=box.ROUNDED,
+                title=f"{stat_emojis[stat_name]} Round-by-Round Progression - {stat_name}",
+                box=box.HEAVY_HEAD,
                 show_header=True,
                 header_style="bold blue",
+                show_lines=True,
+                caption=f":clipboard: {stat_name} • {len(all_metrics)} metrics • {num_rounds} rounds",
+                caption_justify="right",
             )
 
-            # Add metric column first
-            progression_table.add_column("Metric", justify="left", style="cyan")
+            # Enhanced metric column
+            progression_table.add_column(
+                ":bar_chart: Metric", justify="left", style="bold cyan", no_wrap=True
+            )
 
             # Add round columns with trend indicators in between
             for round_idx in range(num_rounds):
                 progression_table.add_column(
-                    f"Round {round_idx + 1}", justify="right", style="green"
+                    f":repeat: Round {round_idx + 1}",
+                    justify="right",
+                    style="green",
+                    header_style="bold green",
                 )
                 # Add trend column after each round (except the last)
                 if round_idx < num_rounds - 1:
                     progression_table.add_column(
-                        "", justify="center", style="white", width=2
+                        "→", justify="center", style="dim white", width=3
                     )
 
             # Pre-calculate all statistics for all rounds
@@ -281,8 +356,8 @@ class Engine(SetupMixin):
                         next_val = stats[round_idx + 1]
 
                         if current_val is not None and next_val is not None:
-                            trend_symbol = self._get_trend_symbol(
-                                metric, next_val, current_val, formatter
+                            trend_symbol = formatter.get_trend_symbol(
+                                metric, next_val, current_val
                             )
                         else:
                             trend_symbol = ""
@@ -291,29 +366,4 @@ class Engine(SetupMixin):
                 progression_table.add_row(*row_values)
 
             utils.console.print(progression_table)
-            print()  # Add spacing between tables
-
-    def _get_trend_symbol(
-        self, metric: str, current: float, previous: float, formatter
-    ) -> str:
-        """Get colored trend symbol based on metric change."""
-        if current == previous:
-            return "[yellow]→[/yellow]"
-
-        is_increasing = current > previous
-        goal = formatter.optimization_goal(metric)
-
-        # Handle neutral metrics (no trend judgment)
-        if goal == OptimizationGoal.NEUTRAL:
-            symbol = "↗" if is_increasing else "↘"
-            return f"[dim]{symbol}[/dim]"  # Dim gray for neutral changes
-
-        # Determine if change is good based on optimization goal
-        is_good_change = (is_increasing and goal == OptimizationGoal.MAXIMIZE) or (
-            not is_increasing and goal == OptimizationGoal.MINIMIZE
-        )
-
-        symbol = "↗" if is_increasing else "↘"
-        color = "green" if is_good_change else "red"
-
-        return f"[{color}]{symbol}[/{color}]"
+            print("\n")  # Extra spacing between progression tables
