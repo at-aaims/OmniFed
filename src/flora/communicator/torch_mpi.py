@@ -211,11 +211,80 @@ class TorchMPICommunicator(Communicator):
     #
     #     return collected_data
 
+    # def he_collect(self, recv_buff, msg):
+    #     if isinstance(msg, torch.Tensor):
+    #         dist.all_gather(tensor_list=recv_buff, tensor=msg)
+    #
+    #     return recv_buff
+
     def he_collect(self, recv_buff, msg):
-        if isinstance(msg, torch.Tensor):
-            dist.all_gather(tensor_list=recv_buff, tensor=msg)
+        """
+        Collect encrypted tensors from all clients
+
+        Args:
+            recv_buff: List of tensors to receive data into
+            msg: Tensor to send from this process
+
+        Returns:
+            List of received tensors from all processes
+        """
+        import torch.distributed as dist
+
+        # Ensure all tensors have the same size
+        if not all(buf.shape == msg.shape for buf in recv_buff):
+            raise ValueError(f"&&&&&&&&&&&&&&&&&&& All buffers must have the same shape as msg. "
+                             f"msg shape: {msg.shape}, "
+                             f"buffer shapes: {[buf.shape for buf in recv_buff]}")
+
+        # Perform all_gather
+        dist.all_gather(tensor_list=recv_buff, tensor=msg)
 
         return recv_buff
+
+    # Alternative implementation that handles size mismatches more gracefully
+    def he_collect_safe(self, recv_buff, msg):
+        """
+        Safe version that handles potential size mismatches
+        """
+        import torch.distributed as dist
+
+        try:
+            dist.all_gather(tensor_list=recv_buff, tensor=msg)
+            return recv_buff
+        except RuntimeError as e:
+            if "size mismatch" in str(e) or "length" in str(e):
+                # Handle size mismatch by padding/truncating
+                max_size = max(buf.numel() for buf in recv_buff + [msg])
+
+                # Pad msg if needed
+                if msg.numel() < max_size:
+                    padding = torch.zeros(max_size - msg.numel(), dtype=msg.dtype, device=msg.device)
+                    padded_msg = torch.cat([msg.flatten(), padding])
+                else:
+                    padded_msg = msg.flatten()[:max_size]
+
+                # Pad recv_buff if needed
+                padded_recv_buff = []
+                for buf in recv_buff:
+                    if buf.numel() < max_size:
+                        padding = torch.zeros(max_size - buf.numel(), dtype=buf.dtype, device=buf.device)
+                        padded_buf = torch.cat([buf.flatten(), padding])
+                    else:
+                        padded_buf = buf.flatten()[:max_size]
+                    padded_recv_buff.append(padded_buf)
+
+                dist.all_gather(tensor_list=padded_recv_buff, tensor=padded_msg)
+
+                # Reshape back to expected size
+                original_shape = msg.shape
+                result = []
+                for buf in padded_recv_buff:
+                    truncated = buf[:msg.numel()].reshape(original_shape)
+                    result.append(truncated)
+
+                return result
+            else:
+                raise e
 
     def sparse_aggregate(self, msg, layerwise_vals, layerwise_ixs, device):
         if isinstance(msg, torch.nn.Module):

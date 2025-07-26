@@ -9,10 +9,12 @@ cd ../
 #interface='lo0'
 #worldsize=2
 #masterport=28670
+
 dir='/ccsopen/home/ssq/datasets/'
 masterport=29373
 interface='eth1'
 worldsize=2
+
 bsz=32
 comm='Collective'
 masteraddr='127.0.0.1'

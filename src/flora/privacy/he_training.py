@@ -22,7 +22,8 @@ from src.flora.datasets.image_classification import cifar, caltech
 from src.flora.helper import training_params
 
 # from src.flora.privacy.he_bsp import HomomorphicEncryptionBSP
-from src.flora.privacy.he_bsp_buckets import HomomorphicEncryptionBucketing
+# from src.flora.privacy.he_bsp_buckets import HomomorphicEncryptionBucketing
+from src.flora.privacy_he.he_padded_buckets import HEPaddedBuckets
 
 
 class HETraining:
@@ -143,7 +144,17 @@ class HETraining:
         #     train_params=self.fedavg_params,
         #     poly_modulus_degree=self.poly_modulus_degree)
 
-        self.trainer = HomomorphicEncryptionBucketing(
+        # self.trainer = HomomorphicEncryptionBucketing(
+        #     client_id=self.rank,
+        #     model=self.model,
+        #     train_data=self.train_dataloader,
+        #     test_data=self.test_dataloader,
+        #     communicator=self.communicator,
+        #     total_clients=self.world_size,
+        #     train_params=self.fedavg_params,
+        #     poly_modulus_degree=self.poly_modulus_degree)
+
+        self.trainer = HEPaddedBuckets(
             client_id=self.rank,
             model=self.model,
             train_data=self.train_dataloader,
