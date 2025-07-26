@@ -112,7 +112,7 @@ class Engine(SetupMixin):
                 f"# Starting {self.global_rounds} round federated learning experiment",
                 flush=True,
             )
-            print(f"# Nodes will execute autonomously", flush=True)
+            print("# Nodes will execute autonomously", flush=True)
 
             _t_experiment_start = time.time()
 
@@ -129,6 +129,7 @@ class Engine(SetupMixin):
             _t_experiment_end = time.time()
             _experiment_duration = _t_experiment_end - _t_experiment_start
 
+            time.sleep(1)  # Allow time for final logs to flush
             utils.log_sep("FL Experiment Complete", color="blue")
             print(
                 f"# Total experiment duration: {_experiment_duration:.2f}s", flush=True
@@ -138,41 +139,52 @@ class Engine(SetupMixin):
             # ----------------------------------------------------------------
 
             # Display experiment summary
-            table = Table(
+            summary_table = Table(
                 title="Experiment Summary",
                 box=box.ROUNDED,
                 show_header=True,
                 header_style="bold magenta",
             )
 
-            table.add_column("Metric", justify="left", style="cyan")
-            table.add_column("Value", justify="center", style="green")
+            summary_table.add_column("Metric", justify="left", style="cyan")
+            summary_table.add_column("Value", justify="center", style="green")
 
-            table.add_row("Total Rounds", str(self.global_rounds))
-            table.add_row("Nodes Completed", str(len(results)))
-            table.add_row("Experiment Duration", f"{_experiment_duration:.2f}s")
+            summary_table.add_row("Total Rounds", str(self.global_rounds))
+            summary_table.add_row(
+                "Nodes Completed", f"{len(results)}/{len(self.topology)}"
+            )
+            summary_table.add_row("Experiment Duration", f"{_experiment_duration:.2f}s")
 
-            # Compute aggregated metrics across all nodes
+            utils.console.print(summary_table)
+
+            # Display aggregated metrics if available
             if results and len(results) > 0:
-                table.add_row("", "")  # Separator
-                table.add_row("Aggregated Results", "")
+                metrics_table = Table(
+                    title=f"Aggregated Metrics ({len(results)} nodes)"
+                    if len(results) > 1
+                    else "Metrics",
+                    box=box.ROUNDED,
+                    show_header=True,
+                    header_style="bold magenta",
+                )
+
+                metrics_table.add_column("Metric", justify="left", style="cyan")
+                metrics_table.add_column("Mean", justify="right", style="green")
+                metrics_table.add_column("Std Dev", justify="right", style="yellow")
+                metrics_table.add_column("Min", justify="right", style="blue")
+                metrics_table.add_column("Max", justify="right", style="blue")
 
                 # Use MetricFormatter for intelligent formatting
                 formatter = MetricFormatter()
-                formatted_metrics = formatter.format_results_summary(results)
+                formatted_metrics = formatter.format_results_summary_tabular(results)
 
                 # Display formatted metrics
-                for metric, formatted_value in formatted_metrics.items():
-                    table.add_row(f"  {metric}", formatted_value)
-
-                # Show node consistency
-                if len(results) > 1:
-                    table.add_row("", "")
-                    table.add_row(
-                        "Node Consistency", f"σ metrics across {len(results)} nodes"
+                for metric, stats in formatted_metrics.items():
+                    metrics_table.add_row(
+                        metric, stats["mean"], stats["std"], stats["min"], stats["max"]
                     )
 
-            utils.console.print(table)
+                utils.console.print(metrics_table)
 
         finally:
             print("Engine shutting down...", flush=True)

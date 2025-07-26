@@ -1,0 +1,16 @@
+# ------------------------------------------------------------------------------
+# Default Fallback Scheduling Test Configuration
+#
+# Tests the default fallback behavior when schedules parameter is omitted
+# Should use Schedules() defaults: round_end aggregation, no evaluation
+# ------------------------------------------------------------------------------
+
+defaults:
+  - test_mnist_centralized_torchdist
+
+# Explicitly omit the schedules parameter to test fallback
+# The BaseAlgorithm should create Schedules() with defaults:
+# - aggregation.round_end = Schedule(every=1) 
+# - evaluation = all disabled
+
+global_rounds: 2  # Minimal to test defaults

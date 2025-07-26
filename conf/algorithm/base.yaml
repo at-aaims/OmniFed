@@ -2,26 +2,18 @@
 # Base Algorithm Configuration
 # ------------------------------------------------------------------------------
 
+defaults:
+  - /schedules: base
+
 # Required fields (must be overridden by each algorithm config)
 _target_: ???
 
 local_lr: ???
 max_epochs_per_round: ???
 
-# Defaults
-agg_level: ROUND
-agg_freq: 1
-
-eval_schedule:
-    _target_: src.flora.utils.EvalSchedule
-    experiment_start: true
-    pre_aggregation:
-        _target_: src.flora.utils.Schedule
-        # Natural disabled state - no every or at specified
-        # every: 1
-        # at: [2, 4, 6]
-    post_aggregation:
-        _target_: src.flora.utils.Schedule
-        every: 1
-        # at: [3, 5, 7]
-    experiment_end: true
+# Schedules will be populated from defaults list above
+# Can still override specific parts:
+# schedules:
+#   evaluation:
+#     post_aggregation:
+#       every: 2

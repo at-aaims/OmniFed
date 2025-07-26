@@ -1,0 +1,26 @@
+# ------------------------------------------------------------------------------
+# Edge Cases Scheduling Test Configuration
+#
+# Tests edge cases: every=0 (step 0 only), empty at=[], mixed patterns
+# ------------------------------------------------------------------------------
+
+defaults:
+  - test_mnist_centralized_torchdist
+
+algorithm:
+  max_epochs_per_round: 2 # Need >1 epoch for epoch triggers
+  schedules:
+    aggregation:
+      round_end:
+        every: 1 # Normal
+      epoch_start:
+        every: 0 # Special: only at step 0
+    evaluation:
+      experiment_start: true
+      experiment_end: false # Explicitly disabled
+      round_start:
+        every: 0 # Only at round 0
+      post_aggregation:
+        at: [0, 0] # Duplicate milestones
+
+global_rounds: 2

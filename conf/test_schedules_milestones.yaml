@@ -1,0 +1,24 @@
+# ------------------------------------------------------------------------------
+# Milestone-Based Scheduling Test Configuration
+#
+# Tests specific milestone scheduling (at=[...]) for targeted evaluation
+# at specific rounds and aggregation events
+# ------------------------------------------------------------------------------
+
+defaults:
+  - test_mnist_centralized_torchdist
+
+algorithm:
+  schedules:
+    aggregation:
+      round_end:
+        every: null  # Disable frequency-based trigger
+        at: [0, 2] # Only rounds 0 and 2
+    evaluation:
+      experiment_start: true
+      experiment_end: true
+      post_aggregation:
+        every: null  # Disable frequency-based trigger  
+        at: [0, 1] # First two aggregation events
+
+global_rounds: 3

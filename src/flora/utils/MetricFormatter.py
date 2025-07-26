@@ -152,27 +152,31 @@ class MetricFormatter:
         """Format numeric values according to a specific rule."""
         mean_val = np.mean(numeric_values)
         std_val = np.std(numeric_values) if len(numeric_values) > 1 else 0
+        min_val = np.min(numeric_values)
+        max_val = np.max(numeric_values)
         single_node = len(numeric_values) == 1
 
         # Choose formatting strategy
         if rule.show_total and not single_node:
-            value_str = f"Σ{sum(numeric_values):,} (μ{mean_val:.{rule.precision}f} ±{std_val:.{rule.precision}f})"
+            value_str = f"Σ{sum(numeric_values):,} (mean={mean_val:.{rule.precision}f} ±{std_val:.{rule.precision}f}, range=[{min_val:.{rule.precision}f}, {max_val:.{rule.precision}f}])"
         elif single_node:
             value_str = f"{mean_val:.{rule.precision}f}"
         else:
-            value_str = f"{mean_val:.{rule.precision}f} ±{std_val:.{rule.precision}f}"
+            value_str = f"mean={mean_val:.{rule.precision}f} ±{std_val:.{rule.precision}f}, range=[{min_val:.{rule.precision}f}, {max_val:.{rule.precision}f}]"
 
         return f"{value_str}{rule.units}"
 
-    def format_results_summary(self, results: List[Dict[str, Any]]) -> Dict[str, str]:
+    def format_results_summary_tabular(
+        self, results: List[Dict[str, Any]]
+    ) -> Dict[str, Dict[str, str]]:
         """
-        Format a complete results summary from multiple nodes.
+        Format a complete results summary with separate statistical columns.
 
         Args:
             results: List of result dictionaries from different nodes
 
         Returns:
-            Dictionary mapping metric names to formatted display strings
+            Dictionary mapping metric names to dictionaries with 'mean', 'std', 'min', 'max' keys
         """
         if not results:
             return {}
@@ -193,15 +197,65 @@ class MetricFormatter:
             ]
 
             if numeric_values:
-                formatted_metrics[metric] = self.format_metric(metric, numeric_values)
+                # Find first matching format rule
+                matched_rule = self._default_rule
+                for rule in self.rules:
+                    if rule.matcher(metric):
+                        matched_rule = rule
+                        break
+
+                mean_val = np.mean(numeric_values)
+                std_val = np.std(numeric_values) if len(numeric_values) > 1 else 0
+                min_val = np.min(numeric_values)
+                max_val = np.max(numeric_values)
+
+                # Format with appropriate precision and units
+                precision = matched_rule.precision
+                units = matched_rule.units
+
+                if len(numeric_values) == 1:
+                    # Single node - show value in mean column, others empty
+                    formatted_metrics[metric] = {
+                        "mean": f"{mean_val:.{precision}f}{units}",
+                        "std": "-",
+                        "min": "-",
+                        "max": "-",
+                    }
+                else:
+                    # Multiple nodes - show all statistics
+                    if matched_rule.show_total:
+                        # For count-like metrics, show total in mean column
+                        formatted_metrics[metric] = {
+                            "mean": f"Σ{sum(numeric_values):,}{units}",
+                            "std": f"{std_val:.{precision}f}",
+                            "min": f"{min_val:.{precision}f}",
+                            "max": f"{max_val:.{precision}f}",
+                        }
+                    else:
+                        formatted_metrics[metric] = {
+                            "mean": f"{mean_val:.{precision}f}{units}",
+                            "std": f"{std_val:.{precision}f}{units}",
+                            "min": f"{min_val:.{precision}f}{units}",
+                            "max": f"{max_val:.{precision}f}{units}",
+                        }
             else:
                 # Handle non-numeric metrics
                 all_values = [str(result[metric]) for result in results]
                 unique_values = list(set(all_values))
                 if len(unique_values) == 1:
-                    formatted_metrics[metric] = unique_values[0]
+                    formatted_metrics[metric] = {
+                        "mean": unique_values[0],
+                        "std": "-",
+                        "min": "-",
+                        "max": "-",
+                    }
                 else:
-                    formatted_metrics[metric] = f"{len(unique_values)} unique values"
+                    formatted_metrics[metric] = {
+                        "mean": f"{len(unique_values)} unique values",
+                        "std": "-",
+                        "min": "-",
+                        "max": "-",
+                    }
 
         return formatted_metrics
 

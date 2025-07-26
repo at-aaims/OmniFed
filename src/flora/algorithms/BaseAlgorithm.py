@@ -15,7 +15,6 @@
 import logging
 import time
 from abc import ABC, abstractmethod
-from enum import Enum
 from functools import wraps
 from typing import Any, Optional, Union
 
@@ -31,35 +30,12 @@ from ..communicator.TorchDistCommunicator import TorchDistCommunicator
 from ..data.DataModule import DataModule
 from ..mixins import SetupMixin
 from ..mixins.LifecycleHooksMixin import LifecycleHooksMixin
-from ..mixins.MetricsMixin import MetricsMixin, MetricReduction
-from ..utils.Schedule import EvalSchedule, Schedule
+from ..mixins.MetricsMixin import MetricReduction, MetricsMixin
+from ..utils.Scheduling import LifecycleTriggers, Schedules, Trigger
 from . import utils
 from .utils import log_param_changes
 
 # ======================================================================================
-
-
-class AggLevel(str, Enum):
-    """
-    Aggregation levels granularity.
-
-    - ROUND: Aggregate after each global round
-    - EPOCH: Aggregate after each local epoch
-    - ITER: Aggregate after each local batch iteration
-
-    CONFIGURATION NOTE: Use uppercase values in config files:
-    - ✓ agg_level: ROUND (correct)
-    - ✗ agg_level: round (incorrect - will cause aggregation to be skipped)
-
-    FUTURE ENHANCEMENTS:
-    - TODO: Analyze algorithm incompatibilities with agg_freq > 1 (some algorithms may require specific frequencies)
-    - TODO: Design declarative validation framework for algorithm subclasses to specify aggregation requirements
-    """
-
-    ROUND = "ROUND"
-    EPOCH = "EPOCH"
-    ITER = "ITER"  # Batch-level aggregation
-    # TODO: Maybe add another level based on the number of samples processed?
 
 
 @rich.repr.auto
@@ -83,10 +59,15 @@ class BaseAlgorithm(SetupMixin, MetricsMixin, LifecycleHooksMixin):
 
     def __init_subclass__(cls, **kwargs):
         super().__init_subclass__(**kwargs)
-        if hasattr(cls, "_aggregate"):
+        # Apply decorators to required abstract methods if they exist
+        try:
             cls._aggregate = log_param_changes(cls._aggregate)
-        if hasattr(cls, "_setup"):
+        except AttributeError:
+            pass  # Method not implemented yet, will be caught by abstract method validation
+        try:
             cls._setup = log_param_changes(cls._setup)
+        except AttributeError:
+            pass  # Method not overridden, will use base implementation
 
     def __init__(
         self,
@@ -95,14 +76,11 @@ class BaseAlgorithm(SetupMixin, MetricsMixin, LifecycleHooksMixin):
         global_comm: BaseCommunicator | None,
         local_model: nn.Module,
         datamodule: DataModule,
-        # Aggregation configuration
-        agg_level: AggLevel,
-        agg_freq: int,
+        # Infrastructure components
+        schedules: Schedules,
         # Training hyperparameters
         local_lr: float,
         max_epochs_per_round: int,
-        # Evaluation configuration
-        eval_schedule: Optional[EvalSchedule] = None,
         # Miscellaneous
         tb_writer: Optional[SummaryWriter] = None,
         **kwargs: Any,
@@ -115,24 +93,14 @@ class BaseAlgorithm(SetupMixin, MetricsMixin, LifecycleHooksMixin):
             local_comm: Communicator for intra-group operations
             global_comm: Optional communicator for inter-group operations
             local_model: The neural network model for this algorithm instance
-            agg_level: Level at which aggregation occurs (ROUND, EPOCH, or ITER)
-            agg_freq: Frequency of aggregation operations
             local_lr: Learning rate for local training
             max_epochs_per_round: Maximum number of epochs per round
-            eval_schedule: EvalSchedule for evaluation scheduling (pre/post aggregation on datamodule.eval)
+            schedules: Schedules for unified operation scheduling (aggregation and evaluation)
             tb_writer: TensorBoard writer for logging metrics
             **kwargs: Additional algorithm-specific parameters
         """
         # Initialize parent mixins
         super().__init__()
-
-        # Core federated learning components
-        self.datamodule: DataModule = datamodule
-        self.local_comm: BaseCommunicator = local_comm
-        self.global_comm: BaseCommunicator | None = global_comm
-        self.local_model: nn.Module = local_model
-        self.agg_level: AggLevel = agg_level
-        self.agg_freq: int = agg_freq
 
         # Training hyperparameters
         if local_lr <= 0:
@@ -141,17 +109,20 @@ class BaseAlgorithm(SetupMixin, MetricsMixin, LifecycleHooksMixin):
             raise ValueError(
                 f"max_epochs_per_round must be positive, got {max_epochs_per_round}"
             )
-        if agg_freq <= 0:
-            raise ValueError(f"agg_freq must be positive, got {agg_freq}")
 
-        self.local_lr: float = local_lr
-        self.max_epochs_per_round: int = max_epochs_per_round
-
-        # Evaluation configuration
-        self.eval_schedule: Optional[EvalSchedule] = eval_schedule
+        # Core federated learning components
+        self.datamodule: DataModule = datamodule
+        self.local_comm: BaseCommunicator = local_comm
+        self.global_comm: BaseCommunicator | None = global_comm
+        self.local_model: nn.Module = local_model
 
         # Infrastructure components
+        self.schedules: Schedules = schedules
         self.tb_writer: Optional[SummaryWriter] = tb_writer
+
+        # Training hyperparameters
+        self.local_lr: float = local_lr
+        self.max_epochs_per_round: int = max_epochs_per_round
 
         # Initialize state
         self.__local_optimizer: Optional[torch.optim.Optimizer] = None
@@ -341,7 +312,7 @@ class BaseAlgorithm(SetupMixin, MetricsMixin, LifecycleHooksMixin):
         Perform local aggregation within the group (REQUIRED override).
 
         This method is called after local training when aggregation should occur
-        (controlled by agg_level and agg_freq). Use self.local_comm for communication.
+        (controlled by schedules.aggregation triggers). Use self.local_comm for communication.
 
         Common patterns:
         - FedAvg: return self.local_comm.aggregate(self.local_model, ReductionType.MEAN)
@@ -362,10 +333,10 @@ class BaseAlgorithm(SetupMixin, MetricsMixin, LifecycleHooksMixin):
         Orchestrates the complete synchronization process including local aggregation,
         inter-group coordination, and pre/post-aggregation evaluation phases.
 
-        Called at different granularities based on agg_level:
-        - ROUND: After complete training rounds (most common)
-        - EPOCH: After local training epochs
-        - ITER: After individual training batches
+        Called at different granularities based on schedules.aggregation configuration:
+        - round_end: After complete training rounds (most common)
+        - epoch_end: After local training epochs
+        - batch_end: After individual training batches
 
         Four-phase execution:
         0. Pre-aggregation evaluation (local model)
@@ -374,17 +345,12 @@ class BaseAlgorithm(SetupMixin, MetricsMixin, LifecycleHooksMixin):
         3. Conditional broadcast: Only when inter-group coordination occurred
         4. Post-aggregation evaluation (global model)
         """
-        # Phase 0: Pre-aggregation evaluation (local model)
-        step_map = {
-            AggLevel.ROUND: self.round_idx,
-            AggLevel.EPOCH: self.epoch_idx,
-            AggLevel.ITER: self.batch_idx,
-        }
-        current_step = step_map.get(self.agg_level, 0)
-
         # Pre-aggregation evaluation (local model)
-        if self.eval_schedule and self.eval_schedule.pre_aggregation.should_run(
-            current_step
+        if self.schedules.evaluation.should_run(
+            "pre_aggregation",
+            round_idx=self.round_idx,
+            epoch_idx=self.epoch_idx,
+            batch_idx=self.batch_idx,
         ):
             self.run_eval_epoch(self.local_model, "local")
 
@@ -418,8 +384,11 @@ class BaseAlgorithm(SetupMixin, MetricsMixin, LifecycleHooksMixin):
             print(f"[LOCAL-BCAST] {self.progress_context} | Skipped", flush=True)
 
         # Post-aggregation evaluation (global model)
-        if self.eval_schedule and self.eval_schedule.post_aggregation.should_run(
-            current_step
+        if self.schedules.evaluation.should_run(
+            "post_aggregation",
+            round_idx=self.round_idx,
+            epoch_idx=self.epoch_idx,
+            batch_idx=self.batch_idx,
         ):
             self.run_eval_epoch(self.local_model, "global")
 
@@ -468,11 +437,7 @@ class BaseAlgorithm(SetupMixin, MetricsMixin, LifecycleHooksMixin):
         self.__reset_round_state(round_idx)
 
         # Experiment start evaluation (only on first round) - before any training work
-        if (
-            round_idx == 0
-            and self.eval_schedule
-            and self.eval_schedule.experiment_start
-        ):
+        if round_idx == 0 and self.schedules.evaluation.experiment_start:
             self.run_eval_epoch(self.local_model, "global")
 
         _t_start = time.time()
@@ -493,17 +458,9 @@ class BaseAlgorithm(SetupMixin, MetricsMixin, LifecycleHooksMixin):
         for epoch_idx in range(self.global_max_epochs_per_round):
             self.run_train_epoch(epoch_idx)
 
-        # ---
-        # Check if aggregation should occur based on level & frequency
-        if self.agg_level == AggLevel.ROUND:
-            if self.round_idx % self.agg_freq == 0:
-                self.__synchronize()
-            else:
-                next_agg = ((self.round_idx // self.agg_freq) + 1) * self.agg_freq + 1
-                print(
-                    f"[ROUND-SYNC] SKIP | {self.progress_context} | Freq={self.agg_freq} | Next aggregation at round {next_agg}",
-                    flush=True,
-                )
+        # Check if round-level aggregation should occur
+        if self.schedules.aggregation.should_run("round_end", round_idx=self.round_idx):
+            self.__synchronize()
 
         # Overridable hook for algorithm-specific logic
         self._round_end()
@@ -512,11 +469,7 @@ class BaseAlgorithm(SetupMixin, MetricsMixin, LifecycleHooksMixin):
         self.log_metric("time/round", _t_end - _t_start, MetricReduction.AVG)
 
         # Experiment end evaluation (only on last round)
-        if (
-            round_idx == max_rounds - 1
-            and self.eval_schedule
-            and self.eval_schedule.experiment_end
-        ):
+        if round_idx == max_rounds - 1 and self.schedules.evaluation.experiment_end:
             self.run_eval_epoch(self.local_model, "global")
 
         print(
@@ -588,17 +541,10 @@ class BaseAlgorithm(SetupMixin, MetricsMixin, LifecycleHooksMixin):
             _t_batch_compute_end = time.time()
 
             # Batch-level aggregation
-            if self.agg_level == AggLevel.ITER:
-                if self.batch_idx % self.agg_freq == 0:
-                    self.__synchronize()
-                else:
-                    next_agg = (
-                        (self.batch_idx // self.agg_freq) + 1
-                    ) * self.agg_freq + 1
-                    print(
-                        f"[ITER-SYNC] SKIP | {self.progress_context} | Freq={self.agg_freq} | Next aggregation at batch {next_agg}",
-                        flush=True,
-                    )
+            if self.schedules.aggregation.should_run(
+                "batch_end", batch_idx=self.batch_idx
+            ):
+                self.__synchronize()
 
             # Overridable hook for algorithm-specific logic
             self._train_batch_end()
@@ -635,15 +581,8 @@ class BaseAlgorithm(SetupMixin, MetricsMixin, LifecycleHooksMixin):
         )
 
         # Epoch-level aggregation
-        if self.agg_level == AggLevel.EPOCH:
-            if self.epoch_idx % self.agg_freq == 0:
-                self.__synchronize()
-            else:
-                next_agg = ((self.epoch_idx // self.agg_freq) + 1) * self.agg_freq + 1
-                print(
-                    f"[TRAIN-EPOCH-SYNC] SKIP | {self.progress_context} | Freq={self.agg_freq} | Next aggregation at epoch {next_agg}",
-                    flush=True,
-                )
+        if self.schedules.aggregation.should_run("epoch_end", epoch_idx=self.epoch_idx):
+            self.__synchronize()
 
         # Train epoch end hook
         self._train_epoch_end()

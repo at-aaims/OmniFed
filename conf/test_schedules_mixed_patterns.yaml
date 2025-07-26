@@ -1,0 +1,28 @@
+# ------------------------------------------------------------------------------
+# Comprehensive Scheduling Test Configuration
+#
+# Tests multiple scheduling combinations: epoch-level aggregation,
+# batch milestones, and mixed frequency evaluation patterns
+# ------------------------------------------------------------------------------
+
+defaults:
+  - test_mnist_centralized_torchdist
+
+# Override algorithm scheduling only
+algorithm:
+  max_epochs_per_round: 3 # Need multiple epochs for epoch-level testing
+  schedules:
+    aggregation:
+      round_end:
+        every: 1
+      epoch_end:
+        every: 2 # Test epoch-level aggregation
+    evaluation:
+      experiment_start: true
+      experiment_end: true
+      pre_aggregation:
+        every: 2 # Every 2nd aggregation
+      post_aggregation:
+        every: 1 # After every aggregation
+
+global_rounds: 3 # Minimal rounds to test patterns
