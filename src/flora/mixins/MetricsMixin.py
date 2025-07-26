@@ -20,7 +20,7 @@ from typing import Dict
 from torchmetrics import MeanMetric, SumMetric
 
 
-class MetricType(Enum):
+class MetricReduction(Enum):
     """Type of metric aggregation."""
 
     AVG = "average"
@@ -29,46 +29,67 @@ class MetricType(Enum):
 
 class MetricsMixin(ABC):
     """
-    Mixin providing comprehensive metrics collection and tracking capabilities.
+    Mixin providing modular metrics collection and tracking for federated learning nodes.
+
+    Features:
+        - Supports both averaged (mean) and cumulative (sum) metrics.
+        - Lazy initialization of metric containers for efficiency.
+        - Simple logging and retrieval interface.
 
     Usage:
-    - log_metric(name, value, MetricType.AVG) for averaged metrics
-    - log_metric(name, value, MetricType.SUM) for cumulative metrics
-    - get_metrics() to retrieve all metrics
-    - reset_metrics() to reset all metrics
+        - log_metric(name, value, MetricType.AVG, weight=1): Log a value to an averaged metric.
+        - log_metric(name, value, MetricType.SUM): Log a value to a cumulative metric.
+        - compute_metrics(): Returns a flat dict of all computed metrics.
+        - reset_metrics(): Clears all tracked metrics and counters.
+
+    Attributes:
+        num_samples_trained (int): Tracks the number of samples processed (user-managed).
     """
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self._mean_metrics: Dict[str, MeanMetric] = defaultdict(
-            lambda: MeanMetric(sync_on_compute=False)
-        )
-        self._sum_metrics: Dict[str, SumMetric] = defaultdict(
-            lambda: SumMetric(sync_on_compute=False)
-        )
+        self.__mean_metrics: Dict[str, MeanMetric] | None = None
+        self.__sum_metrics: Dict[str, SumMetric] | None = None
         self.num_samples_trained = 0
 
+    @property
+    def mean_metrics(self) -> Dict[str, MeanMetric]:
+        if self.__mean_metrics is None:
+            self.__mean_metrics = defaultdict(lambda: MeanMetric(sync_on_compute=False))
+        return self.__mean_metrics
+
+    @property
+    def sum_metrics(self) -> Dict[str, SumMetric]:
+        if self.__sum_metrics is None:
+            self.__sum_metrics = defaultdict(lambda: SumMetric(sync_on_compute=False))
+        return self.__sum_metrics
+
     def log_metric(
-        self, name: str, value: float, metric_type: MetricType, weight: int = 1
+        self, name: str, value: float, reduction: MetricReduction, weight: int = 1
     ) -> None:
         """Log a metric with specified aggregation type."""
-        if metric_type == MetricType.AVG:
-            self._mean_metrics[name].update(value, weight)
-        elif metric_type == MetricType.SUM:
-            self._sum_metrics[name].update(value)
+        if reduction == MetricReduction.AVG:
+            self.mean_metrics[name].update(value, weight)
+        elif reduction == MetricReduction.SUM:
+            self.sum_metrics[name].update(value)
         else:
-            raise ValueError(f"Unknown metric type: {metric_type}")
+            raise ValueError(f"Unknown metric type: {reduction}")
 
-    def get_metrics(self) -> Dict[str, float]:
+    def compute_metrics(self) -> Dict[str, float]:
         """Compute and return all metrics as a flat dictionary."""
-        return {
-            **{k: v.compute().item() for k, v in self._mean_metrics.items()},
-            **{k: v.compute().item() for k, v in self._sum_metrics.items()},
-        }
+        metrics = {}
+        if self.__mean_metrics is not None:
+            metrics.update(
+                {k: v.compute().item() for k, v in self.__mean_metrics.items()}
+            )
+        if self.__sum_metrics is not None:
+            metrics.update(
+                {k: v.compute().item() for k, v in self.__sum_metrics.items()}
+            )
+        return metrics
 
     def reset_metrics(self) -> None:
         """Reset all metrics for new collection period."""
-        for metric in self._mean_metrics.values():
-            metric.reset()
-        for metric in self._sum_metrics.values():
-            metric.reset()
+        self.__mean_metrics = None
+        self.__sum_metrics = None
+        self.num_samples_trained = 0

@@ -48,15 +48,15 @@ DEFAULT_FORMAT_RULES = [
     # Time metrics with various naming patterns
     MetricFormatRule(
         matcher=any_of("time", "duration", "latency"),
-        precision=3,
+        precision=4,
         show_total=False,
         units="s",
         description="Time metrics",
     ),
-    # Loss metrics (higher precision for training analysis)
+    # Loss metrics
     MetricFormatRule(
         matcher=contains("loss"),
-        precision=6,
+        precision=4,
         show_total=False,
         units="",
         description="Loss metrics",
@@ -64,7 +64,7 @@ DEFAULT_FORMAT_RULES = [
     # Accuracy and performance metrics
     MetricFormatRule(
         matcher=any_of("accuracy", "precision", "recall", "f1"),
-        precision=4,
+        precision=5,
         show_total=False,
         units="",
         description="Performance metrics",
@@ -111,7 +111,7 @@ class MetricFormatter:
         self.rules = rules or DEFAULT_FORMAT_RULES.copy()
         self._default_rule = MetricFormatRule(
             matcher=lambda x: True,
-            precision=4,
+            precision=5,
             show_total=False,
             units="",
             description="Default",

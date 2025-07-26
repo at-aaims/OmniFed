@@ -31,7 +31,7 @@ from ..communicator.TorchDistCommunicator import TorchDistCommunicator
 from ..data.DataModule import DataModule
 from ..mixins import SetupMixin
 from ..mixins.LifecycleHooksMixin import LifecycleHooksMixin
-from ..mixins.MetricsMixin import MetricsMixin, MetricType
+from ..mixins.MetricsMixin import MetricsMixin, MetricReduction
 from ..utils.Schedule import EvalSchedule, Schedule
 from . import utils
 from .utils import log_param_changes
@@ -125,7 +125,7 @@ class BaseAlgorithm(SetupMixin, MetricsMixin, LifecycleHooksMixin):
         """
         # Initialize parent mixins
         super().__init__()
-        
+
         # Core federated learning components
         self.datamodule: DataModule = datamodule
         self.local_comm: BaseCommunicator = local_comm
@@ -383,7 +383,6 @@ class BaseAlgorithm(SetupMixin, MetricsMixin, LifecycleHooksMixin):
         current_step = step_map.get(self.agg_level, 0)
 
         # Pre-aggregation evaluation (local model)
-        self._on_sync_start()
         if self.eval_schedule.pre_aggregation.should_run(current_step):
             self.run_eval_epoch(self.local_model, "local")
 
@@ -417,7 +416,6 @@ class BaseAlgorithm(SetupMixin, MetricsMixin, LifecycleHooksMixin):
             print(f"[LOCAL-BCAST] {self.progress_context} | Skipped", flush=True)
 
         # Post-aggregation evaluation (global model)
-        self._on_sync_end()
         if self.eval_schedule.post_aggregation.should_run(current_step):
             self.run_eval_epoch(self.local_model, "global")
 
@@ -434,13 +432,18 @@ class BaseAlgorithm(SetupMixin, MetricsMixin, LifecycleHooksMixin):
         )
 
         # Find global maximum iterations and epochs (batched for efficiency)
-        discovery_tensor = torch.tensor(
-            [self._local_iters_per_epoch, self.max_epochs_per_round], dtype=torch.int
-        )
-        global_maxes = self.local_comm.aggregate(discovery_tensor, ReductionType.MAX)
+        local_limits = {
+            "iters_per_epoch": torch.tensor(
+                self._local_iters_per_epoch, dtype=torch.int
+            ),
+            "epochs_per_round": torch.tensor(
+                self.max_epochs_per_round, dtype=torch.int
+            ),
+        }
+        group_limits = self.local_comm.aggregate(local_limits, ReductionType.MAX)
 
-        self._global_max_iters_per_epoch = int(global_maxes[0].item())
-        self._global_max_epochs_per_round = int(global_maxes[1].item())
+        self._global_max_iters_per_epoch = int(group_limits["iters_per_epoch"].item())
+        self._global_max_epochs_per_round = int(group_limits["epochs_per_round"].item())
 
         # ---
         # Create new instances for this round
@@ -450,21 +453,24 @@ class BaseAlgorithm(SetupMixin, MetricsMixin, LifecycleHooksMixin):
         self.round_idx = round_idx
         self.epoch_idx = 0
         self.batch_idx = 0
-        # ---
-        self.num_samples_trained = 0
 
-    def round_exec(self, round_idx: int) -> dict[str, float]:
+    def round_exec(self, round_idx: int, max_rounds: int) -> dict[str, float]:
         """
         Execute federated round computation across multiple epochs.
 
         Override for custom multi-epoch training logic.
         """
 
-        _t_start = time.time()
         self.__reset_round_state(round_idx)
 
+        # Experiment start evaluation (only on first round) - before any training work
+        if round_idx == 0 and self.eval_schedule.experiment_start:
+            self.run_eval_epoch(self.local_model, "global")
+
+        _t_start = time.time()
+
         print(
-            f"[START] {self.progress_context} | "
+            f"[ROUND-START] {self.progress_context} | "
             f"global_max_epochs_per_round={self.global_max_epochs_per_round} | "
             f"global_max_iters_per_epoch={self.global_max_iters_per_epoch}",
             flush=True,
@@ -487,7 +493,7 @@ class BaseAlgorithm(SetupMixin, MetricsMixin, LifecycleHooksMixin):
             else:
                 next_agg = ((self.round_idx // self.agg_freq) + 1) * self.agg_freq + 1
                 print(
-                    f"[AGG-SKIP] {self.progress_context} | Level=ROUND | Freq={self.agg_freq} | Next aggregation at round {next_agg}",
+                    f"[ROUND-SYNC] SKIP | {self.progress_context} | Freq={self.agg_freq} | Next aggregation at round {next_agg}",
                     flush=True,
                 )
 
@@ -495,22 +501,26 @@ class BaseAlgorithm(SetupMixin, MetricsMixin, LifecycleHooksMixin):
         self._round_end()
 
         _t_end = time.time()
-        self.log_metric("time/round", _t_end - _t_start, MetricType.AVG)
+        self.log_metric("time/round", _t_end - _t_start, MetricReduction.AVG)
+
+        # Experiment end evaluation (only on last round)
+        if round_idx == max_rounds - 1 and self.eval_schedule.experiment_end:
+            self.run_eval_epoch(self.local_model, "global")
 
         print(
-            f"[END] {self.progress_context} |",
+            f"[ROUND-END] {self.progress_context} |",
             {
                 k: round(v, 4)
                 if isinstance(v, float) and k.startswith("time/")
                 else round(v, 2)
                 if isinstance(v, float)
                 else v
-                for k, v in self.get_metrics().items()
+                for k, v in self.compute_metrics().items()
             },
             flush=True,
         )
 
-        return self.get_metrics()
+        return self.compute_metrics()
 
     def run_train_epoch(
         self,
@@ -525,7 +535,7 @@ class BaseAlgorithm(SetupMixin, MetricsMixin, LifecycleHooksMixin):
         self.epoch_idx = epoch_idx
 
         print(
-            f"[START] {self.progress_context}",
+            f"[TRAIN-EPOCH-START] {self.progress_context}",
             flush=True,
         )
 
@@ -574,7 +584,7 @@ class BaseAlgorithm(SetupMixin, MetricsMixin, LifecycleHooksMixin):
                         (self.batch_idx // self.agg_freq) + 1
                     ) * self.agg_freq + 1
                     print(
-                        f"[AGG-SKIP] {self.progress_context} | Level=ITER | Freq={self.agg_freq} | Next aggregation at batch {next_agg}",
+                        f"[ITER-SYNC] SKIP | {self.progress_context} | Freq={self.agg_freq} | Next aggregation at batch {next_agg}",
                         flush=True,
                     )
 
@@ -585,19 +595,19 @@ class BaseAlgorithm(SetupMixin, MetricsMixin, LifecycleHooksMixin):
             _t_batch_end = time.time()
 
             self.log_metric(
-                "time/train_step_data",
+                "time/step_data_train",
                 _t_batch_data_end - _t_batch_data_start,
-                MetricType.AVG,
+                MetricReduction.AVG,
             )
             self.log_metric(
-                "time/train_step_compute",
+                "time/step_compute_train",
                 _t_batch_compute_end - _t_batch_compute_start,
-                MetricType.AVG,
+                MetricReduction.AVG,
             )
 
             # Overall batch timing for all nodes
             self.log_metric(
-                "time/train_step", _t_batch_end - _t_batch_start, MetricType.AVG
+                "time/step_train", _t_batch_end - _t_batch_start, MetricReduction.AVG
             )
 
         # ---
@@ -619,7 +629,7 @@ class BaseAlgorithm(SetupMixin, MetricsMixin, LifecycleHooksMixin):
             else:
                 next_agg = ((self.epoch_idx // self.agg_freq) + 1) * self.agg_freq + 1
                 print(
-                    f"[AGG-SKIP] {self.progress_context} | Level=EPOCH | Freq={self.agg_freq} | Next aggregation at epoch {next_agg}",
+                    f"[TRAIN-EPOCH-SYNC] SKIP | {self.progress_context} | Freq={self.agg_freq} | Next aggregation at epoch {next_agg}",
                     flush=True,
                 )
 
@@ -628,24 +638,26 @@ class BaseAlgorithm(SetupMixin, MetricsMixin, LifecycleHooksMixin):
 
         _t_epoch_end = time.time()
 
-        self.log_metric("time/epoch", _t_epoch_end - _t_epoch_start, MetricType.AVG)
+        self.log_metric(
+            "time/epoch_train", _t_epoch_end - _t_epoch_start, MetricReduction.AVG
+        )
 
         print(
-            f"[END] {self.progress_context} |",
+            f"[TRAIN-EPOCH-END] {self.progress_context} |",
             {
                 k: round(v, 4)
                 if isinstance(v, float) and k.startswith("time/")
                 else round(v, 2)
                 if isinstance(v, float)
                 else v
-                for k, v in self.get_metrics().items()
+                for k, v in self.compute_metrics().items()
             },
             flush=True,
         )
 
         # Log epoch metrics to TensorBoard
         if self.tb_writer:
-            for key, value in self.get_metrics().items():
+            for key, value in self.compute_metrics().items():
                 self.tb_writer.add_scalar(key, value, self.tb_global_epoch)
 
     def run_eval_epoch(self, model: nn.Module, eval_type: str) -> None:
@@ -661,7 +673,10 @@ class BaseAlgorithm(SetupMixin, MetricsMixin, LifecycleHooksMixin):
                 "Ensure datamodule.eval is properly configured or disable evaluation in the schedule."
             )
 
-        print(f"[EVAL-{eval_type.upper()}] {self.progress_context} | Start", flush=True)
+        print(
+            f"[EVAL-EPOCH-START] {eval_type.upper()} | {self.progress_context}",
+            flush=True,
+        )
         _t_start = time.time()
 
         # Temporarily switch to eval mode
@@ -703,17 +718,17 @@ class BaseAlgorithm(SetupMixin, MetricsMixin, LifecycleHooksMixin):
                 # Update timing metrics
                 _t_batch_end = time.time()
                 self.log_metric(
-                    "time/eval_step_data",
+                    "time/step_data_eval",
                     _t_batch_data_end - _t_batch_data_start,
-                    MetricType.AVG,
+                    MetricReduction.AVG,
                 )
                 self.log_metric(
-                    "time/eval_step_compute",
+                    "time/step_compute_eval",
                     _t_batch_compute_end - _t_batch_compute_start,
-                    MetricType.AVG,
+                    MetricReduction.AVG,
                 )
                 self.log_metric(
-                    "time/eval_step", _t_batch_end - _t_batch_start, MetricType.AVG
+                    "time/step_eval", _t_batch_end - _t_batch_start, MetricReduction.AVG
                 )
 
         # Overridable hook for algorithm-specific logic
@@ -724,19 +739,18 @@ class BaseAlgorithm(SetupMixin, MetricsMixin, LifecycleHooksMixin):
             model.train()
 
         _t_end = time.time()
-        self.log_metric(f"time/{metric_namespace}", _t_end - _t_start, MetricType.AVG)
+        self.log_metric("time/epoch_eval", _t_end - _t_start, MetricReduction.AVG)
 
         print(
-            f"[EVAL-{eval_type.upper()}] {self.progress_context} | End |",
+            f"[EVAL-EPOCH-END] {eval_type.upper()} | {self.progress_context} |",
             {
                 k: round(v, 4)
                 if isinstance(v, float) and k.startswith("time/")
                 else round(v, 2)
                 if isinstance(v, float)
                 else v
-                for k, v in self.get_metrics().items()
-                if k.startswith(f"{metric_namespace}/")
-                or k.startswith(f"time/{metric_namespace}")
+                for k, v in self.compute_metrics().items()
+                if "eval" in k
             },
             flush=True,
         )
@@ -755,10 +769,13 @@ class BaseAlgorithm(SetupMixin, MetricsMixin, LifecycleHooksMixin):
 
         # Metric tracking
         self.log_metric(
-            f"{metric_namespace}/loss", loss.detach().item(), MetricType.AVG, batch_size
+            f"loss/{metric_namespace}",
+            loss.detach().item(),
+            MetricReduction.AVG,
+            batch_size,
         )
-        self.log_metric(f"{metric_namespace}/num_samples", batch_size, MetricType.SUM)
-        self.log_metric(f"{metric_namespace}/num_batches", 1, MetricType.SUM)
+        self.log_metric(f"samples/{metric_namespace}", batch_size, MetricReduction.SUM)
+        self.log_metric(f"batches/{metric_namespace}", 1, MetricReduction.SUM)
 
         return loss, batch_size
 
@@ -777,7 +794,9 @@ class BaseAlgorithm(SetupMixin, MetricsMixin, LifecycleHooksMixin):
         self.local_optimizer.zero_grad()
         self._backward_pass(loss)
         self.log_metric(
-            "train/grad_norm", utils.get_grad_norm(self.local_model), MetricType.AVG
+            "grad_norm/train",
+            utils.get_grad_norm(self.local_model),
+            MetricReduction.AVG,
         )
         self._optimizer_step()
 

@@ -178,18 +178,11 @@ class Node(SetupMixin):
             flush=True,
         )
 
-        # Experiment start evaluation
-        if self.algorithm.eval_schedule.experiment_start:
-            self.algorithm.run_eval_epoch(self.local_model, "global")
         # Execute all rounds
         final_metrics = {}
         for round_idx in range(total_rounds):
-            round_metrics = self.algorithm.round_exec(round_idx)
+            round_metrics = self.algorithm.round_exec(round_idx, total_rounds)
             final_metrics.update(round_metrics)  # Keep accumulating metrics
-
-        # Experiment end evaluation
-        if self.algorithm.eval_schedule.experiment_end:
-            self.algorithm.run_eval_epoch(self.local_model, "global")
 
         print(
             f"[EXPERIMENT-END] Node completed {total_rounds} round experiment",

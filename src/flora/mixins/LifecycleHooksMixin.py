@@ -56,22 +56,6 @@ class LifecycleHooksMixin(ABC):
         """
         pass
 
-    def _on_sync_start(self) -> None:
-        """
-        Optional lifecycle hook: Called before synchronization operations begin.
-
-        Override in subclasses for custom pre-synchronization logic.
-        """
-        pass
-
-    def _on_sync_end(self) -> None:
-        """
-        Optional lifecycle hook: Called after synchronization operations complete.
-
-        Override in subclasses for custom post-synchronization logic.
-        """
-        pass
-
     def _train_batch_start(self) -> None:
         """
         Optional lifecycle hook: Called before processing each training batch.
