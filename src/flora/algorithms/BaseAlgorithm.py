@@ -549,19 +549,19 @@ class BaseAlgorithm(SetupMixin, MetricsMixin, LifecycleHooksMixin):
             _t_batch_end = time.time()
 
             self.log_metric(
-                "time/step_data_train",
+                "time/batch_data_train",
                 _t_batch_data_end - _t_batch_data_start,
                 MetricReduction.AVG,
             )
             self.log_metric(
-                "time/step_compute_train",
+                "time/batch_compute_train",
                 _t_batch_compute_end - _t_batch_compute_start,
                 MetricReduction.AVG,
             )
 
             # Overall batch timing for all nodes
             self.log_metric(
-                "time/step_train", _t_batch_end - _t_batch_start, MetricReduction.AVG
+                "time/batch_train", _t_batch_end - _t_batch_start, MetricReduction.AVG
             )
 
         # ---
@@ -665,17 +665,19 @@ class BaseAlgorithm(SetupMixin, MetricsMixin, LifecycleHooksMixin):
                 # Update timing metrics
                 _t_batch_end = time.time()
                 self.log_metric(
-                    "time/step_data_eval",
+                    "time/batch_data_eval",
                     _t_batch_data_end - _t_batch_data_start,
                     MetricReduction.AVG,
                 )
                 self.log_metric(
-                    "time/step_compute_eval",
+                    "time/batch_compute_eval",
                     _t_batch_compute_end - _t_batch_compute_start,
                     MetricReduction.AVG,
                 )
                 self.log_metric(
-                    "time/step_eval", _t_batch_end - _t_batch_start, MetricReduction.AVG
+                    "time/batch_eval",
+                    _t_batch_end - _t_batch_start,
+                    MetricReduction.AVG,
                 )
 
         # Overridable hook for algorithm-specific logic

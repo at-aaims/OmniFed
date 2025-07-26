@@ -293,7 +293,6 @@ class Engine(SetupMixin):
                 box=box.HEAVY_HEAD,
                 show_header=True,
                 header_style="bold blue",
-                show_lines=True,
                 caption=f":clipboard: {stat_name} • {len(all_metrics)} metrics • {num_rounds} rounds",
                 caption_justify="right",
             )

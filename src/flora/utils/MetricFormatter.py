@@ -28,7 +28,9 @@ class MetricGroup(str, Enum):
 
     PERFORMANCE = "Performance"  # Accuracy, precision, recall, F1, etc.
     TRAINING = "Training"  # Loss, error, gradient metrics
-    COMMUNICATION = "Communication"  # Time, latency, bandwidth metrics
+    ROUND_TIMING = "Round Timing"  # Federated round duration (time/round)
+    EPOCH_TIMING = "Epoch Timing"  # Local training epoch times (time/epoch_*)
+    BATCH_TIMING = "Batch Timing"  # Batch processing times (time/batch_*)
     DATASET = "Dataset"  # Sample counts, batch sizes, data metrics
     OTHER = "Other"  # Default/miscellaneous metrics
 
@@ -143,15 +145,45 @@ TREND_ARROWS = {
 }
 
 DEFAULT_FORMAT_RULES = [
-    # Time metrics with various naming patterns (lower is better)
+    # Round-level timing metrics (actual: time/round)
     MetricFormatRule(
-        matcher=any_of("time", "duration", "latency", "communication"),
+        matcher=contains("time/round"),
+        precision=4,
+        units="s",
+        optimization_goal=OptimizationGoal.MINIMIZE,
+        emoji=":repeat:",
+        group=MetricGroup.ROUND_TIMING,
+        description="Federated round timing",
+    ),
+    # Epoch-level timing metrics (actual: time/epoch_train, time/epoch_eval)
+    MetricFormatRule(
+        matcher=contains("time/epoch"),
+        precision=4,
+        units="s",
+        optimization_goal=OptimizationGoal.MINIMIZE,
+        emoji=":hourglass:",
+        group=MetricGroup.EPOCH_TIMING,
+        description="Training epoch timing",
+    ),
+    # Batch-level timing metrics (actual: time/batch_train, time/batch_eval, time/batch_data_*, time/batch_compute_*)
+    MetricFormatRule(
+        matcher=contains("time/batch"),
+        precision=4,
+        units="s",
+        optimization_goal=OptimizationGoal.MINIMIZE,
+        emoji=":clock:",
+        group=MetricGroup.BATCH_TIMING,
+        description="Batch processing timing",
+    ),
+    # Generic timing fallback for any other time/ metrics
+    MetricFormatRule(
+        matcher=contains("time/"),
         precision=4,
         units="s",
         optimization_goal=OptimizationGoal.MINIMIZE,
         emoji=":stopwatch:",
-        group=MetricGroup.COMMUNICATION,
-        description="Time metrics",
+        group=MetricGroup.OTHER,
+        description="Generic timing",
     ),
     # Loss metrics (lower is better)
     MetricFormatRule(
