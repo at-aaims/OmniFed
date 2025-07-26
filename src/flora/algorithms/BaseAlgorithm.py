@@ -262,7 +262,10 @@ class BaseAlgorithm(SetupMixin, MetricsMixin, LifecycleHooksMixin):
         self.local_model = self.local_model.to(device)
 
         # Standard federated learning setup: broadcast initial model from server
+        _t_sync_start = time.time()
         self.local_model = self.local_comm.broadcast(self.local_model)
+        _t_sync_end = time.time()
+        self.log_metric("time/sync_broadcast_init", _t_sync_end - _t_sync_start, MetricReduction.AVG)
 
     # =============================================================================
     # MINIMAL OVERRIDES
@@ -352,15 +355,21 @@ class BaseAlgorithm(SetupMixin, MetricsMixin, LifecycleHooksMixin):
 
         # Phase 1: Intra-group aggregation via all-reduce
         print(f"[LOCAL-AGG] {self.progress_context} | Start", flush=True)
+        _t_sync_start = time.time()
         self.local_model = self._aggregate()
+        _t_sync_end = time.time()
+        self.log_metric("time/sync_aggregate_local", _t_sync_end - _t_sync_start, MetricReduction.AVG)
         print(f"[LOCAL-AGG] {self.progress_context} | Complete", flush=True)
 
         # Phase 2: Inter-group coordination (group servers only)
         if self.global_comm is not None:
             print(f"[GLOBAL-AGG] {self.progress_context} | Start", flush=True)
+            _t_sync_start = time.time()
             self.local_model = self.global_comm.aggregate(
                 self.local_model, reduction=ReductionType.MEAN
             )
+            _t_sync_end = time.time()
+            self.log_metric("time/sync_aggregate_global", _t_sync_end - _t_sync_start, MetricReduction.AVG)
             print(f"[GLOBAL-AGG] {self.progress_context} | Complete", flush=True)
 
         # Phase 3: Conditional broadcast to distribute global results
@@ -374,7 +383,10 @@ class BaseAlgorithm(SetupMixin, MetricsMixin, LifecycleHooksMixin):
 
         if needs_final_broadcast:
             print(f"[LOCAL-BCAST] {self.progress_context} | Start", flush=True)
+            _t_sync_start = time.time()
             self.local_model = self.local_comm.broadcast(self.local_model)
+            _t_sync_end = time.time()
+            self.log_metric("time/sync_broadcast_final", _t_sync_end - _t_sync_start, MetricReduction.AVG)
             print(f"[LOCAL-BCAST] {self.progress_context} | Complete", flush=True)
         else:
             print(f"[LOCAL-BCAST] {self.progress_context} | Skipped", flush=True)
@@ -571,6 +583,7 @@ class BaseAlgorithm(SetupMixin, MetricsMixin, LifecycleHooksMixin):
         sync_signal = torch.tensor([1.0])
         total_signals = self.local_comm.aggregate(sync_signal, ReductionType.SUM)
         sync_time = time.time() - _t_start
+        self.log_metric("time/sync_epoch_boundary", sync_time, MetricReduction.AVG)
         print(
             f"[EPOCH-SYNC-END] {self.progress_context} | time={sync_time:.4f}s signals={int(total_signals.item())}",
             flush=True,

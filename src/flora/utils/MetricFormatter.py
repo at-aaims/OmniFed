@@ -31,6 +31,7 @@ class MetricGroup(str, Enum):
     ROUND_TIMING = "Round Timing"  # Federated round duration (time/round)
     EPOCH_TIMING = "Epoch Timing"  # Local training epoch times (time/epoch_*)
     BATCH_TIMING = "Batch Timing"  # Batch processing times (time/batch_*)
+    SYNC_TIMING = "Sync Timing"  # Synchronization operations (time/sync_*)
     DATASET = "Dataset"  # Sample counts, batch sizes, data metrics
     OTHER = "Other"  # Default/miscellaneous metrics
 
@@ -174,6 +175,16 @@ DEFAULT_FORMAT_RULES = [
         emoji=":clock:",
         group=MetricGroup.BATCH_TIMING,
         description="Batch processing timing",
+    ),
+    # Synchronization timing metrics (time/sync_*)
+    MetricFormatRule(
+        matcher=contains("time/sync"),
+        precision=4,
+        units="s",
+        optimization_goal=OptimizationGoal.MINIMIZE,
+        emoji=":arrows_counterclockwise:",
+        group=MetricGroup.SYNC_TIMING,
+        description="Synchronization timing",
     ),
     # Generic timing fallback for any other time/ metrics
     MetricFormatRule(
