@@ -64,11 +64,11 @@ class ComposableModel(nn.Module):
     ):
         super().__init__()
 
-        # Ensure compatible
+        # Validate component compatibility
         if backbone.out_channels != head.in_channels:
             raise ValueError(
-                f"Backbone output channels ({backbone.out_channels}) don't match "
-                f"head input channels ({head.in_channels})"
+                f"Channel mismatch: backbone outputs {backbone.out_channels} channels "
+                f"but head expects {head.in_channels} channels"
             )
 
         self.backbone = backbone

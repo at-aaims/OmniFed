@@ -9,13 +9,9 @@
 defaults:
   - base_mnist_fedavg
   - topology: multigroup
+  - _self_
 
-# ───────────── Algorithm Overrides
-
-algorithm:
-  max_epochs_per_round: 2
-
-# ───────────── Topology Config
+# ───────────── Topology Overrides
 
 topology:
   groups:
@@ -31,7 +27,3 @@ topology:
         master_port: "29501"
   global_comm:
     _target_: src.flora.communicator.GrpcCommunicator
-
-# ───────────── Engine Overrides
-
-global_rounds: 2

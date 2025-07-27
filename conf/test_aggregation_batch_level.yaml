@@ -8,18 +8,20 @@
 defaults:
   - test_mnist_centralized_torchdist
 
-# ───────────── Algorithm Overrides
-algorithm:
-  max_epochs_per_round: 1 # Single epoch since batches aggregate frequently
-
-  # -- Scheduling Overrides
-  schedules:
-    aggregation:
-      round_end:
-        every: null # Disable round-end aggregation
-      batch_end:
-        every: 5 # Aggregate every 5 batches
-
 # ───────────── Engine Overrides
 
-global_rounds: 2
+global_rounds: 1 # We choose single round here for test speed
+
+# ───────────── Algorithm Overrides
+
+algorithm:
+  max_epochs_per_round: 1 # We choose single epoch for test speed
+
+# ───────────── Schedules Overrides
+
+schedules:
+  aggregation:
+    round_end: null # Explicitly disable round-end aggregation
+    batch_end:
+      every: 5 # Aggregate every 5 batches
+

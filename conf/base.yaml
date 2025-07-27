@@ -1,39 +1,103 @@
-# ------------------------------------------------------------------------------
+# ══════════════════════════════════════════════════════════════════════════════
 # FLORA Base Configuration
 #
-# This is the foundational configuration that provides common defaults for all FLORA experiments.
-# Other configurations should extend this base and override specific sections as needed.
+# Foundation config for all FLORA experiments.
+# Child configs inherit this structure via defaults list.
 #
-# Docs:
-# - https://hydra.cc/docs/patterns/extending_configs/
-# - https://hydra.cc/docs/patterns/configuring_experiments/
-# - https://hydra.cc/docs/advanced/defaults_list/
-# ------------------------------------------------------------------------------
+# Usage: Add "- base" to your defaults list, then override what you need.
+# Architecture: algorithm + model + datamodule + topology + schedules
+#
+# Docs: https://hydra.cc/docs/patterns/extending_configs/
+#       https://hydra.cc/docs/advanced/defaults_list/
+# ══════════════════════════════════════════════════════════════════════════════
 
 defaults:
   - _self_
 
-# ───────────── FL Algorithm Config
+# ─────────────────────────────────────────
+# Required Components (override in child configs)
 
-algo: ??? # Must be specified by extending configs
+global_rounds: ??? # Number of FL rounds
 
-# ───────────── Model Config
+# -------------------
+# Topology
 
-model: ??? # Must be specified by extending configs
+topology:
+  _target_: ??? # Full dotpath to topology class
 
-# ───────────── Data Config
+# -------------------
+# Algorithm
 
-data: ??? # Must be specified by extending configs
+algorithm:
+  _target_: ??? # Full dotpath to algorithm class
+  local_lr: ??? # Learning rate for local training
+  max_epochs_per_round: ??? # Local epochs per FL round
 
-# ───────────── Topology and Communication Config
+# -------------------
+# Model
 
-topology: ??? # Must be specified by extending configs
+model:
+  _target_: ??? # Full dotpath to model class
 
-# ───────────── FL Engine Config
+# -------------------
+# DataModule
 
-global_rounds: ???
+datamodule:
+  _target_: src.flora.data.DataModule
+  train:
+    _target_: torch.utils.data.DataLoader
+    batch_size: ??? # Training batch size
+  eval:
+    _target_: torch.utils.data.DataLoader
+    batch_size: ??? # Eval batch size
 
-# ───────────── Hydra Config
+# ─────────────────────────────────────────
+# Schedules Configuration
+#
+# Controls when aggregation and evaluation happen.
+# Options: true/false, every: N, at: [X, Y], or combined patterns
+schedules:
+  _target_: src.flora.utils.ExecutionSchedules
+  aggregation:
+    _target_: src.flora.utils.AggregationTriggers
+    round_end: true # Aggregate every round (standard FL)
+    # round_end: false           # Never aggregate at round end
+    # round_end: null            # Explicitly disabled (same as false)
+    # round_end:                 # Custom frequency
+    #   every: 2                 # Every 2nd round
+    # round_end:                 # Specific milestones
+    #   at: [0, 5, 10]          # Only at rounds 0, 5, and 10
+
+    epoch_end: false
+    # epoch_end: true            # Every epoch
+    # epoch_end:                 # Custom patterns
+    #   every: 3                 # Every 3rd epoch
+    #   at: [1, 4]              # Also at epochs 1 and 4
+
+    batch_end: false
+    # batch_end:                 # High-frequency aggregation
+    #   every: 100               # Every 100 batches
+
+  evaluation:
+    _target_: src.flora.utils.EvaluationTriggers
+    experiment_start: true
+    # experiment_start: true     # Evaluate at experiment start
+
+    experiment_end: true
+    # experiment_end: true       # Evaluate at experiment end
+
+    pre_aggregation: false
+    # pre_aggregation: true      # Before every aggregation
+    # pre_aggregation:           # Selective evaluation
+    #   every: 2                 # Before every 2nd aggregation
+
+    post_aggregation: true # Evaluate after every aggregation
+    # post_aggregation: false
+    # post_aggregation:          # Custom evaluation schedule
+    #   at: [0, 1, 5]           # After 1st, 2nd, and 6th aggregations
+
+# ─────────────────────────────────────────
+# Hydra Config
 # Docs:
 # - https://hydra.cc/docs/configure_hydra/intro/
 # - https://hydra.cc/docs/configure_hydra/job/

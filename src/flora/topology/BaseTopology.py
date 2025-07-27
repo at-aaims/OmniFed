@@ -19,7 +19,7 @@ import rich.repr
 from omegaconf import DictConfig
 
 from .. import utils
-from ..Node import NodeConfig
+from ..Node import NodeSpec
 
 # ======================================================================================
 
@@ -34,83 +34,62 @@ class BaseTopology(ABC):
     Each topology implementation determines how nodes are configured and how they communicate with each other.
     """
 
-    def __init__(
-        self,
-        algo_cfg: DictConfig,
-        model_cfg: DictConfig,
-        data_cfg: DictConfig,
-        **kwargs: Any,
-    ):
+    def __init__(self):
         """
         Initialize topology.
         """
         utils.log_sep(f"{self.__class__.__name__} Init")
-        self.algo_cfg: DictConfig = algo_cfg
-        self.model_cfg: DictConfig = model_cfg
-        self.data_cfg: DictConfig = data_cfg
-        self.node_kwargs: Dict[str, Any] = kwargs
 
-        # Lazy-initialized node configurations list
-        self.__node_configs: Optional[List[NodeConfig]] = None
+        # Lazy-initialized node specifications list
+        self.__node_specs: Optional[List[NodeSpec]] = None
 
     @property
-    def node_configs(self) -> List[NodeConfig]:
+    def node_comm_specs(self) -> List[NodeSpec]:
         """
-        Get the list of node configurations in this topology.
+        Get the list of node specifications for this topology.
         """
-        if self.__node_configs is None:
-            self.__node_configs = self.configure_nodes(
-                algo_cfg=self.algo_cfg,
-                model_cfg=self.model_cfg,
-                data_cfg=self.data_cfg,
-                **self.node_kwargs,
-            )
+        if self.__node_specs is None:
+            self.__node_specs = self.create_node_specs()
             print(
-                f"[{self.__class__.__name__}] Configured {len(self.__node_configs)} nodes"
+                f"[{self.__class__.__name__}] Configured {len(self.__node_specs)} nodes"
             )
 
-        if not self.__node_configs:
+        if not self.__node_specs:
             raise ValueError(
-                "Topology.configure_nodes() must return at least one node configuration."
+                "Topology.configure_nodes() must return at least one node specification."
             )
 
-        return self.__node_configs
+        return self.__node_specs
 
     @abstractmethod
-    def configure_nodes(
-        self,
-        algo_cfg: DictConfig,
-        model_cfg: DictConfig,
-        data_cfg: DictConfig,
-        **kwargs: Any,
-    ) -> List[NodeConfig]:
+    def create_node_specs(self) -> List[NodeSpec]:
         """
-        Configure node configurations for this topology.
+        Configure node specifications for this topology.
 
         This method is responsible for:
-        1. Creating node configurations with appropriate parameters
+        1. Creating node specifications with communication parameters
         2. Establishing communication relationships between nodes
-        3. Setting up any topology-specific state
+        3. Setting up any topology-specific networking
 
         Returns:
-            List of node configuration dictionaries
+            List of NodeSpec objects defining network structure
         """
         pass
 
     def __len__(self) -> int:
         """
-        Get the number of node configurations in this topology.
+        Get the number of node specifications in this topology.
         """
-        return len(self.node_configs)
+        return len(self.node_comm_specs)
 
-    def __getitem__(self, index: int) -> NodeConfig:
+    def __getitem__(self, index: int) -> NodeSpec:
         """
-        Get a node configuration by index.
+        Get a node specification by index.
         """
-        return self.node_configs[index]
+        return self.node_comm_specs[index]
 
     def __iter__(self):
         """
-        Iterate over node configurations in this topology.
+        Iterate over node specifications in this topology.
         """
-        return iter(self.node_configs)
+        return iter(self.node_comm_specs)

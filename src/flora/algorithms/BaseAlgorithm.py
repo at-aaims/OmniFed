@@ -15,19 +15,19 @@
 import logging
 import time
 from abc import abstractmethod
-from typing import Any, Optional
+from typing import Any, Optional, Dict, List
 
 import rich.repr
 import torch
 from torch import nn
-from torch.utils.tensorboard import SummaryWriter
+from typeguard import typechecked
 
 from ..communicator.BaseCommunicator import BaseCommunicator, ReductionType
 from ..data.DataModule import DataModule
 from ..mixins import SetupMixin
 from ..mixins.LifecycleHooksMixin import LifecycleHooksMixin
-from ..mixins.MetricsMixin import MetricReduction, MetricsMixin
-from ..utils.Scheduling import Schedules
+from ..utils.ExecutionSummary import ExecutionSummary, MetricReduction
+from ..utils.ExecutionSchedules import ExecutionSchedules
 from . import utils
 from .utils import log_param_changes
 
@@ -35,7 +35,7 @@ from .utils import log_param_changes
 
 
 @rich.repr.auto
-class BaseAlgorithm(SetupMixin, MetricsMixin, LifecycleHooksMixin):
+class BaseAlgorithm(SetupMixin, LifecycleHooksMixin):
     """
     Base class for federated learning algorithms with hooks-based architecture.
 
@@ -65,35 +65,37 @@ class BaseAlgorithm(SetupMixin, MetricsMixin, LifecycleHooksMixin):
         except AttributeError:
             pass  # Method not overridden, will use base implementation
 
+    @typechecked
     def __init__(
         self,
-        # Core FL components
+        # -----------------------
+        # Core federated learning and infrastructure components
+        # (Node is responsible for these)
         local_comm: BaseCommunicator,
         global_comm: BaseCommunicator | None,
         local_model: nn.Module,
         datamodule: DataModule,
-        # Infrastructure components
-        schedules: Schedules,
+        schedules: ExecutionSchedules,
+        log_dir: str,
+        # -----------------------
+        # The rest of the parameters are from subclass constructors
         # Training hyperparameters
         local_lr: float,
         max_epochs_per_round: int,
-        # Miscellaneous
-        tb_writer: Optional[SummaryWriter] = None,
-        **kwargs: Any,
     ):
         """
-        Initialize the Algorithm instance.
+        Initialize the BaseAlgorithm instance.
 
         Args:
-            datamodule: DataModule containing train and eval data loaders
-            local_comm: Communicator for intra-group operations
-            global_comm: Optional communicator for inter-group operations
-            local_model: The neural network model for this algorithm instance
-            local_lr: Learning rate for local training
-            max_epochs_per_round: Maximum number of epochs per round
-            schedules: Schedules for unified operation scheduling (aggregation and evaluation)
-            tb_writer: TensorBoard writer for logging metrics
-            **kwargs: Additional algorithm-specific parameters
+            local_comm (BaseCommunicator): Communicator for intra-group operations.
+            global_comm (Optional[BaseCommunicator]): Optional communicator for inter-group operations.
+            local_model (nn.Module): The neural network model for this algorithm instance.
+            datamodule (DataModule): DataModule containing train and eval data loaders.
+            schedules (Schedules): Schedules for unified operation scheduling (aggregation and evaluation).
+            metrics_manager (MetricsManager): MetricsManager for tracking and logging metrics.
+            local_lr (float): Learning rate for local training.
+            max_epochs_per_round (int): Maximum number of epochs per round.
+            **kwargs: Additional algorithm-specific parameters.
         """
         # Initialize parent mixins
         super().__init__()
@@ -113,8 +115,8 @@ class BaseAlgorithm(SetupMixin, MetricsMixin, LifecycleHooksMixin):
         self.local_model: nn.Module = local_model
 
         # Infrastructure components
-        self.schedules: Schedules = schedules
-        self.tb_writer: Optional[SummaryWriter] = tb_writer
+        self.schedules: ExecutionSchedules = schedules
+        self.summary = ExecutionSummary(log_dir=log_dir)
 
         # Training hyperparameters
         self.local_lr: float = local_lr
@@ -232,11 +234,6 @@ class BaseAlgorithm(SetupMixin, MetricsMixin, LifecycleHooksMixin):
         """
         return f"ROUND {self.round_idx + 1} EPOCH {self.epoch_idx + 1} BATCH {self.batch_idx + 1}"
 
-    @property
-    def tb_global_epoch(self) -> int:
-        """Global epoch count across all rounds for TensorBoard logging."""
-        return self.round_idx * self.max_epochs_per_round + self.epoch_idx
-
     # =============================================================================
     # SETUP
     # =============================================================================
@@ -265,7 +262,9 @@ class BaseAlgorithm(SetupMixin, MetricsMixin, LifecycleHooksMixin):
         _t_sync_start = time.time()
         self.local_model = self.local_comm.broadcast(self.local_model)
         _t_sync_end = time.time()
-        self.log_metric("time/sync_broadcast_init", _t_sync_end - _t_sync_start, MetricReduction.AVG)
+        self.summary.log_metric(
+            "time/sync_broadcast_init", _t_sync_end - _t_sync_start, MetricReduction.AVG
+        )
 
     # =============================================================================
     # MINIMAL OVERRIDES
@@ -345,12 +344,7 @@ class BaseAlgorithm(SetupMixin, MetricsMixin, LifecycleHooksMixin):
         4. Post-aggregation evaluation (global model)
         """
         # Pre-aggregation evaluation (local model)
-        if self.schedules.evaluation.should_run(
-            "pre_aggregation",
-            round_idx=self.round_idx,
-            epoch_idx=self.epoch_idx,
-            batch_idx=self.batch_idx,
-        ):
+        if self.schedules.evaluation.pre_aggregation():
             self.run_eval_epoch(self.local_model, "local")
 
         # Phase 1: Intra-group aggregation via all-reduce
@@ -358,7 +352,11 @@ class BaseAlgorithm(SetupMixin, MetricsMixin, LifecycleHooksMixin):
         _t_sync_start = time.time()
         self.local_model = self._aggregate()
         _t_sync_end = time.time()
-        self.log_metric("time/sync_aggregate_local", _t_sync_end - _t_sync_start, MetricReduction.AVG)
+        self.summary.log_metric(
+            "time/sync_aggregate_local",
+            _t_sync_end - _t_sync_start,
+            MetricReduction.AVG,
+        )
         print(f"[LOCAL-AGG] {self.progress_context} | Complete", flush=True)
 
         # Phase 2: Inter-group coordination (group servers only)
@@ -369,7 +367,11 @@ class BaseAlgorithm(SetupMixin, MetricsMixin, LifecycleHooksMixin):
                 self.local_model, reduction=ReductionType.MEAN
             )
             _t_sync_end = time.time()
-            self.log_metric("time/sync_aggregate_global", _t_sync_end - _t_sync_start, MetricReduction.AVG)
+            self.summary.log_metric(
+                "time/sync_aggregate_global",
+                _t_sync_end - _t_sync_start,
+                MetricReduction.AVG,
+            )
             print(f"[GLOBAL-AGG] {self.progress_context} | Complete", flush=True)
 
         # Phase 3: Conditional broadcast to distribute global results
@@ -386,18 +388,17 @@ class BaseAlgorithm(SetupMixin, MetricsMixin, LifecycleHooksMixin):
             _t_sync_start = time.time()
             self.local_model = self.local_comm.broadcast(self.local_model)
             _t_sync_end = time.time()
-            self.log_metric("time/sync_broadcast_final", _t_sync_end - _t_sync_start, MetricReduction.AVG)
+            self.summary.log_metric(
+                "time/sync_broadcast_final",
+                _t_sync_end - _t_sync_start,
+                MetricReduction.AVG,
+            )
             print(f"[LOCAL-BCAST] {self.progress_context} | Complete", flush=True)
         else:
             print(f"[LOCAL-BCAST] {self.progress_context} | Skipped", flush=True)
 
         # Post-aggregation evaluation (global model)
-        if self.schedules.evaluation.should_run(
-            "post_aggregation",
-            round_idx=self.round_idx,
-            epoch_idx=self.epoch_idx,
-            batch_idx=self.batch_idx,
-        ):
+        if self.schedules.evaluation.post_aggregation():
             self.run_eval_epoch(self.local_model, "global")
 
     def __reset_round_state(self, round_idx: int) -> None:
@@ -429,15 +430,17 @@ class BaseAlgorithm(SetupMixin, MetricsMixin, LifecycleHooksMixin):
         # ---
         # Create new instances for this round
         self.__local_optimizer = self._configure_local_optimizer(self.local_lr)
-        self.reset_metrics()
         # ---
         self.round_idx = round_idx
         self.epoch_idx = 0
         self.batch_idx = 0
 
-    def round_exec(self, round_idx: int, max_rounds: int) -> dict[str, float]:
+    def round_exec(self, round_idx: int, max_rounds: int) -> List[Dict[str, float]]:
         """
         Execute federated round computation across multiple epochs.
+
+        Returns:
+            List of epoch-level metrics dictionaries (one per epoch)
 
         Override for custom multi-epoch training logic.
         """
@@ -445,7 +448,7 @@ class BaseAlgorithm(SetupMixin, MetricsMixin, LifecycleHooksMixin):
         self.__reset_round_state(round_idx)
 
         # Experiment start evaluation (only on first round) - before any training work
-        if round_idx == 0 and self.schedules.evaluation.experiment_start:
+        if round_idx == 0 and self.schedules.evaluation.experiment_start():
             self.run_eval_epoch(self.local_model, "global")
 
         _t_start = time.time()
@@ -463,37 +466,59 @@ class BaseAlgorithm(SetupMixin, MetricsMixin, LifecycleHooksMixin):
         # All nodes enter synchronized epoch loop structure
         self.local_model.train()  # Future: .eval() for evaluation phases
 
+        # Collect epoch-level metrics
+        epoch_metrics_list = []
+
         for epoch_idx in range(self.global_max_epochs_per_round):
+            # Reset metrics for this epoch
+            self.summary.reset_metrics()
+
+            # Run epoch training
             self.run_train_epoch(epoch_idx)
 
+            # Compute epoch metrics and log to TensorBoard (after all epoch work is complete)
+            epoch_metrics = self.summary.compute_metrics()
+            self.summary.log_epoch_to_tensorboard(
+                round_idx, epoch_idx, self.global_max_epochs_per_round
+            )
+            epoch_metrics_list.append(epoch_metrics)
+
+            # Print epoch summary with simple formatting
+            print(
+                f"[EPOCH-END] {self.progress_context} |",
+                {
+                    k: self.summary.format(k, v)
+                    if isinstance(v, (int, float))
+                    else str(v)
+                    for k, v in epoch_metrics.items()
+                },
+                flush=True,
+            )
+
         # Check if round-level aggregation should occur
-        if self.schedules.aggregation.should_run("round_end", round_idx=self.round_idx):
+        if self.schedules.aggregation.round_end():
             self.__synchronize()
 
         # Overridable hook for algorithm-specific logic
         self._round_end()
 
         _t_end = time.time()
-        self.log_metric("time/round", _t_end - _t_start, MetricReduction.AVG)
+        round_duration = _t_end - _t_start
 
-        # Experiment end evaluation (only on last round)
-        if round_idx == max_rounds - 1 and self.schedules.evaluation.experiment_end:
-            self.run_eval_epoch(self.local_model, "global")
+        # Log round timing to the metrics system for aggregation
+        # Note: This gets logged outside the epoch loop, but round timing is a round-level metric
+        self.summary.log_metric("time/round", round_duration, MetricReduction.AVG)
 
         print(
-            f"[ROUND-END] {self.progress_context} |",
-            {
-                k: round(v, 4)
-                if isinstance(v, float) and k.startswith("time/")
-                else round(v, 2)
-                if isinstance(v, float)
-                else v
-                for k, v in self.compute_metrics().items()
-            },
+            f"[ROUND-END] {self.progress_context} | time/round={round_duration:.4f}s",
             flush=True,
         )
 
-        return self.compute_metrics()
+        # Experiment end evaluation (only on last round)
+        if round_idx == max_rounds - 1 and self.schedules.evaluation.experiment_end():
+            self.run_eval_epoch(self.local_model, "global")
+
+        return epoch_metrics_list
 
     def run_train_epoch(
         self,
@@ -549,9 +574,7 @@ class BaseAlgorithm(SetupMixin, MetricsMixin, LifecycleHooksMixin):
             _t_batch_compute_end = time.time()
 
             # Batch-level aggregation
-            if self.schedules.aggregation.should_run(
-                "batch_end", batch_idx=self.batch_idx
-            ):
+            if self.schedules.aggregation.batch_end():
                 self.__synchronize()
 
             # Overridable hook for algorithm-specific logic
@@ -560,19 +583,19 @@ class BaseAlgorithm(SetupMixin, MetricsMixin, LifecycleHooksMixin):
             # Update timing metrics
             _t_batch_end = time.time()
 
-            self.log_metric(
+            self.summary.log_metric(
                 "time/batch_data_train",
                 _t_batch_data_end - _t_batch_data_start,
                 MetricReduction.AVG,
             )
-            self.log_metric(
+            self.summary.log_metric(
                 "time/batch_compute_train",
                 _t_batch_compute_end - _t_batch_compute_start,
                 MetricReduction.AVG,
             )
 
             # Overall batch timing for all nodes
-            self.log_metric(
+            self.summary.log_metric(
                 "time/batch_train", _t_batch_end - _t_batch_start, MetricReduction.AVG
             )
 
@@ -583,14 +606,16 @@ class BaseAlgorithm(SetupMixin, MetricsMixin, LifecycleHooksMixin):
         sync_signal = torch.tensor([1.0])
         total_signals = self.local_comm.aggregate(sync_signal, ReductionType.SUM)
         sync_time = time.time() - _t_start
-        self.log_metric("time/sync_epoch_boundary", sync_time, MetricReduction.AVG)
+        self.summary.log_metric(
+            "time/sync_epoch_boundary", sync_time, MetricReduction.AVG
+        )
         print(
             f"[EPOCH-SYNC-END] {self.progress_context} | time={sync_time:.4f}s signals={int(total_signals.item())}",
             flush=True,
         )
 
         # Epoch-level aggregation
-        if self.schedules.aggregation.should_run("epoch_end", epoch_idx=self.epoch_idx):
+        if self.schedules.aggregation.epoch_end():
             self.__synchronize()
 
         # Train epoch end hook
@@ -598,27 +623,10 @@ class BaseAlgorithm(SetupMixin, MetricsMixin, LifecycleHooksMixin):
 
         _t_epoch_end = time.time()
 
-        self.log_metric(
+        # Log epoch timing (metrics will be computed later in main loop)
+        self.summary.log_metric(
             "time/epoch_train", _t_epoch_end - _t_epoch_start, MetricReduction.AVG
         )
-
-        print(
-            f"[TRAIN-EPOCH-END] {self.progress_context} |",
-            {
-                k: round(v, 4)
-                if isinstance(v, float) and k.startswith("time/")
-                else round(v, 2)
-                if isinstance(v, float)
-                else v
-                for k, v in self.compute_metrics().items()
-            },
-            flush=True,
-        )
-
-        # Log epoch metrics to TensorBoard
-        if self.tb_writer:
-            for key, value in self.compute_metrics().items():
-                self.tb_writer.add_scalar(key, value, self.tb_global_epoch)
 
     def run_eval_epoch(self, model: nn.Module, eval_type: str) -> None:
         """
@@ -677,17 +685,17 @@ class BaseAlgorithm(SetupMixin, MetricsMixin, LifecycleHooksMixin):
 
                 # Update timing metrics
                 _t_batch_end = time.time()
-                self.log_metric(
+                self.summary.log_metric(
                     "time/batch_data_eval",
                     _t_batch_data_end - _t_batch_data_start,
                     MetricReduction.AVG,
                 )
-                self.log_metric(
+                self.summary.log_metric(
                     "time/batch_compute_eval",
                     _t_batch_compute_end - _t_batch_compute_start,
                     MetricReduction.AVG,
                 )
-                self.log_metric(
+                self.summary.log_metric(
                     "time/batch_eval",
                     _t_batch_end - _t_batch_start,
                     MetricReduction.AVG,
@@ -696,26 +704,15 @@ class BaseAlgorithm(SetupMixin, MetricsMixin, LifecycleHooksMixin):
         # Overridable hook for algorithm-specific logic
         self._eval_epoch_end()
 
+        _t_end = time.time()
+        # Log eval timing (metrics will be computed later with training metrics)
+        self.summary.log_metric(
+            "time/epoch_eval", _t_end - _t_start, MetricReduction.AVG
+        )
+
         # Restore original mode
         if was_training:
             model.train()
-
-        _t_end = time.time()
-        self.log_metric("time/epoch_eval", _t_end - _t_start, MetricReduction.AVG)
-
-        print(
-            f"[EVAL-EPOCH-END] {eval_type.upper()} | {self.progress_context} |",
-            {
-                k: round(v, 4)
-                if isinstance(v, float) and k.startswith("time/")
-                else round(v, 2)
-                if isinstance(v, float)
-                else v
-                for k, v in self.compute_metrics().items()
-                if "eval" in k
-            },
-            flush=True,
-        )
 
     def __run_batch(
         self, batch: Any, metric_namespace: str
@@ -730,7 +727,7 @@ class BaseAlgorithm(SetupMixin, MetricsMixin, LifecycleHooksMixin):
         loss, batch_size = self._batch_compute(batch)
 
         # Metric tracking
-        self.log_metric(
+        self.summary.log_metric(
             f"loss/{metric_namespace}",
             loss.detach().item(),
             MetricReduction.AVG,
@@ -747,15 +744,15 @@ class BaseAlgorithm(SetupMixin, MetricsMixin, LifecycleHooksMixin):
         optimizer updates, and training-specific metrics collection.
         """
         loss, batch_size = self.__run_batch(batch, "train")
-        self.log_metric("samples/train", batch_size, MetricReduction.SUM)
-        self.log_metric("batches/train", 1, MetricReduction.SUM)
+        self.summary.log_metric("samples/train", batch_size, MetricReduction.SUM)
+        self.summary.log_metric("batches/train", 1, MetricReduction.SUM)
 
         # Training-only operations
-        self.num_samples_trained += batch_size  # For aggregation weights only
+        self.summary.num_samples_trained += batch_size  # For aggregation weights only
 
         self.local_optimizer.zero_grad()
         self._backward_pass(loss)
-        self.log_metric(
+        self.summary.log_metric(
             "grad_norm/train",
             utils.get_grad_norm(self.local_model),
             MetricReduction.AVG,
@@ -770,8 +767,8 @@ class BaseAlgorithm(SetupMixin, MetricsMixin, LifecycleHooksMixin):
         but without gradient computation or parameter updates.
         """
         loss, batch_size = self.__run_batch(batch, metric_namespace)
-        self.log_metric("samples/eval", batch_size, MetricReduction.SUM)
-        self.log_metric("batches/eval", 1, MetricReduction.SUM)
+        self.summary.log_metric("samples/eval", batch_size, MetricReduction.SUM)
+        self.summary.log_metric("batches/eval", 1, MetricReduction.SUM)
 
     # =============================================================================
 

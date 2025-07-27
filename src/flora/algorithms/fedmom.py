@@ -93,12 +93,12 @@ class FedMom(BaseAlgorithm):
 
         # Aggregate local sample counts to compute federation total
         global_samples = self.local_comm.aggregate(
-            torch.tensor([self.num_samples_trained], dtype=torch.float32),
+            torch.tensor([self.summary.num_samples_trained], dtype=torch.float32),
             reduction=ReductionType.SUM,
         ).item()
 
         # Calculate this client's data proportion for weighted aggregation
-        data_proportion = self.num_samples_trained / max(global_samples, 1)
+        data_proportion = self.summary.num_samples_trained / max(global_samples, 1)
 
         # Scale local deltas by data proportion
         for param_name in local_deltas:

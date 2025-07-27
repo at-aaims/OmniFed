@@ -1,41 +1,67 @@
-# ------------------------------------------------------------------------------
+# ══════════════════════════════════════════════════════════════════════════════
 # FLORA Test Configuration – Base MNIST Setup
 #
-# This configuration file provides the baseline settings for testing a simple
-# Convolutional Neural Network (CNN) on the MNIST dataset. It includes default
-# settings for the model, dataset configuration, FL topology, and FL algorithm.
+# This configuration provides baseline settings for testing federated learning
+# with a simple CNN on the MNIST dataset. 
+# It includes sensible defaults for the model architecture, dataset configuration,
+# and training parameters.
 #
-# This file is intended to be extended by other configurations which override
-# the communication settings.
-# ------------------------------------------------------------------------------
+# Configuration inheritance:
+# This file extends base.yaml which defines the complete framework structure.
+# We only need to override specific values here.
+# The base handles all the object instantiation patterns and _target_ specifications.
+#
+# To customize: extend this config and override the sections you need to change.
+# ══════════════════════════════════════════════════════════════════════════════
 
 defaults:
-  - base
-  - algorithm: fedavg
-  - model: simple_cnn
-  - data: mnist
+  - base # Include base framework config with inline defaults
+  - algorithm: fedavg # Apply fedavg algorithm configuration
+  - model: simple_cnn # Apply simple CNN model configuration
+  - datamodule: mnist # Apply MNIST dataset configuration
+  - _self_
 
-# ───────────── Algorithm Config
+# ─────────────────────────────────────────
+# Engine Overrides
+
+global_rounds: 2
+
+# ─────────────────────────────────────────
+# Algorithm Overrides
 
 algorithm:
   local_lr: 0.01
-  # max_epochs_per_round: 2
+  max_epochs_per_round: 2
 
-# ───────────── Model Config
+# ─────────────────────────────────────────
+# Model Overrides
 
-model: # overrides the default simple_cnn model
+model:
   backbone:
-    in_channels: 1 # e.g. MNIST has 1 channel
+    in_channels: 1 # MNIST has 1 channel
   head:
     num_classes: 10 # 10 digits
 
-# ───────────── Data Config
+# ─────────────────────────────────────────
+# DataModule Overrides
 
-data: # overrides the default mnist datamodule
+datamodule:
   train:
     batch_size: 16
   eval:
     batch_size: 16
-# ───────────── FL Engine Config
 
-# global_rounds: 2
+# ─────────────────────────────────────────
+# Schedules Overrides
+
+schedules:
+  aggregation:
+    round_end: true # Aggregate every round
+    epoch_end: false
+    batch_end: false
+
+  evaluation:
+    experiment_start: false
+    experiment_end: false
+    pre_aggregation: false
+    post_aggregation: true # Evaluate after every aggregation

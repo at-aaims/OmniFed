@@ -6,26 +6,20 @@
 
 defaults:
   - test_mnist_centralized_torchdist
+  - _self_
 
-# ───────────── Algorithm Overrides
-algorithm:
-  max_epochs_per_round: 2
+# ───────────── Schedules Overrides
 
-  # -- Scheduling Overrides
-  schedules:
-    aggregation:
-      round_end:
-        every: 1 # Normal
-      epoch_start:
-        every: 0 # Special: only at step 0
-    evaluation:
-      experiment_start: true
-      experiment_end: false # Explicitly disabled
-      round_start:
-        every: 0 # Only at round 0
-      post_aggregation:
-        at: [0, 0] # Duplicate milestones
+schedules:
+  aggregation:
+    round_end: true # Normal
+    epoch_end: false
+    batch_end: false
+  evaluation:
+    experiment_start: true
+    experiment_end: false # Explicitly disabled
+    pre_aggregation:
+      at: [0] # Only at first aggregation
+    post_aggregation:
+      at: [0] # Only after first aggregation
 
-# ───────────── Engine Overrides
-
-global_rounds: 2

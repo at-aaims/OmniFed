@@ -20,7 +20,8 @@ import rich.repr
 import torch
 from omegaconf import DictConfig
 
-from .BaseTopology import BaseTopology, NodeConfig
+from .BaseTopology import BaseTopology
+from ..Node import NodeSpec
 
 # ======================================================================================
 
@@ -52,13 +53,7 @@ class CentralizedTopology(BaseTopology):
         self.num_clients: int = num_clients
         self.local_comm_cfg = local_comm
 
-    def configure_nodes(
-        self,
-        algo_cfg: DictConfig,
-        model_cfg: DictConfig,
-        data_cfg: DictConfig,
-        **kwargs: Any,
-    ) -> List[NodeConfig]:
+    def create_node_specs(self) -> List[NodeSpec]:
         """
         Configure nodes for centralized topology.
 
@@ -66,19 +61,19 @@ class CentralizedTopology(BaseTopology):
         - Rank 0: Aggregator (no training data, coordinates aggregation)
         - Ranks 1+: Trainers (training data, perform local training)
 
-        The global_comm_cfg parameter allows MultiGroupTopology to provide
-        additional communication configuration for specific nodes.
+        Returns:
+            List of NodeSpec objects defining network structure only
         """
         world_size: int = self.num_clients + 1  # 1 server + N clients
 
-        node_configs: List[NodeConfig] = []
+        node_specs: List[NodeSpec] = []
 
         # ----------------------------------------------------------------
         # CONFIGURE ALL NODES
 
         for rank in range(world_size):
             # Create communicator configs with injected rank and world_size
-            __local_comm_cfg = DictConfig(
+            local_comm_cfg = DictConfig(
                 {
                     **self.local_comm_cfg,
                     "rank": rank,
@@ -88,21 +83,16 @@ class CentralizedTopology(BaseTopology):
 
             if rank == 0:
                 node_id = "SERVER"
-                # Create node-specific data config for server (no training data)
-                node_data_cfg = data_cfg.copy()
-                node_data_cfg.train = None
             else:
                 node_id = "Client"
-                node_data_cfg = data_cfg
 
-            node_config = NodeConfig(
+            # Only network/communication specification
+            node_spec = NodeSpec(
                 id=node_id,
-                algorithm_cfg=algo_cfg,
-                model_cfg=model_cfg,
-                datamodule_cfg=node_data_cfg,
-                local_comm_cfg=__local_comm_cfg,
+                local_comm_cfg=local_comm_cfg,
+                global_comm_cfg=None,  # No global comm in centralized topology
             )
 
-            node_configs.append(node_config)
+            node_specs.append(node_spec)
 
-        return node_configs
+        return node_specs

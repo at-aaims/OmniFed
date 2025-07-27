@@ -7,17 +7,20 @@
 
 defaults:
   - test_mnist_centralized_torchdist
-
-# ───────────── Algorithm Overrides
-algorithm:
-  max_epochs_per_round: 2
-
-  # -- Scheduling Overrides
-  schedules:
-    aggregation:
-      round_end:
-        every: 1 # Aggregate at end of every round
+  - _self_
 
 # ───────────── Engine Overrides
 
 global_rounds: 3
+
+# ───────────── Algorithm Overrides
+
+algorithm:
+  max_epochs_per_round: 2
+
+# ───────────── Schedules Overrides
+
+schedules:
+  aggregation:
+    round_end: true # Aggregate at end of every round
+

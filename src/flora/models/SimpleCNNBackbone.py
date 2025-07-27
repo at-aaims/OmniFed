@@ -28,8 +28,9 @@ class SimpleCNNBackbone(BaseBackbone):
 
     def __init__(
         self,
-        in_channels: int = 1,
-        conv_channels: List[int] = [32, 64],
+        in_channels: int,
+        hidden_channels: List[int],
+        out_channels: int,
         kernel_sizes: Union[int, List[int]] = 3,
         paddings: Optional[Union[int, List[int]]] = None,
         norm_layer: Optional[Callable[..., nn.Module]] = nn.BatchNorm2d,
@@ -41,7 +42,8 @@ class SimpleCNNBackbone(BaseBackbone):
 
         Args:
             in_channels: Number of input channels (1 for grayscale, 3 for RGB)
-            conv_channels: List of channel sizes for each convolutional block
+            hidden_channels: List of channel sizes for each hidden convolutional block
+            out_channels: Number of output channels (must match head input channels)
             kernel_sizes: Kernel size(s) for convolutional layers (single int or list)
             paddings: Padding(s) for convolutional layers (single int, list, or None to auto-calculate)
             norm_layer: Normalization layer to use (default: BatchNorm2d)
@@ -52,23 +54,23 @@ class SimpleCNNBackbone(BaseBackbone):
 
         # Normalize kernel_sizes and paddings to lists if they are integers
         if isinstance(kernel_sizes, int):
-            kernel_sizes = [kernel_sizes] * len(conv_channels)
+            kernel_sizes = [kernel_sizes] * len(hidden_channels)
         if isinstance(paddings, int):
-            paddings = [paddings] * len(conv_channels)
+            paddings = [paddings] * len(hidden_channels)
 
         # Create convolutional and pooling stages
         self.stages = nn.ModuleList()
 
-        prev_channels = in_channels
-        for i, out_channels in enumerate(conv_channels):
+        __hid_prev_chans = in_channels
+        for i, __hid_out_chans in enumerate(hidden_channels):
             # Create a sequential block with Conv2dNormActivation and pooling
             stage = nn.Sequential()
 
             # Add Conv2dNormActivation
             stage.append(
                 ops.Conv2dNormActivation(
-                    in_channels=prev_channels,
-                    out_channels=out_channels,
+                    in_channels=__hid_prev_chans,
+                    out_channels=__hid_out_chans,
                     kernel_size=kernel_sizes[i],
                     padding=paddings[i] if paddings is not None else None,
                     norm_layer=norm_layer,
@@ -83,10 +85,17 @@ class SimpleCNNBackbone(BaseBackbone):
                 )  # NOTE: Assuming fixed 2x2 pooling (for now)
 
             self.stages.append(stage)
-            prev_channels = out_channels
+            __hid_prev_chans = __hid_out_chans
+
+        # Final output projection layer
+        self.out_proj = nn.Conv2d(
+            in_channels=__hid_prev_chans,
+            out_channels=out_channels,
+            kernel_size=1,  # 1x1 conv to adjust channels
+        )
 
         # Store output channels for head compatibility check
-        self.__out_channels = prev_channels
+        self.__out_channels = out_channels
 
     @property
     def out_channels(self) -> int:
@@ -100,5 +109,8 @@ class SimpleCNNBackbone(BaseBackbone):
         # Process through stages
         for stage in self.stages:
             x = stage(x)
+
+        # Final output projection
+        x = self.out_proj(x)
 
         return x

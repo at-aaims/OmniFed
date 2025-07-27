@@ -16,6 +16,7 @@ from typing import Any, Optional
 import rich
 from torch.utils.data import DataLoader
 import rich.repr
+from typeguard import typechecked
 
 # ======================================================================================
 
@@ -27,6 +28,7 @@ class DataModule:
     This class encapsulates the training and evaluation DataLoaders.
     """
 
+    @typechecked
     def __init__(
         self,
         train: Optional[DataLoader[Any]] = None,

@@ -1,14 +1,10 @@
-# ------------------------------------------------------------------------------
+# ══════════════════════════════════════════════════════════════════════════════
 # FedProx Algorithm Configuration
 #
-# FedProx adds a proximal term to stabilize training in heterogeneous environments
-# ------------------------------------------------------------------------------
+# FedProx adds a proximal term to stabilize training in heterogeneous environments.
+# Prevents clients from deviating too far from the global model.
+# ══════════════════════════════════════════════════════════════════════════════
 
-defaults:
-  - base
-
-# Dotpath to class implementation
 _target_: src.flora.algorithms.FedProx
 
-# Defaults
 mu: 0.01 # Proximal term coefficient - controls deviation penalty from global model

@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import os
 import time
 from datetime import datetime
 from enum import Enum
@@ -30,20 +31,9 @@ from rich.table import Table
 
 from . import utils
 from .mixins import SetupMixin
-from .Node import Node
+from .Node import Node, NodeSpec
 from .topology.BaseTopology import BaseTopology
-from .utils.MetricFormatter import MetricFormatter, OptimizationGoal
-
-
-# ======================================================================================
-# ENGINE CONSTANTS
-# ======================================================================================
-
-# Timing constants (in seconds)
-NODE_STARTUP_DELAY = 1  # Sleep between node actor creation for log clarity
-LOG_FLUSH_DELAY = 1  # Sleep after experiment completion for log flushing
-SHUTDOWN_DELAY = 3  # Sleep before Ray shutdown for final log cleanup
-
+from .utils.MetricFormatter import MetricFormatter
 
 @rich.repr.auto
 class Engine(SetupMixin):
@@ -72,10 +62,6 @@ class Engine(SetupMixin):
 
         self.topology: BaseTopology = instantiate(
             self.flora_cfg.topology,
-            algo_cfg=self.flora_cfg.algorithm,
-            model_cfg=self.flora_cfg.model,
-            data_cfg=self.flora_cfg.data,
-            log_dir=self.hydra_cfg.runtime.output_dir,
             _recursive_=False,
         )
         self.global_rounds: int = flora_cfg.global_rounds
@@ -100,14 +86,17 @@ class Engine(SetupMixin):
         if torch.cuda.is_available():
             node_rayopts["num_gpus"] = 1.0 / total_nodes
 
-        # Create Ray actors from configurations
+        # Create Ray actors from specifications
         self._ray_actor_refs = []
-        for node_config in self.topology:
-            node_actor = Node.options(**node_rayopts).remote(node_config)
+        for node_spec in self.topology:
+            node_actor = Node.options(**node_rayopts).remote(
+                node_spec=node_spec,
+                algorithm_cfg=self.flora_cfg.algorithm,
+                model_cfg=self.flora_cfg.model,
+                datamodule_cfg=self.flora_cfg.datamodule,
+                schedules_cfg=self.flora_cfg.schedules,
+            )
             self._ray_actor_refs.append(node_actor)
-            time.sleep(
-                NODE_STARTUP_DELAY
-            )  # Allow logs to flush before next node starts
 
         # Setup nodes
         setup_futures = [node.setup.remote() for node in self._ray_actor_refs]
@@ -142,7 +131,6 @@ class Engine(SetupMixin):
             _t_experiment_end = time.time()
             _experiment_duration = _t_experiment_end - _t_experiment_start
 
-            time.sleep(LOG_FLUSH_DELAY)  # Allow time for final logs to flush
             utils.log_sep("FL Experiment Complete", color="blue")
 
             # ----------------------------------------------------------------
@@ -152,7 +140,6 @@ class Engine(SetupMixin):
 
         finally:
             print("Engine shutting down...", flush=True)
-            time.sleep(SHUTDOWN_DELAY)  # Give time for final logs to flush
             ray.shutdown()
 
     def _display_experiment_summary(self, results, duration):
@@ -176,15 +163,20 @@ class Engine(SetupMixin):
 
         # Display aggregated metrics if available
         if results and len(results) > 0:
-            # Extract final round metrics from each node
-            final_round_results = [node_rounds[-1] for node_rounds in results]
+            # Results now have structure: List[List[List[Dict]]] (nodes -> rounds -> epochs -> metrics)
+            # Extract final round's epoch metrics from each node and aggregate to round-level
+            final_round_epoch_lists = [node_rounds[-1] for node_rounds in results]
 
-            # Use MetricFormatter for intelligent formatting with emojis
-            formatter = MetricFormatter()
-            formatted_metrics = formatter.format_stats(final_round_results)
+            # Aggregate each node's final round epoch metrics to round-level metrics
+            formatter = MetricFormatter()  # Create formatter instance
+            final_round_results = []
+            for epoch_metrics_list in final_round_epoch_lists:
+                round_metrics = formatter.aggregate_epochs_to_round(epoch_metrics_list)
+                final_round_results.append(round_metrics)
 
-            # Group metrics by type
-            metric_groups = formatter.group_metrics(list(formatted_metrics.keys()))
+            # Use MetricFormatter for intelligent formatting with structured data
+            metric_stats_list = formatter.format_stats_structured(final_round_results)
+            metric_groups = formatter.group_structured_metrics(metric_stats_list)
 
             # Create enhanced metrics table with better styling
             timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -196,7 +188,7 @@ class Engine(SetupMixin):
                 box=box.HEAVY_HEAD,
                 show_header=True,
                 header_style="bold magenta",
-                caption=f":bar_chart: {len(results)} nodes • {len(formatted_metrics)} metrics in {len(metric_groups)} groups • {timestamp}",
+                caption=f":bar_chart: {len(results)} nodes • {len(metric_stats_list)} metrics in {len(metric_groups)} groups • {timestamp}",
                 caption_justify="right",
             )
 
@@ -234,22 +226,20 @@ class Engine(SetupMixin):
 
             # Display metrics with clean section separators between groups
             first_group = True
-            for group_name, metrics in metric_groups.items():
-                if metrics:
+            for group_name, metric_stats in metric_groups.items():
+                if metric_stats:
                     # Add section separator between groups
                     if not first_group:
                         metrics_table.add_section()
                     first_group = False
 
-                    for metric in metrics:
-                        stats = formatted_metrics[metric]
-                        emoji = formatter.get_emoji(metric)
+                    for stats in metric_stats:
                         metrics_table.add_row(
-                            f"{emoji} {metric}",
-                            stats["mean"],
-                            stats["std"],
-                            stats["min"],
-                            stats["max"],
+                            stats.display_name,
+                            stats.mean,
+                            stats.std,
+                            stats.min,
+                            stats.max,
                         )
 
             utils.console.print(metrics_table)
@@ -265,9 +255,12 @@ class Engine(SetupMixin):
         formatter = MetricFormatter()
 
         # Discover all available metrics across all rounds
+        # Results structure: List[List[List[Dict]]] (nodes -> rounds -> epochs -> metrics)
         all_metrics = set()
         for node_rounds in results:
-            for round_metrics in node_rounds:
+            for epoch_metrics_list in node_rounds:
+                # Aggregate epoch metrics to round metrics to discover all metric names
+                round_metrics = formatter.aggregate_epochs_to_round(epoch_metrics_list)
                 all_metrics.update(round_metrics.keys())
 
         all_metrics = sorted(all_metrics)
@@ -275,6 +268,9 @@ class Engine(SetupMixin):
 
         if not all_metrics:
             return  # No metrics to show
+
+        # Group metrics by category
+        metric_groups = formatter.group_metrics(all_metrics)
 
         # Create four separate tables for different statistics
         stats = ["Mean", "Std Dev", "Min", "Max"]
@@ -321,7 +317,15 @@ class Engine(SetupMixin):
             for metric in all_metrics:
                 metric_stats[metric] = []
                 for round_idx in range(num_rounds):
-                    round_data = [node_rounds[round_idx] for node_rounds in results]
+                    # Aggregate epoch metrics to round metrics for each node in this round
+                    round_data = []
+                    for node_rounds in results:
+                        epoch_metrics_list = node_rounds[round_idx]
+                        round_metrics = formatter.aggregate_epochs_to_round(
+                            epoch_metrics_list
+                        )
+                        round_data.append(round_metrics)
+
                     values = [
                         r.get(metric) for r in round_data if r.get(metric) is not None
                     ]
@@ -336,33 +340,43 @@ class Engine(SetupMixin):
                     else:
                         metric_stats[metric].append(None)
 
-            # Build table rows
-            for metric in all_metrics:
-                row_values = [metric]
-                stats = metric_stats[metric]
+            # Build table rows with group separators
+            first_group = True
+            for group_name, metrics in metric_groups.items():
+                if metrics:
+                    # Add section separator between groups
+                    if not first_group:
+                        progression_table.add_section()
+                    first_group = False
 
-                for round_idx in range(num_rounds):
-                    # Add round value
-                    if stats[round_idx] is not None:
-                        formatted_value = formatter.format(metric, stats[round_idx])
-                        row_values.append(formatted_value)
-                    else:
-                        row_values.append("-")
+                    for metric in metrics:
+                        row_values = []
+                        emoji = formatter.get_emoji(metric)
+                        row_values.append(f"{emoji} {metric}")
+                        stats = metric_stats[metric]
 
-                    # Add trend indicator (except after last round)
-                    if round_idx < num_rounds - 1:
-                        current_val = stats[round_idx]
-                        next_val = stats[round_idx + 1]
+                        for round_idx in range(num_rounds):
+                            # Add round value
+                            if stats[round_idx] is not None:
+                                formatted_value = formatter.format(metric, stats[round_idx])
+                                row_values.append(formatted_value)
+                            else:
+                                row_values.append("-")
 
-                        if current_val is not None and next_val is not None:
-                            trend_symbol = formatter.get_trend_symbol(
-                                metric, next_val, current_val
-                            )
-                        else:
-                            trend_symbol = ""
-                        row_values.append(trend_symbol)
+                            # Add trend indicator (except after last round)
+                            if round_idx < num_rounds - 1:
+                                current_val = stats[round_idx]
+                                next_val = stats[round_idx + 1]
 
-                progression_table.add_row(*row_values)
+                                if current_val is not None and next_val is not None:
+                                    trend_symbol = formatter.get_trend_symbol(
+                                        metric, next_val, current_val
+                                    )
+                                else:
+                                    trend_symbol = ""
+                                row_values.append(trend_symbol)
+
+                        progression_table.add_row(*row_values)
 
             utils.console.print(progression_table)
             print("\n")  # Extra spacing between progression tables

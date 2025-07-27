@@ -8,11 +8,7 @@
 defaults:
   - base_mnist_fedavg
   - topology: centralized
-
-# ───────────── Algorithm Overrides
-
-algorithm:
-  max_epochs_per_round: 2
+  - _self_
 
 # ───────────── Topology Overrides
 
@@ -20,7 +16,3 @@ topology:
   num_clients: 2 # 2 clients + 1 server = 3 total nodes
   local_comm:
     _target_: src.flora.communicator.GrpcCommunicator
-
-# ───────────── Engine Overrides
-
-global_rounds: 2

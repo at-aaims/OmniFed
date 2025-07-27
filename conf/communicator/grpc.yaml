@@ -1,0 +1,32 @@
+# ══════════════════════════════════════════════════════════════════════════════
+# gRPC Communicator Configuration
+#
+# Client-server communication using gRPC.
+# Rank 0 acts as server, other ranks as clients.
+# Good for cross-network and heterogeneous deployments.
+# ══════════════════════════════════════════════════════════════════════════════
+
+_target_: src.flora.communicator.GrpcCommunicator
+
+# ─────────────────────────────────────────
+# Connection Settings (usually auto-configured by topology)
+# rank: ??? # Node rank (set by topology)
+# world_size: ??? # Total nodes (set by topology)
+
+# -------------------
+# Network Configuration
+master_addr: 127.0.0.1 # Server address
+master_port: 50051 # Server port
+
+# -------------------
+# Performance Tuning
+max_workers: 10 # gRPC server thread pool size
+max_send_message_length: 104857600 # 100 MB message limit
+max_receive_message_length: 104857600 # 100 MB message limit
+
+# -------------------
+# Timeout Settings
+aggregation_timeout: 600.0 # Server wait time for all clients (seconds)
+client_timeout: 60.0 # Client wait time for server response (seconds)
+retry_delay: 5.0 # Retry delay (seconds)
+max_retries: 5 # Maximum retry attempts

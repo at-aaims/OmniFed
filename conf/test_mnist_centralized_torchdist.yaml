@@ -1,29 +1,19 @@
-# ------------------------------------------------------------------------------
+# ══════════════════════════════════════════════════════════════════════════════
 # FLORA Test Configuration – MNIST with Centralized Topology + TorchDist Communication
 #
-# This file extends the base MNIST test configuration by specifying the
-# centralized topology with Torch Distributed (TorchDist) communication.
-# ------------------------------------------------------------------------------
+# Extends the base MNIST test configuration.
+# Uses centralized topology with PyTorch distributed communication.
+# ══════════════════════════════════════════════════════════════════════════════
 
 defaults:
   - base_mnist_fedavg
   - topology: centralized
+  - _self_
 
-# ───────────── Algorithm Overrides
-
-algorithm:
-  max_epochs_per_round: 2
-
-# ───────────── Topology Overrides
+# ─────────────────────────────────────────
+# Topology Overrides
 
 topology:
   num_clients: 2 # 2 clients + 1 server = 3 total nodes
   local_comm:
     _target_: src.flora.communicator.TorchDistCommunicator
-    # master_addr: "127.0.0.1"
-    # master_port: "29500"
-    # backend: "gloo"
-
-# ───────────── Engine Overrides
-
-global_rounds: 2

@@ -12,110 +12,57 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from typing import List, Dict, Any, Optional, Callable
 from dataclasses import dataclass
-from typing import Callable, List, Dict, Any, Union, Optional
 from enum import Enum
 import numpy as np
+
 from .matchers import contains, any_of
 
-# ======================================================================================
-# CONSTANTS AND ENUMS
-# ======================================================================================
 
+class AggregationStrategy(str, Enum):
+    """Strategy for aggregating epoch-level metrics to round-level metrics."""
 
-class MetricGroup(str, Enum):
-    """Enum defining standard metric group categories for organizing display tables."""
-
-    PERFORMANCE = "Performance"  # Accuracy, precision, recall, F1, etc.
-    TRAINING = "Training"  # Loss, error, gradient metrics
-    ROUND_TIMING = "Round Timing"  # Federated round duration (time/round)
-    EPOCH_TIMING = "Epoch Timing"  # Local training epoch times (time/epoch_*)
-    BATCH_TIMING = "Batch Timing"  # Batch processing times (time/batch_*)
-    SYNC_TIMING = "Sync Timing"  # Synchronization operations (time/sync_*)
-    DATASET = "Dataset"  # Sample counts, batch sizes, data metrics
-    OTHER = "Other"  # Default/miscellaneous metrics
-
-
-class TrendMagnitude(str, Enum):
-    """Enum defining trend change magnitude categories based on percentage change."""
-
-    SMALL = "small"  # < 2% change
-    MEDIUM = "medium"  # 2-10% change
-    LARGE = "large"  # > 10% change
-
-
-class TrendColor(str, Enum):
-    """Enum defining colors for trend indicators based on performance impact."""
-
-    GOOD = "bright_green"  # Beneficial changes (clear, vibrant green)
-    NEUTRAL = "white"  # Small/neutral changes (clear white)
-    BAD = "bright_red"  # Detrimental changes (clear, vibrant red)
+    SUM = "sum"
+    MEAN = "mean"
+    LAST = "last"
+    MAX = "max"
+    MIN = "min"
+    FIRST = "first"
 
 
 class OptimizationGoal(str, Enum):
-    """
-    Enum defining how metric values should be interpreted for trend analysis.
+    """How metric values should be interpreted for trend analysis."""
 
-    Used by MetricFormatRule to determine trend direction and color coding.
+    MAXIMIZE = "maximize"
+    MINIMIZE = "minimize"
+    NEUTRAL = "neutral"
 
-    Values:
-        MAXIMIZE: Higher values indicate better performance (accuracy, F1, precision, recall)
-        MINIMIZE: Lower values indicate better performance (loss, error, training time, latency)
-        NEUTRAL: No performance judgment - changes are neutral (counts, samples, node IDs)
 
-    Usage:
-        - Controls trend arrow colors (green for good changes, red for bad)
-        - Determines optimization direction in federated learning metrics
-        - Can be extended with additional goals like TARGET_RANGE for future use
-    """
+class TrendColor(str, Enum):
+    """Colors for trend indicators based on performance impact."""
 
-    MAXIMIZE = "maximize"  # Higher values are better (accuracy, F1, etc.)
-    MINIMIZE = "minimize"  # Lower values are better (loss, error, time, etc.)
-    NEUTRAL = "neutral"  # No trend judgment (counts, IDs, etc.)
+    GOOD = "bright_green"
+    NEUTRAL = "white"
+    BAD = "bright_red"
+
+
+class MetricGroup(str, Enum):
+    """Standard metric group categories for organizing display tables."""
+
+    PERFORMANCE = "Performance"
+    TRAINING = "Training"
+    ROUND_TIMING = "Round Timing"
+    EPOCH_TIMING = "Epoch Timing"
+    BATCH_TIMING = "Batch Timing"
+    SYNC_TIMING = "Sync Timing"
+    DATASET = "Dataset"
+    OTHER = "Other"
 
 
 @dataclass
 class MetricFormatRule:
-    """
-    Rule-based formatting system for federated learning metrics.
-
-    This class defines how metrics should be formatted, styled, and interpreted based on name patterns.
-    Used by MetricFormatter to provide consistent, intelligent formatting across the FLORA framework.
-
-    Purpose:
-        - Format metric values with appropriate precision and units
-        - Determine optimization goals for trend analysis and color coding
-        - Provide visual indicators (emojis) for different metric types
-        - Support both floating-point and integer formatting
-
-    Usage:
-        Rules are matched against metric names using the 'matcher' function. The first matching
-        rule determines how the metric is formatted and interpreted.
-
-        Example:
-            rule = MetricFormatRule(
-                matcher=contains("loss"),
-                precision=4,
-                optimization_goal=OptimizationGoal.MINIMIZE,
-                emoji="📉"
-            )
-
-    Extensions:
-        - Add custom matchers for domain-specific metrics
-        - Extend with additional formatting options (scientific notation, percentages)
-        - Add conditional formatting based on metric values
-        - Support for locale-specific number formatting
-
-    Attributes:
-        matcher: Function that returns True if rule applies to metric name
-        precision: Number of decimal places to show
-        units: Unit suffix to append (e.g., 's' for seconds)
-        optimization_goal: How to interpret metric changes for trend analysis
-        format_as_integer: Whether to format values as integers (for counts, etc.)
-        emoji: Emoji icon representing this metric type
-        group: Category group for organizing metrics in tables
-        description: Human-readable description of what this rule matches
-    """
+    """Rule-based formatting system for federated learning metrics."""
 
     matcher: Callable[[str], bool]
     precision: int
@@ -125,25 +72,59 @@ class MetricFormatRule:
     emoji: str = ":bar_chart:"
     group: str = MetricGroup.OTHER
     description: str = ""
+    aggregation_strategy: AggregationStrategy = AggregationStrategy.LAST
 
 
-# ======================================================================================
-# DEFAULT FORMATTING RULES
-# ======================================================================================
+@dataclass
+class MetricStats:
+    """Structured metric statistics with metadata for display and analysis."""
 
-# Trend magnitude thresholds (percentage changes)
-TREND_THRESHOLD_SMALL = 2.0  # Below this is considered small change
-TREND_THRESHOLD_LARGE = 10.0  # Above this is considered large change
+    name: str
+    emoji: str
+    group: str
+    node_count: int
+    total_nodes: int
+    mean: str
+    std: str
+    min: str
+    max: str
 
-# Unicode symbols for trend visualization (using regular arrows with double arrows for large changes)
-TREND_ARROWS = {
-    TrendMagnitude.SMALL: "→",  # Regular horizontal arrow for small changes
-    TrendMagnitude.MEDIUM: {"up": "↑", "down": "↓"},  # Single arrows for medium changes
-    TrendMagnitude.LARGE: {
-        "up": "⇈",
-        "down": "⇊",
-    },  # Double arrows for large/significant changes
-}
+    @property
+    def coverage_display(self) -> str:
+        """Display string showing node coverage (e.g., '(3/5)')."""
+        return f"({self.node_count}/{self.total_nodes})"
+
+    @property
+    def display_name(self) -> str:
+        """Full display name with emoji and coverage."""
+        return f"{self.emoji} {self.name} {self.coverage_display}"
+
+    @property
+    def is_complete_coverage(self) -> bool:
+        """True if all nodes reported this metric."""
+        return self.node_count == self.total_nodes
+
+
+@dataclass
+class DisplayConfiguration:
+    """Configuration for display formatting and styling."""
+    
+    show_node_coverage: bool = True
+    use_emoji_indicators: bool = True
+    group_metrics: bool = True
+    decimal_precision: int = 4
+    
+    @classmethod
+    def create_default(cls) -> 'DisplayConfiguration':
+        """Create default display configuration."""
+        return cls()
+
+
+class TrendThresholds:
+    """Threshold values for trend analysis."""
+    SMALL_CHANGE = 2.0
+    LARGE_CHANGE = 10.0
+
 
 DEFAULT_FORMAT_RULES = [
     # Round-level timing metrics (actual: time/round)
@@ -155,6 +136,7 @@ DEFAULT_FORMAT_RULES = [
         emoji=":repeat:",
         group=MetricGroup.ROUND_TIMING,
         description="Federated round timing",
+        aggregation_strategy=AggregationStrategy.SUM,
     ),
     # Epoch-level timing metrics (actual: time/epoch_train, time/epoch_eval)
     MetricFormatRule(
@@ -165,6 +147,7 @@ DEFAULT_FORMAT_RULES = [
         emoji=":hourglass:",
         group=MetricGroup.EPOCH_TIMING,
         description="Training epoch timing",
+        aggregation_strategy=AggregationStrategy.SUM,
     ),
     # Batch-level timing metrics (actual: time/batch_train, time/batch_eval, time/batch_data_*, time/batch_compute_*)
     MetricFormatRule(
@@ -172,9 +155,10 @@ DEFAULT_FORMAT_RULES = [
         precision=4,
         units="s",
         optimization_goal=OptimizationGoal.MINIMIZE,
-        emoji=":clock:",
+        emoji=":timer_clock:",
         group=MetricGroup.BATCH_TIMING,
         description="Batch processing timing",
+        aggregation_strategy=AggregationStrategy.MEAN,
     ),
     # Synchronization timing metrics (time/sync_*)
     MetricFormatRule(
@@ -185,6 +169,7 @@ DEFAULT_FORMAT_RULES = [
         emoji=":arrows_counterclockwise:",
         group=MetricGroup.SYNC_TIMING,
         description="Synchronization timing",
+        aggregation_strategy=AggregationStrategy.SUM,
     ),
     # Generic timing fallback for any other time/ metrics
     MetricFormatRule(
@@ -195,6 +180,7 @@ DEFAULT_FORMAT_RULES = [
         emoji=":stopwatch:",
         group=MetricGroup.OTHER,
         description="Generic timing",
+        aggregation_strategy=AggregationStrategy.SUM,
     ),
     # Loss metrics (lower is better)
     MetricFormatRule(
@@ -205,6 +191,7 @@ DEFAULT_FORMAT_RULES = [
         emoji=":chart_decreasing:",
         group=MetricGroup.TRAINING,
         description="Loss metrics",
+        aggregation_strategy=AggregationStrategy.LAST,
     ),
     # Error metrics (lower is better)
     MetricFormatRule(
@@ -215,6 +202,7 @@ DEFAULT_FORMAT_RULES = [
         emoji=":x:",
         group=MetricGroup.TRAINING,
         description="Error metrics",
+        aggregation_strategy=AggregationStrategy.LAST,
     ),
     # Accuracy and performance metrics (higher is better)
     MetricFormatRule(
@@ -225,6 +213,7 @@ DEFAULT_FORMAT_RULES = [
         emoji=":dart:",
         group=MetricGroup.PERFORMANCE,
         description="Performance metrics",
+        aggregation_strategy=AggregationStrategy.LAST,
     ),
     # Count metrics (samples, batches, etc.) - neutral (higher neither good nor bad)
     MetricFormatRule(
@@ -236,6 +225,7 @@ DEFAULT_FORMAT_RULES = [
         emoji=":package:",
         group=MetricGroup.DATASET,
         description="Count metrics",
+        aggregation_strategy=AggregationStrategy.SUM,
     ),
     # Gradient-related metrics (context dependent, but generally lower is better)
     MetricFormatRule(
@@ -246,192 +236,79 @@ DEFAULT_FORMAT_RULES = [
         emoji=":chart_increasing:",
         group=MetricGroup.TRAINING,
         description="Gradient metrics",
+        aggregation_strategy=AggregationStrategy.LAST,
     ),
 ]
 
 
-# ======================================================================================
-# METRIC FORMATTER CLASS
-# ======================================================================================
-
-
 class MetricFormatter:
     """
-    Intelligent rule-based formatter and trend analyzer for federated learning metrics.
+    Rule-based metric formatting, aggregation, and display utilities.
 
-    This class provides comprehensive formatting, styling, and trend analysis for metrics
-    in the FLORA federated learning framework. It automatically detects metric types and
-    applies appropriate formatting rules for consistent display across tables and reports.
-
-    Purpose:
-        - Format individual metric values with proper precision and units
-        - Generate statistical summaries (mean, std, min, max) across nodes
-        - Analyze trends between metric values with colored arrows and magnitude detection
-        - Provide emoji icons for enhanced visual identification
-        - Support both real-time display and final reporting
-
-    Core Features:
-        1. **Rule-based formatting**: Automatically matches metrics to formatting rules
-        2. **Statistical aggregation**: Calculates stats across federated nodes
-        3. **Trend analysis**: Colored arrows with magnitude-based symbols and performance-aware coloring
-        4. **Visual enhancement**: Provides emojis and styling for better UX
-        5. **Type flexibility**: Handles integers, floats, and specialized formats
-
-    Usage Examples:
-        # Basic formatting
-        formatter = MetricFormatter()
-        formatted = formatter.format("loss/train", 0.1234)  # "📉 0.1234"
-
-        # Statistical summary across nodes
-        results = [{"loss": 0.1}, {"loss": 0.2}, {"loss": 0.15}]
-        stats = formatter.format_stats(results)
-        # Returns: {"loss": {"mean": "0.1500", "std": "0.0500", ...}}
-
-        # Trend analysis with visual indicators
-        trend_symbol = formatter.get_trend_symbol("accuracy", 0.95, 0.90)  # "[bold green]↑[/bold green]"
-        emoji = formatter.get_emoji("time/communication")  # ":stopwatch:"
-
-    Extensibility:
-        - Add custom rules for domain-specific metrics
-        - Extend optimization goals (e.g., TARGET_RANGE)
-        - Support additional statistical measures
-        - Integrate with external visualization libraries
-        - Add conditional formatting based on threshold values
-
-    Integration:
-        Used throughout FLORA's Engine.py for:
-        - Final round metrics tables
-        - Round-by-round progression displays
-        - Real-time training dashboards
-        - Experiment result exports
+    Used by Engine for formatting final results without metric collection.
     """
 
-    def __init__(self, rules: List[MetricFormatRule] = None):
-        """
-        Initialize formatter with optional custom rules.
+    # Class-level aggregation functions to avoid recreating on every call
+    _AGGREGATION_FUNCTIONS = {
+        AggregationStrategy.SUM: sum,
+        AggregationStrategy.MEAN: lambda values: sum(values) / len(values),
+        AggregationStrategy.LAST: lambda values: values[-1],
+        AggregationStrategy.FIRST: lambda values: values[0],
+        AggregationStrategy.MAX: max,
+        AggregationStrategy.MIN: min,
+    }
 
-        Args:
-            rules: List of formatting rules. Uses DEFAULT_FORMAT_RULES if None.
-        """
+    def __init__(self, rules: Optional[List[MetricFormatRule]] = None):
         self.rules = rules or DEFAULT_FORMAT_RULES.copy()
+        self._rule_cache: Dict[str, MetricFormatRule] = {}
+
+        # Default rule for unmatched metrics
         self._default_rule = MetricFormatRule(
-            matcher=lambda x: True,
-            precision=5,
-            units="",
-            optimization_goal=OptimizationGoal.MAXIMIZE,
-            emoji=":bar_chart:",
+            matcher=lambda name: True,
+            precision=3,
+            optimization_goal=OptimizationGoal.NEUTRAL,
+            emoji=":question:",
             group=MetricGroup.OTHER,
-            description="Default",
+            description="Default formatting",
         )
 
-    def format_stats(self, results: List[Dict[str, Any]]) -> Dict[str, Dict[str, str]]:
-        """
-        Format statistical summary across multiple result sets.
+    def _find_rule(self, metric_name: str) -> MetricFormatRule:
+        """Find the formatting rule that matches the given metric name with caching."""
+        if metric_name in self._rule_cache:
+            return self._rule_cache[metric_name]
 
-        Args:
-            results: List of result dictionaries from different nodes
+        for rule in self.rules:
+            if rule.matcher(metric_name):
+                self._rule_cache[metric_name] = rule
+                return rule
 
-        Returns:
-            Dictionary mapping metric names to dictionaries with 'mean', 'std', 'min', 'max' keys
-        """
-        if not results:
-            return {}
-
-        # Find metrics common to all nodes
-        common_metrics = set(results[0].keys())
-        for node_results in results[1:]:
-            common_metrics &= set(node_results.keys())
-
-        formatted_metrics = {}
-
-        for metric in sorted(common_metrics):
-            # Handle numeric metrics with statistical formatting
-            numeric_values = [
-                result[metric]
-                for result in results
-                if isinstance(result[metric], (int, float))
-            ]
-
-            if numeric_values:
-                # Find first matching format rule
-                matched_rule = self._default_rule
-                for rule in self.rules:
-                    if rule.matcher(metric):
-                        matched_rule = rule
-                        break
-
-                mean_val = np.mean(numeric_values)
-                std_val = np.std(numeric_values) if len(numeric_values) > 1 else 0
-                min_val = np.min(numeric_values)
-                max_val = np.max(numeric_values)
-
-                # Format with appropriate precision and units
-                precision = matched_rule.precision
-                units = matched_rule.units
-
-                if len(numeric_values) == 1:
-                    # Single node - show value in mean column, others empty
-                    formatted_metrics[metric] = {
-                        "mean": f"{mean_val:.{precision}f}{units}",
-                        "std": "-",
-                        "min": "-",
-                        "max": "-",
-                    }
-                else:
-                    # Multiple nodes - show all statistics properly
-                    formatted_metrics[metric] = {
-                        "mean": f"{mean_val:.{precision}f}{units}",
-                        "std": f"{std_val:.{precision}f}{units}",
-                        "min": f"{min_val:.{precision}f}{units}",
-                        "max": f"{max_val:.{precision}f}{units}",
-                    }
-            else:
-                # Handle non-numeric metrics
-                all_values = [str(result[metric]) for result in results]
-                unique_values = list(set(all_values))
-                if len(unique_values) == 1:
-                    formatted_metrics[metric] = {
-                        "mean": unique_values[0],
-                        "std": "-",
-                        "min": "-",
-                        "max": "-",
-                    }
-                else:
-                    formatted_metrics[metric] = {
-                        "mean": f"{len(unique_values)} unique values",
-                        "std": "-",
-                        "min": "-",
-                        "max": "-",
-                    }
-
-        return formatted_metrics
+        self._rule_cache[metric_name] = self._default_rule
+        return self._default_rule
 
     def format(self, metric_name: str, value: float) -> str:
         """Format a single metric value using the appropriate rule."""
-        matched_rule = self._find_rule(metric_name)
+        rule = self._find_rule(metric_name)
 
-        # Format with appropriate precision and units
-        if matched_rule.format_as_integer:
-            return f"{int(value):,}{matched_rule.units}"
+        if rule.format_as_integer:
+            return f"{int(value):,}{rule.units}"
         else:
-            return f"{value:.{matched_rule.precision}f}{matched_rule.units}"
-
-    def get_rule_property(self, metric_name: str, property_name: str):
-        """Generic method to get any property from the matching rule."""
-        matched_rule = self._find_rule(metric_name)
-        return getattr(matched_rule, property_name)
-
-    def optimization_goal(self, metric_name: str) -> OptimizationGoal:
-        """Get optimization goal for metric (MAXIMIZE, MINIMIZE, or NEUTRAL)."""
-        return self.get_rule_property(metric_name, "optimization_goal")
+            return f"{value:.{rule.precision}f}{rule.units}"
 
     def get_emoji(self, metric_name: str) -> str:
         """Get emoji icon for the given metric based on formatting rules."""
-        return self.get_rule_property(metric_name, "emoji")
+        return self._find_rule(metric_name).emoji
 
     def get_group(self, metric_name: str) -> str:
         """Get category group for the given metric based on formatting rules."""
-        return self.get_rule_property(metric_name, "group")
+        return self._find_rule(metric_name).group
+
+    def get_aggregation_strategy(self, metric_name: str) -> AggregationStrategy:
+        """Get aggregation strategy for converting epoch-level to round-level metrics."""
+        return self._find_rule(metric_name).aggregation_strategy
+
+    def optimization_goal(self, metric_name: str) -> OptimizationGoal:
+        """Get optimization goal for metric (MAXIMIZE, MINIMIZE, or NEUTRAL)."""
+        return self._find_rule(metric_name).optimization_goal
 
     def group_metrics(self, metric_names: List[str]) -> Dict[str, List[str]]:
         """Group metrics by their category based on formatting rules."""
@@ -448,45 +325,192 @@ class MetricFormatter:
 
         return groups
 
+    def _calculate_metric_statistics(self, values: List[float], rule: MetricFormatRule) -> Dict[str, str]:
+        """Calculate formatted statistics for a list of numeric values."""
+        if len(values) == 1:
+            return {
+                "mean": f"{values[0]:.{rule.precision}f}{rule.units}",
+                "std": "-",
+                "min": "-", 
+                "max": "-"
+            }
+        
+        mean_val = np.mean(values)
+        std_val = np.std(values)
+        min_val = np.min(values)
+        max_val = np.max(values)
+        
+        return {
+            "mean": f"{mean_val:.{rule.precision}f}{rule.units}",
+            "std": f"{std_val:.{rule.precision}f}{rule.units}",
+            "min": f"{min_val:.{rule.precision}f}{rule.units}",
+            "max": f"{max_val:.{rule.precision}f}{rule.units}",
+        }
+
+    def _extract_numeric_values(self, results: List[Dict[str, Any]], metric: str) -> List[float]:
+        """Extract numeric values for a metric across all results."""
+        return [
+            result[metric]
+            for result in results
+            if metric in result and isinstance(result[metric], (int, float))
+        ]
+
+    def _count_reporting_nodes(self, results: List[Dict[str, Any]], metric: str) -> int:
+        """Count how many nodes reported this metric."""
+        return sum(1 for result in results if metric in result)
+
+    def aggregate_epochs_to_round(
+        self, epoch_metrics_list: List[Dict[str, float]]
+    ) -> Dict[str, float]:
+        """Aggregate epoch-level metrics to round-level metrics using defined strategies."""
+        if not epoch_metrics_list:
+            return {}
+
+        # Find all metrics across all epochs
+        all_metrics = set()
+        for epoch_metrics in epoch_metrics_list:
+            all_metrics.update(epoch_metrics.keys())
+
+        round_metrics = {}
+        for metric_name in all_metrics:
+            # Extract non-None values for this metric across all epochs
+            values = [
+                epoch_metrics[metric_name]
+                for epoch_metrics in epoch_metrics_list
+                if metric_name in epoch_metrics
+                and epoch_metrics[metric_name] is not None
+            ]
+
+            if not values:
+                continue
+
+            # Get aggregation strategy and apply function
+            strategy = self.get_aggregation_strategy(metric_name)
+            aggregation_func = self._AGGREGATION_FUNCTIONS.get(
+                strategy, lambda values: values[-1]
+            )
+            round_metrics[metric_name] = aggregation_func(values)
+
+        return round_metrics
+
+
+    def format_stats_structured(self, results: List[Dict[str, Any]]) -> List[MetricStats]:
+        """Format statistical summary as structured MetricStats objects."""
+        if not results:
+            return []
+
+        # Find all metrics present in any node (union approach)
+        all_metrics = set()
+        for node_results in results:
+            all_metrics.update(node_results.keys())
+
+        metric_stats_list = []
+        total_nodes = len(results)
+
+        for metric in sorted(all_metrics):
+            # Extract values and metadata using helper methods
+            numeric_values = self._extract_numeric_values(results, metric)
+            node_count = self._count_reporting_nodes(results, metric)
+            
+            # Get formatting metadata
+            rule = self._find_rule(metric)
+            emoji = rule.emoji
+            group = rule.group
+
+            if numeric_values:
+                # Calculate statistics using extracted method
+                stats = self._calculate_metric_statistics(numeric_values, rule)
+                metric_stats = MetricStats(
+                    name=metric,
+                    emoji=emoji,
+                    group=group,
+                    node_count=node_count,
+                    total_nodes=total_nodes,
+                    mean=stats["mean"],
+                    std=stats["std"],
+                    min=stats["min"],
+                    max=stats["max"],
+                )
+            else:
+                # Handle non-numeric metrics
+                all_values = [
+                    str(result[metric]) 
+                    for result in results 
+                    if metric in result
+                ]
+                if all_values:
+                    unique_values = list(set(all_values))
+                    if len(unique_values) == 1:
+                        mean_display = unique_values[0]
+                    else:
+                        mean_display = f"{len(unique_values)} unique values"
+                else:
+                    mean_display = "No data"
+                
+                metric_stats = MetricStats(
+                    name=metric,
+                    emoji=emoji,
+                    group=group,
+                    node_count=node_count,
+                    total_nodes=total_nodes,
+                    mean=mean_display,
+                    std="-",
+                    min="-",
+                    max="-",
+                )
+
+            metric_stats_list.append(metric_stats)
+
+        return metric_stats_list
+
+    def group_structured_metrics(self, metrics: List[MetricStats]) -> Dict[str, List[MetricStats]]:
+        """Group MetricStats objects by their group category."""
+        groups = {}
+        for metric_stats in metrics:
+            group = metric_stats.group
+            if group not in groups:
+                groups[group] = []
+            groups[group].append(metric_stats)
+
+        # Sort metrics within each group by name
+        for group in groups:
+            groups[group].sort(key=lambda m: m.name)
+
+        return groups
+
     def get_trend_symbol(
-        self, metric_name: str, current: float, previous: float
+        self, metric_name: str, new_value: float, old_value: float
     ) -> str:
         """Get colored trend symbol based on metric change magnitude and direction."""
-        # No change - neutral
-        if current == previous:
+        if new_value == old_value:
             return f"[bold {TrendColor.NEUTRAL}]→[/bold {TrendColor.NEUTRAL}]"
 
         # Calculate percentage change magnitude
         pct_change = (
-            abs((current - previous) / previous * 100)
-            if previous != 0
-            else abs(current - previous) * 100
+            abs((new_value - old_value) / old_value * 100)
+            if old_value != 0
+            else abs(new_value - old_value) * 100
         )
 
         # Determine magnitude and select symbol
-        if pct_change < TREND_THRESHOLD_SMALL:
+        if pct_change < TrendThresholds.SMALL_CHANGE:
             symbol = "→"  # Small change
-        elif pct_change < TREND_THRESHOLD_LARGE:
-            symbol = "↑" if current > previous else "↓"  # Medium change
+        elif pct_change < TrendThresholds.LARGE_CHANGE:
+            symbol = "↑" if new_value > old_value else "↓"  # Medium change
         else:
-            symbol = "⇈" if current > previous else "⇊"  # Large change
+            symbol = "⇈" if new_value > old_value else "⇊"  # Large change
 
         # Determine color based on performance impact
         goal = self.optimization_goal(metric_name)
 
         # Neutral metrics - no performance judgment
-        if goal == OptimizationGoal.NEUTRAL or pct_change < TREND_THRESHOLD_SMALL:
+        if goal == OptimizationGoal.NEUTRAL or pct_change < TrendThresholds.SMALL_CHANGE:
             color = TrendColor.NEUTRAL
         else:
             # Good change: increase for MAXIMIZE metrics, decrease for MINIMIZE metrics
-            is_good_change = (current > previous) == (goal == OptimizationGoal.MAXIMIZE)
+            is_good_change = (new_value > old_value) == (
+                goal == OptimizationGoal.MAXIMIZE
+            )
             color = TrendColor.GOOD if is_good_change else TrendColor.BAD
 
         return f"[bold {color}]{symbol}[/bold {color}]"
-
-    def _find_rule(self, metric_name: str) -> MetricFormatRule:
-        """Find the formatting rule that matches the given metric name."""
-        for rule in self.rules:
-            if rule.matcher(metric_name):
-                return rule
-        return self._default_rule

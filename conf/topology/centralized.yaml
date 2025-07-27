@@ -1,7 +1,16 @@
-# ./conf/topology/centralized.yaml
+# ══════════════════════════════════════════════════════════════════════════════
+# Centralized Topology Configuration
+#
+# Traditional server-client federated learning setup.
+# One aggregator node coordinates multiple client nodes.
+# ══════════════════════════════════════════════════════════════════════════════
 
 _target_: src.flora.topology.CentralizedTopology
 
-num_clients: ???
+num_clients: ??? # Number of client nodes (server created automatically)
 
-local_comm: ???
+local_comm: ??? # Communicator configuration
+# Option 1: Use defaults list in parent config:
+#   defaults: [..., "- communicator: torchdist"]
+# Option 2: Define inline:
+#   _target_: src.flora.communicator.TorchDistCommunicator

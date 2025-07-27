@@ -414,17 +414,6 @@ def log_param_changes(func: Callable[..., Any]) -> Callable[..., Any]:
                 f"Operation {phase}() caused numerical instability. Norm is now NaN or Inf."
             )
 
-        if algo.tb_writer:
-            algo.tb_writer.add_scalar(
-                f"param_norm/{phase}_pre", before_norm, algo.tb_global_step
-            )
-            algo.tb_writer.add_scalar(
-                f"param_norm/{phase}_post", after_norm, algo.tb_global_step
-            )
-            algo.tb_writer.add_scalar(
-                f"param_norm/{phase}_delta", delta, algo.tb_global_step
-            )
-
         # Non-fatal warnings for concerning patterns
         if phase == "_aggregate" and not changed:
             warnings.warn(

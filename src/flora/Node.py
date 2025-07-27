@@ -12,58 +12,40 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import os
 import time
 from dataclasses import dataclass
-from typing import Optional, List
+from typing import List, Optional
 
 import ray
+import rich.repr
 import torch
 from hydra.utils import instantiate
 from omegaconf import DictConfig
 from torch import nn
+from typeguard import typechecked
 
 # from torch.utils.tensorboard import SummaryWriter
 from .algorithms.BaseAlgorithm import BaseAlgorithm
 from .communicator.BaseCommunicator import BaseCommunicator
 from .data.DataModule import DataModule
 from .mixins import SetupMixin
-
-# class NodeRole(Enum):
-#     """
-#     Defines the fundamental capabilities of a Node participant in the federation.
-
-#     Each role represents a specific capability.
-#     Nodes can have multiple roles to express their full set of capabilities.
-#     """
-
-#     AGGREGATOR = "Aggregator"  # Aggregates updates from other nodes
-#     TRAINER = "Trainer"  # Performs local training
-
-#     # Future additions??
-#     # COORDINATOR = "coordinator"  # Coordinates communication/scheduling
-#     # RELAY = "relay"             # Forwards messages between nodes
-#     # VALIDATOR = "validator"      # Validates updates or models
+from .utils.ExecutionSchedules import ExecutionSchedules
+from .utils.ExecutionSummary import ExecutionSummary
 
 
 @dataclass
-class NodeConfig:
-    """Configuration for creating a Ray actor Node."""
-
+class NodeSpec:
     # Node identity
     id: str
-    # roles: list[str]  # List of NodeRole names
-    # ---
-    # Algorithm / Model / Data
-    algorithm_cfg: DictConfig
-    model_cfg: DictConfig
-    datamodule_cfg: DictConfig
-    # ---
-    # Communicators
+
+    # Communication setup
     local_comm_cfg: DictConfig
-    global_comm_cfg: Optional[DictConfig] = None  # For inter-group communication
-    # ---
+    global_comm_cfg: Optional[DictConfig] = None
+
     # Miscellaneous
     device: str = "auto"
+    log_dir_base: str = "/tmp/FLORA/node_logs"
 
 
 @ray.remote
@@ -83,42 +65,45 @@ class Node(SetupMixin):
     - Should enable any topology pattern through consistent and generalizable interfaces
     """
 
-    def __init__(self, cfg: NodeConfig):
+    @typechecked
+    def __init__(
+        self,
+        node_spec: NodeSpec,
+        algorithm_cfg: DictConfig,
+        model_cfg: DictConfig,
+        datamodule_cfg: DictConfig,
+        schedules_cfg: DictConfig,
+    ):
         super().__init__()
-        print(f"[NODE-INIT] {cfg.id}")
-        self.cfg = cfg
-        # self.roles: Set[NodeRole] = roles
+        self.node_spec = node_spec
+        print(f"[NODE-INIT] {node_spec.id}")
 
         # Local communicator for intra-group communication
-        self.local_comm: BaseCommunicator = instantiate(cfg.local_comm_cfg)
+        self.local_comm: BaseCommunicator = instantiate(node_spec.local_comm_cfg)
 
         # Global communicator for inter-group coordination (optional)
         self.global_comm: Optional[BaseCommunicator] = None
-        if cfg.global_comm_cfg is not None:
-            self.global_comm = instantiate(cfg.global_comm_cfg)
-
-        # PyTorch model
-        self.local_model: nn.Module = instantiate(cfg.model_cfg)
-
-        # Data module
-        self.datamodule: DataModule = instantiate(cfg.datamodule_cfg)
-
-        # TensorBoard setup
-        # self.tb_writer: SummaryWriter = SummaryWriter(log_dir=log_dir)
+        if node_spec.global_comm_cfg is not None:
+            self.global_comm = instantiate(node_spec.global_comm_cfg)
 
         # Federated learning algorithm
         self.algorithm: BaseAlgorithm = instantiate(
-            cfg.algorithm_cfg,
+            algorithm_cfg,
             local_comm=self.local_comm,
             global_comm=self.global_comm,
-            local_model=self.local_model,
-            datamodule=self.datamodule,
-            tb_writer=None,
+            local_model=instantiate(model_cfg),
+            datamodule=instantiate(datamodule_cfg),
+            schedules=instantiate(schedules_cfg),
+            # local_model=model_cfg,
+            # datamodule=datamodule_cfg,
+            # schedules=schedules_cfg,
+            log_dir=os.path.join(self.node_spec.log_dir_base, self.node_spec.id),
+            # _recursive_=False,  # Prevent recursive instantiation
         )
 
-        # Extract rank information from local communicator for device selection and other uses
+        # Extract rank information from local communicator for device selection
         self.device: torch.device = self.select_device(
-            cfg.device, rank=self.local_comm.rank
+            self.node_spec.device, rank=self.local_comm.rank
         )
 
     def __repr__(self) -> str:
@@ -136,7 +121,7 @@ class Node(SetupMixin):
         prefix = f"G{self.global_comm.rank}" if self.global_comm else ""
         prefix += f"L{self.local_comm.rank}"
 
-        return f"{prefix}_{self.cfg.id} {_time}"
+        return f"{prefix}_{self.node_spec.id} {_time}"
 
     def _setup(self) -> None:
         """
@@ -155,7 +140,7 @@ class Node(SetupMixin):
         self.algorithm.setup(device=self.device)
         # summary(self.model, verbose=1)
 
-    def run_experiment(self, total_rounds: int) -> List[dict[str, float]]:
+    def run_experiment(self, total_rounds: int) -> List[List[dict[str, float]]]:
         """
         Execute complete federated learning experiment autonomously.
 
@@ -168,7 +153,7 @@ class Node(SetupMixin):
             total_rounds: Total number of federated learning rounds to execute
 
         Returns:
-            List of metrics from each round (one dict per round)
+            List of rounds, each containing a list of epoch-level metrics dictionaries
         """
         if not self.is_ready:
             raise RuntimeError("Node not ready - call setup() first")
@@ -178,18 +163,17 @@ class Node(SetupMixin):
             flush=True,
         )
 
-        # Execute all rounds and collect metrics from each round
+        # Execute all rounds and collect epoch-level metrics from each round
         all_round_metrics = []
         for round_idx in range(total_rounds):
-            round_metrics = self.algorithm.round_exec(round_idx, total_rounds)
-            all_round_metrics.append(round_metrics)
+            epoch_metrics_list = self.algorithm.round_exec(round_idx, total_rounds)
+            all_round_metrics.append(epoch_metrics_list)
 
         print(
             f"[EXPERIMENT-END] Node completed {total_rounds} round experiment",
             flush=True,
         )
         return all_round_metrics
-
 
     @staticmethod
     def select_device(device_hint: str, rank: Optional[int] = None) -> torch.device:

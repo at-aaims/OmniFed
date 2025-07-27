@@ -1,7 +1,15 @@
-# ./conf/topology/multigroup.yaml
+# ══════════════════════════════════════════════════════════════════════════════
+# MultiGroup Topology Configuration
+#
+# Hierarchical federated learning with multiple groups.
+# Each group is a centralized topology with its own local aggregation.
+# Groups coordinate via global_comm for inter-group aggregation.
+# ══════════════════════════════════════════════════════════════════════════════
 
 _target_: src.flora.topology.MultiGroupTopology
 
-groups: ??? # Must be overridden with list of CentralizedTopology configurations
+groups: ??? # List of CentralizedTopology configs (one per group)
 
-global_comm: ???
+global_comm: ??? # Inter-group communicator (same options as local_comm)
+# Option 1: Use defaults list: "- communicator: torchdist"  
+# Option 2: Define inline with _target_

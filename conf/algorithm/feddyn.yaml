@@ -1,14 +1,10 @@
-# ------------------------------------------------------------------------------
+# ══════════════════════════════════════════════════════════════════════════════
 # FedDyn Algorithm Configuration
 #
-# FedDyn - dynamic regularization via correction vectors
-# ------------------------------------------------------------------------------
+# Dynamic regularization via correction vectors.
+# Handles data heterogeneity with adaptive penalties.
+# ══════════════════════════════════════════════════════════════════════════════
 
-defaults:
-  - base
-
-# Dotpath to class implementation
 _target_: src.flora.algorithms.FedDyn
 
-# Defaults
 alpha: 0.1 # Controls strength of correction vector regularization

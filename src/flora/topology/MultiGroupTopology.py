@@ -18,7 +18,8 @@ import rich.repr
 from hydra.utils import instantiate
 from omegaconf import DictConfig
 
-from .BaseTopology import BaseTopology, NodeConfig
+from .BaseTopology import BaseTopology
+from ..Node import NodeSpec
 
 # ======================================================================================
 
@@ -72,33 +73,33 @@ class MultiGroupTopology(BaseTopology):
             for topology in groups
         ]
 
-    def configure_nodes(self, *args, **kwargs: Any) -> List[NodeConfig]:
+    def create_node_specs(self) -> List[NodeSpec]:
         """
         Configure nodes for all groups and set up cross-group communication.
 
         Each group topology has already been instantiated and configured through
-        the constructor's instantiate() call, so their node configurations already exist.
-        This method retrieves those existing configurations and injects global
+        the constructor's instantiate() call, so their node specifications already exist.
+        This method retrieves those existing specifications and injects global
         communicators for local rank 0 nodes (group servers) only.
 
         Group servers (local rank 0 nodes) get global communication configuration
         for coordinating across institutional boundaries.
 
         Returns:
-            Flattened list of all node configurations across all groups with
+            Flattened list of all node specifications across all groups with
             global communicators injected for group servers
         """
 
-        all_node_configs: List[NodeConfig] = []
+        all_node_specs: List[NodeSpec] = []
 
         for group_idx, group_topology in enumerate(self.topologies):
             # Inject global communicator for local rank 0 nodes only
-            # Note: group_topology.__iter__() returns node_configs directly
-            for node_config in group_topology:
+            # Note: group_topology.__iter__() returns node_specs directly
+            for node_spec in group_topology:
                 # Check if this is a local rank 0 node (server/aggregator)
-                if node_config.local_comm_cfg["rank"] == 0:
+                if node_spec.local_comm_cfg["rank"] == 0:
                     # Inject group's global rank into gRPC configuration for inter-group communication
-                    node_config.global_comm_cfg = DictConfig(
+                    node_spec.global_comm_cfg = DictConfig(
                         {
                             **self.global_comm_cfg,
                             "rank": group_idx,  # Group index becomes global rank
@@ -106,6 +107,6 @@ class MultiGroupTopology(BaseTopology):
                         }
                     )
 
-                all_node_configs.append(node_config)
+                all_node_specs.append(node_spec)
 
-        return all_node_configs
+        return all_node_specs
