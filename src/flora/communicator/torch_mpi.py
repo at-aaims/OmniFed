@@ -131,6 +131,14 @@ class TorchMPICommunicator(Communicator):
 
         return msg
 
+    def secure_aggregate(self, masked_grad: Dict, modulus_q) -> Dict:
+        aggregated_masked_grad = {}
+        for param_name, mask_g in masked_grad.items():
+            dist.all_reduce(tensor=mask_g, op=dist.ReduceOp.SUM)
+            aggregated_masked_grad[param_name] = torch.remainder(mask_g, modulus_q)
+
+        return aggregated_masked_grad
+
     def send(self, msg, id=0, communicate_params=True):
         """
         :param msg: message to send
@@ -232,9 +240,11 @@ class TorchMPICommunicator(Communicator):
 
         # Ensure all tensors have the same size
         if not all(buf.shape == msg.shape for buf in recv_buff):
-            raise ValueError(f"&&&&&&&&&&&&&&&&&&& All buffers must have the same shape as msg. "
-                             f"msg shape: {msg.shape}, "
-                             f"buffer shapes: {[buf.shape for buf in recv_buff]}")
+            raise ValueError(
+                f"&&&&&&&&&&&&&&&&&&& All buffers must have the same shape as msg. "
+                f"msg shape: {msg.shape}, "
+                f"buffer shapes: {[buf.shape for buf in recv_buff]}"
+            )
 
         # Perform all_gather
         dist.all_gather(tensor_list=recv_buff, tensor=msg)
@@ -258,7 +268,9 @@ class TorchMPICommunicator(Communicator):
 
                 # Pad msg if needed
                 if msg.numel() < max_size:
-                    padding = torch.zeros(max_size - msg.numel(), dtype=msg.dtype, device=msg.device)
+                    padding = torch.zeros(
+                        max_size - msg.numel(), dtype=msg.dtype, device=msg.device
+                    )
                     padded_msg = torch.cat([msg.flatten(), padding])
                 else:
                     padded_msg = msg.flatten()[:max_size]
@@ -267,7 +279,9 @@ class TorchMPICommunicator(Communicator):
                 padded_recv_buff = []
                 for buf in recv_buff:
                     if buf.numel() < max_size:
-                        padding = torch.zeros(max_size - buf.numel(), dtype=buf.dtype, device=buf.device)
+                        padding = torch.zeros(
+                            max_size - buf.numel(), dtype=buf.dtype, device=buf.device
+                        )
                         padded_buf = torch.cat([buf.flatten(), padding])
                     else:
                         padded_buf = buf.flatten()[:max_size]
@@ -279,7 +293,7 @@ class TorchMPICommunicator(Communicator):
                 original_shape = msg.shape
                 result = []
                 for buf in padded_recv_buff:
-                    truncated = buf[:msg.numel()].reshape(original_shape)
+                    truncated = buf[: msg.numel()].reshape(original_shape)
                     result.append(truncated)
 
                 return result

@@ -16,7 +16,7 @@ import argparse
 import os
 
 import src.flora.helper as helper
-from src.flora.privacy.he_training import HETraining
+from src.flora.privacy.secagg_training import SecAggTrainer
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -77,4 +77,4 @@ if __name__ == "__main__":
         os.environ["GLOO_SOCKET_IFNAME"] = args.network_interface
 
     helper.set_seed(args.seed, determinism=False)
-    HETraining(args=args).start()
+    SecAggTrainer(args=args).start()

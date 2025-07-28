@@ -50,7 +50,7 @@ if __name__ == "__main__":
     parser.add_argument("--test-dir", type=str, default="~/")
     parser.add_argument("--compression-type", type=str, default="QSGD")
     parser.add_argument("--quantized-bitwidth", type=float, default=8)
-    parser.add_argument("--network-interface", type=str, default='lo0')
+    parser.add_argument("--network-interface", type=str, default="lo0")
 
     args = parser.parse_args()
 

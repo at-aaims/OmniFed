@@ -12,22 +12,19 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import torch
 import logging
 import socket
 
-from src.flora.communicator import torch_mpi
+import torch
+
 from src.flora.test import get_model
-from src.flora.datasets.image_classification import cifar, caltech
+from src.flora.communicator import torch_mpi
 from src.flora.helper import training_params
-
-# from src.flora.privacy.he_bsp import HomomorphicEncryptionBSP
-# from src.flora.privacy.he_bsp_buckets import HomomorphicEncryptionBucketing
-# from src.flora.privacy_he.he_padded_buckets import HEPaddedBuckets
-from src.flora.privacy_he.he_padded_allgather import HEPaddedBucketsAllGather
+from src.flora.datasets.image_classification import cifar, caltech
+from src.flora.privacy.secure_aggregation import SecureAggregation
 
 
-class HETraining:
+class SecAggTrainer:
     def __init__(self, args):
         self.args = args
         self.train_bsz = args.bsz
@@ -132,55 +129,19 @@ class HETraining:
             lr_scheduler=self.lr_scheduler,
         )
 
-        self.poly_modulus_degree = args.poly_modulus_degree
-
-        # add HETrainer object here
-        # self.trainer = HomomorphicEncryptionBSP(
-        #     client_id=self.rank,
-        #     model=self.model,
-        #     train_data=self.train_dataloader,
-        #     test_data=self.test_dataloader,
-        #     communicator=self.communicator,
-        #     total_clients=self.world_size,
-        #     train_params=self.fedavg_params,
-        #     poly_modulus_degree=self.poly_modulus_degree)
-
-        # self.trainer = HomomorphicEncryptionBucketing(
-        #     client_id=self.rank,
-        #     model=self.model,
-        #     train_data=self.train_dataloader,
-        #     test_data=self.test_dataloader,
-        #     communicator=self.communicator,
-        #     total_clients=self.world_size,
-        #     train_params=self.fedavg_params,
-        #     poly_modulus_degree=self.poly_modulus_degree)
-
-        # self.trainer = HEPaddedBuckets(
-        #     client_id=self.rank,
-        #     model=self.model,
-        #     train_data=self.train_dataloader,
-        #     test_data=self.test_dataloader,
-        #     communicator=self.communicator,
-        #     total_clients=self.world_size,
-        #     train_params=self.fedavg_params,
-        #     poly_modulus_degree=self.poly_modulus_degree)
-
-        self.trainer = HEPaddedBucketsAllGather(
-            client_id=self.rank,
-            model=self.model,
-            train_data=self.train_dataloader,
-            test_data=self.test_dataloader,
-            communicator=self.communicator,
-            total_clients=self.world_size,
-            train_params=self.fedavg_params,
-            poly_modulus_degree=self.poly_modulus_degree,
-        )
+        self.trainer = SecureAggregation(client_id=self.rank,
+                                         model=self.model,
+                                         train_data=self.train_dataloader,
+                                         test_data=self.test_dataloader,
+                                         communicator=self.communicator,
+                                         total_clients=self.world_size,
+                                         train_params=self.fedavg_params)
 
         args.hostname = socket.gethostname()
         args.optimizer = self.optimizer.__class__.__name__
-        args.running_job = "HomomorphicEncryption"
+        args.running_job = "SecureAggregation"
         logging.info(f"training/job specific parameters: {args}")
 
     def start(self):
-        print("going to start training")
+        print("going to start training...")
         self.trainer.train()

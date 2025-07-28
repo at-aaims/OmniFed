@@ -29,7 +29,7 @@ from src.flora.datasets.image_classification import cifar
 class DataStreamPublisher:
     def __init__(
         self,
-        dataset_type='cifar10',
+        dataset_type="cifar10",
         kafka_host="127.0.0.1",
         kafka_port=9092,
         stream_rate=32,
@@ -49,29 +49,32 @@ class DataStreamPublisher:
             )
 
         if self.dataset_type == "cifar10":
-            self.train_dataset = cifar.cifar10Data(client_id=0,
-                                                   total_clients=1,
-                                                   datadir=self.datadir,
-                                                   is_test=False,
-                                                   get_training_dataset=True)
+            self.train_dataset = cifar.cifar10Data(
+                client_id=0,
+                total_clients=1,
+                datadir=self.datadir,
+                is_test=False,
+                get_training_dataset=True,
+            )
 
         elif self.dataset_type == "cifar100":
-            self.train_dataset = cifar.cifar100Data(client_id=0,
-                                                    total_clients=1,
-                                                    datadir=self.datadir,
-                                                    is_test=False,
-                                                    get_training_dataset=True)
+            self.train_dataset = cifar.cifar100Data(
+                client_id=0,
+                total_clients=1,
+                datadir=self.datadir,
+                is_test=False,
+                get_training_dataset=True,
+            )
 
-        self.producer = KafkaProducer(bootstrap_servers=self.kafka_host + ":" + str(self.kafka_port),
-                                      value_serializer=self.serialize_sample)
+        self.producer = KafkaProducer(
+            bootstrap_servers=self.kafka_host + ":" + str(self.kafka_port),
+            value_serializer=self.serialize_sample,
+        )
         print("Producer started...")
 
     def serialize_sample(self, sample):
         image, label = sample
-        return pickle.dumps({
-            'image': image.numpy(),
-            'label': label
-        })
+        return pickle.dumps({"image": image.numpy(), "label": label})
 
     def stream_data(self, topic):
         try:
@@ -94,10 +97,11 @@ class DataStreamPublisher:
 
 
 class DataStreamSubscriber:
-    def __init__(self,
+    def __init__(
+        self,
         kafka_host="127.0.0.1",
         kafka_port=9092,
-        kafka_dir='~/',
+        kafka_dir="~/",
         client_id=0,
     ):
         self.kafka_host = kafka_host
@@ -105,16 +109,18 @@ class DataStreamSubscriber:
         self.kafka_dir = kafka_dir
         self.topic = "client-{}".format(client_id)
 
-        self.consumer = KafkaConsumer(self.topic,
-                                      bootstrap_servers=self.kafka_host + ":" + str(self.kafka_port),
-                                      auto_offset_reset='earliest',
-                                      enable_auto_commit=True)
+        self.consumer = KafkaConsumer(
+            self.topic,
+            bootstrap_servers=self.kafka_host + ":" + str(self.kafka_port),
+            auto_offset_reset="earliest",
+            enable_auto_commit=True,
+        )
         print("Consumer started...")
 
     def deserialize_sample(self, msg_bytes):
         data_dict = pickle.loads(msg_bytes)
-        image_np = data_dict['image']
-        label = data_dict['label']
+        image_np = data_dict["image"]
+        label = data_dict["label"]
         # [C, H, W]
         image_tensor = torch.tensor(image_np, dtype=torch.float32)
         label_tensor = torch.tensor(label, dtype=torch.long)
@@ -131,10 +137,14 @@ class DataStreamSubscriber:
                 img_tensor, label_tensor = self.deserialize_sample(message.value)
                 msg_count += 1
                 if msg_count % log_interval == 0:
-                    print(f"received sample label {label_tensor.item()} image tensor shape {img_tensor.shape}")
+                    print(
+                        f"received sample label {label_tensor.item()} image tensor shape {img_tensor.shape}"
+                    )
                     elapsed_time = (perf_counter_ns() - strt_time) * nanoTosec
                     stream_rate = msg_count / elapsed_time
-                    print(f"measured stream_rate {stream_rate} samples/sec on topic {self.topic}")
+                    print(
+                        f"measured stream_rate {stream_rate} samples/sec on topic {self.topic}"
+                    )
 
         except KeyboardInterrupt:
             print("Stopping consumer from keyboard")
@@ -167,7 +177,6 @@ class DataStreamSubscriber:
                     )
                     print(f"topic {topic} created successfully.")
                     print(result.stdout)
-
 
                 else:
                     print(f"!!!!!!!!!!!!!!!topic {topic} already exists!!!!!!!!!!!!!!!")

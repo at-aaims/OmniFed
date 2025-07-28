@@ -16,10 +16,9 @@ from src.flora.stream_simulation.data_streaming import DataStreamSubscriber
 
 
 if __name__ == "__main__":
-    kafka_dir = '/Users/ssq/Desktop/datasets/kafka_2.12-3.2.0/'
-    stream = DataStreamSubscriber(kafka_host="127.0.0.1",
-                                  kafka_port=9092,
-                                  kafka_dir=kafka_dir,
-                                  client_id=0)
+    kafka_dir = "/Users/ssq/Desktop/datasets/kafka_2.12-3.2.0/"
+    stream = DataStreamSubscriber(
+        kafka_host="127.0.0.1", kafka_port=9092, kafka_dir=kafka_dir, client_id=0
+    )
     # stream.create_topic("client-0")
     stream.stream_data()

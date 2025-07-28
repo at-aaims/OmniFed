@@ -30,6 +30,7 @@ from src.flora.helper.training_stats import (
 
 nanosec_to_millisec = 1e6
 
+
 class HEPaddedBuckets:
     def __init__(
         self,
@@ -166,8 +167,9 @@ class HEPaddedBuckets:
                 for chunk_idx, chunk_data in enumerate(param_chunks):
                     # Step 1: Broadcast the size of this chunk to all workers
                     chunk_size = torch.tensor([chunk_data.size(0)], dtype=torch.long)
-                    size_list = [torch.zeros_like(chunk_size) for _ in range(self.total_clients)]
-
+                    size_list = [
+                        torch.zeros_like(chunk_size) for _ in range(self.total_clients)
+                    ]
 
                     # dist.all_gather(tensor_list=size_list, tensor=chunk_size)
                     self.communicator.he_collect(recv_buff=size_list, msg=chunk_size)
@@ -177,20 +179,25 @@ class HEPaddedBuckets:
 
                     # Step 2: Pad this worker's chunk to the maximum size
                     if chunk_data.size(0) < max_size:
-                        padding = torch.zeros(max_size - chunk_data.size(0), dtype=torch.uint8)
+                        padding = torch.zeros(
+                            max_size - chunk_data.size(0), dtype=torch.uint8
+                        )
                         padded_chunk = torch.cat([chunk_data, padding])
                     else:
                         padded_chunk = chunk_data
 
                     # Step 3: Gather the padded chunks
-                    recv_bufs = [torch.empty_like(padded_chunk) for _ in range(self.total_clients)]
+                    recv_bufs = [
+                        torch.empty_like(padded_chunk)
+                        for _ in range(self.total_clients)
+                    ]
                     # dist.all_gather(tensor_list=recv_bufs, tensor=padded_chunk)
                     self.communicator.he_collect(recv_buff=recv_bufs, msg=padded_chunk)
 
                     # Step 4: Store both the received data and the original sizes
                     chunk_info = {
-                        'data': recv_bufs,
-                        'original_sizes': [size.item() for size in size_list]
+                        "data": recv_bufs,
+                        "original_sizes": [size.item() for size in size_list],
                     }
                     param_aggregated.append(chunk_info)
 
@@ -209,19 +216,25 @@ class HEPaddedBuckets:
                     param_avg_grad = []
 
                     for chunk_info in param_chunks:
-                        recv_data = chunk_info['data']
-                        original_sizes = chunk_info['original_sizes']
+                        recv_data = chunk_info["data"]
+                        original_sizes = chunk_info["original_sizes"]
 
                         # Deserialize each worker's contribution
                         vectors = []
-                        for worker_idx, (data, orig_size) in enumerate(zip(recv_data, original_sizes)):
+                        for worker_idx, (data, orig_size) in enumerate(
+                            zip(recv_data, original_sizes)
+                        ):
                             # Truncate to original size before deserializing
                             truncated_data = data[:orig_size]
                             try:
-                                vec = ts.ckks_vector_from(self.context, bytes(truncated_data.tolist()))
+                                vec = ts.ckks_vector_from(
+                                    self.context, bytes(truncated_data.tolist())
+                                )
                                 vectors.append(vec)
                             except Exception as e:
-                                print(f"Rank 0: Failed to deserialize chunk from worker {worker_idx}: {e}")
+                                print(
+                                    f"Rank 0: Failed to deserialize chunk from worker {worker_idx}: {e}"
+                                )
                                 raise e
 
                         # Average the vectors
@@ -252,17 +265,20 @@ class HEPaddedBuckets:
                         avg_grad = decrypted_gradients[param_idx]
                         if avg_grad:
                             avg_grad_tensor = torch.tensor(
-                                avg_grad[:param.numel()],
-                                dtype=torch.float32
+                                avg_grad[: param.numel()], dtype=torch.float32
                             )
                             gradient_tensors.append(avg_grad_tensor)
                             param_shapes.append(param.shape)
                         else:
-                            gradient_tensors.append(torch.zeros(param.numel(), dtype=torch.float32))
+                            gradient_tensors.append(
+                                torch.zeros(param.numel(), dtype=torch.float32)
+                            )
                             param_shapes.append(param.shape)
                         param_idx += 1
                     else:
-                        gradient_tensors.append(torch.zeros(param.numel(), dtype=torch.float32))
+                        gradient_tensors.append(
+                            torch.zeros(param.numel(), dtype=torch.float32)
+                        )
                         param_shapes.append(param.shape)
 
             else:
@@ -275,10 +291,14 @@ class HEPaddedBuckets:
                         gradient_tensors.append(None)
                         param_shapes.append(None)
                     else:
-                        gradient_tensors.append(torch.zeros(param.numel(), dtype=torch.float32))
+                        gradient_tensors.append(
+                            torch.zeros(param.numel(), dtype=torch.float32)
+                        )
                         param_shapes.append(param.shape)
 
-            for i, (grad_tensor, shape) in enumerate(zip(gradient_tensors, param_shapes)):
+            for i, (grad_tensor, shape) in enumerate(
+                zip(gradient_tensors, param_shapes)
+            ):
                 if grad_tensor is not None:
                     # dist.broadcast(tensor=grad_tensor, src=0)
                     self.communicator.broadcast(msg=grad_tensor, id=0)
@@ -290,8 +310,15 @@ class HEPaddedBuckets:
                     if param.grad is None:
                         continue
 
-                    if param_idx < len(gradient_tensors) and gradient_tensors[param_idx] is not None:
-                        grad_tensor = gradient_tensors[param_idx].reshape_as(param).to(self.device)
+                    if (
+                        param_idx < len(gradient_tensors)
+                        and gradient_tensors[param_idx] is not None
+                    ):
+                        grad_tensor = (
+                            gradient_tensors[param_idx]
+                            .reshape_as(param)
+                            .to(self.device)
+                        )
                         param.grad.copy_(grad_tensor)
 
                     param_idx += 1

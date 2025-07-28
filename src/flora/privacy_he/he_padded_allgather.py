@@ -28,11 +28,12 @@ from src.flora.helper.training_stats import (
     test_img_accuracy,
 )
 
-
 nanosec_to_millisec = 1e6
 
+# shares the secret key among all clients, see handle_he_ctx() method
 
-class HomomorphicEncryptionBucketing:
+
+class HEPaddedBucketsAllGather:
     def __init__(
         self,
         client_id: int,
@@ -80,7 +81,7 @@ class HomomorphicEncryptionBucketing:
         self.chunk_size = self.he_buckets.get_chunk_size()
         print("going to initiate seal context....")
         self.handle_he_ctx(poly_modulus_degree=self.poly_modulus_degree)
-        print("!!!!!!!!!!!!!!!!!!!!! created HE context!!!!!!!!!!!!!!!!!!")
+        print("@@@@@@@@@@@@@@@@@@@@@@@@ created HE context @@@@@@@@@@@@@@@@@@@@@@@@@@")
 
     def handle_he_ctx(self, poly_modulus_degree):
         """
@@ -91,7 +92,7 @@ class HomomorphicEncryptionBucketing:
                 poly_modulus_degree=poly_modulus_degree, encrypt_grads=True
             )
             serialized_ctx = self.he_obj.get_he_context().serialize(
-                save_secret_key=False
+                save_secret_key=True
             )
             ctx_bytes = torch.ByteTensor(list(serialized_ctx))
             ctx_size = torch.tensor([ctx_bytes.numel()], dtype=torch.long)
@@ -134,7 +135,8 @@ class HomomorphicEncryptionBucketing:
 
             # encrypt model updates into chunks
             init_time = perf_counter_ns()
-            encrypted_chunks = []
+            encrypted_data = []
+
             for param in self.model.parameters():
                 if param.grad is None:
                     continue
@@ -145,58 +147,181 @@ class HomomorphicEncryptionBucketing:
                 enc_chunks = self.he_buckets.encrypt_chunks(
                     chunks=chunks, context=self.context
                 )
-                # serialized = [
-                #     torch.ByteTensor(bytes(e.serialize())) for e in enc_chunks
-                # ]
-                serialized = [
-                    torch.ByteTensor(list(chunk.serialize())) for chunk in enc_chunks
-                ]
-                encrypted_chunks.append(serialized)
+
+                # Store both serialized data and original sizes
+                param_data = []
+                for chunk in enc_chunks:
+                    serialized = chunk.serialize()
+                    serialized_tensor = torch.ByteTensor(list(serialized))
+                    param_data.append(serialized_tensor)
+
+                encrypted_data.append(param_data)
 
             he_encryption_time = (perf_counter_ns() - init_time) / nanosec_to_millisec
 
-            # communicate encrypted chunks across workers
+            # Communicate encrypted chunks with proper size handling
             init_time = perf_counter_ns()
-            aggregated_chunks = [[] for _ in encrypted_chunks]
-            for i, param_chunks in enumerate(encrypted_chunks):
-                for j, chunk in enumerate(param_chunks):
-                    recv_bufs = [
-                        torch.empty_like(chunk) for _ in range(self.total_clients)
+            aggregated_data = []
+
+            for param_idx, param_chunks in enumerate(encrypted_data):
+                param_aggregated = []
+
+                for chunk_idx, chunk_data in enumerate(param_chunks):
+                    # Step 1: Broadcast the size of this chunk to all workers
+                    chunk_size = torch.tensor([chunk_data.size(0)], dtype=torch.long)
+                    size_list = [
+                        torch.zeros_like(chunk_size) for _ in range(self.total_clients)
                     ]
-                    recv_bufs = self.communicator.he_collect(
-                        recv_buff=recv_bufs, msg=chunk
-                    )
-                    aggregated_chunks[i].append(recv_bufs)
+
+                    self.communicator.he_collect(recv_buff=size_list, msg=chunk_size)
+
+                    # Find the maximum size
+                    max_size = max(size.item() for size in size_list)
+
+                    # Step 2: Pad this worker's chunk to the maximum size
+                    if chunk_data.size(0) < max_size:
+                        padding = torch.zeros(
+                            max_size - chunk_data.size(0), dtype=torch.uint8
+                        )
+                        padded_chunk = torch.cat([chunk_data, padding])
+                    else:
+                        padded_chunk = chunk_data
+
+                    # Step 3: Gather the padded chunks
+                    recv_bufs = [
+                        torch.empty_like(padded_chunk)
+                        for _ in range(self.total_clients)
+                    ]
+                    self.communicator.he_collect(recv_buff=recv_bufs, msg=padded_chunk)
+
+                    # Step 4: Store both the received data and the original sizes
+                    chunk_info = {
+                        "data": recv_bufs,
+                        "original_sizes": [size.item() for size in size_list],
+                    }
+                    param_aggregated.append(chunk_info)
+
+                aggregated_data.append(param_aggregated)
 
             encrypted_sync_time = (perf_counter_ns() - init_time) / nanosec_to_millisec
 
-            # decrypt tensors
+            # CENTRALIZED DECRYPTION: Only rank 0 decrypts, then broadcasts results
             init_time = perf_counter_ns()
+
+            if self.client_id == 0:
+                # Rank 0 performs decryption and averaging
+                decrypted_gradients = []
+
+                for param_idx, param_chunks in enumerate(aggregated_data):
+                    param_avg_grad = []
+
+                    for chunk_info in param_chunks:
+                        recv_data = chunk_info["data"]
+                        original_sizes = chunk_info["original_sizes"]
+
+                        # Deserialize each worker's contribution
+                        vectors = []
+                        for worker_idx, (data, orig_size) in enumerate(
+                            zip(recv_data, original_sizes)
+                        ):
+                            # Truncate to original size before deserializing
+                            truncated_data = data[:orig_size]
+                            try:
+                                vec = ts.ckks_vector_from(
+                                    self.context, bytes(truncated_data.tolist())
+                                )
+                                vectors.append(vec)
+                            except Exception as e:
+                                print(
+                                    f"Rank 0: Failed to deserialize chunk from worker {worker_idx}: {e}"
+                                )
+                                raise e
+
+                        # Average the vectors
+                        if vectors:
+                            avg_vector = vectors[0]
+                            for vec in vectors[1:]:
+                                avg_vector += vec
+                            avg_vector *= 1.0 / self.total_clients
+
+                            # Decrypt (only rank 0 can do this)
+                            decrypted_chunk = avg_vector.decrypt()
+                            param_avg_grad.extend(decrypted_chunk)
+
+                    decrypted_gradients.append(param_avg_grad)
+
+                # Convert to tensors for broadcasting
+                gradient_tensors = []
+                param_shapes = []
+                param_idx = 0
+
+                for param in self.model.parameters():
+                    if param.grad is None:
+                        gradient_tensors.append(None)
+                        param_shapes.append(None)
+                        continue
+
+                    if param_idx < len(decrypted_gradients):
+                        avg_grad = decrypted_gradients[param_idx]
+                        if avg_grad:
+                            avg_grad_tensor = torch.tensor(
+                                avg_grad[: param.numel()], dtype=torch.float32
+                            )
+                            gradient_tensors.append(avg_grad_tensor)
+                            param_shapes.append(param.shape)
+                        else:
+                            gradient_tensors.append(
+                                torch.zeros(param.numel(), dtype=torch.float32)
+                            )
+                            param_shapes.append(param.shape)
+                        param_idx += 1
+                    else:
+                        gradient_tensors.append(
+                            torch.zeros(param.numel(), dtype=torch.float32)
+                        )
+                        param_shapes.append(param.shape)
+
+            else:
+                # Non-root ranks prepare empty tensors to receive broadcasts
+                gradient_tensors = []
+                param_shapes = []
+
+                for param in self.model.parameters():
+                    if param.grad is None:
+                        gradient_tensors.append(None)
+                        param_shapes.append(None)
+                    else:
+                        gradient_tensors.append(
+                            torch.zeros(param.numel(), dtype=torch.float32)
+                        )
+                        param_shapes.append(param.shape)
+
+            # Broadcast decrypted gradients from rank 0 to all other ranks
+            for i, (grad_tensor, shape) in enumerate(
+                zip(gradient_tensors, param_shapes)
+            ):
+                if grad_tensor is not None:
+                    self.communicator.broadcast(msg=grad_tensor, id=0)
+
+            # Apply the broadcasted gradients
             with torch.no_grad():
-                for param, all_chunks in zip(
-                    self.model.parameters(), aggregated_chunks
-                ):
+                param_idx = 0
+                for param in self.model.parameters():
                     if param.grad is None:
                         continue
 
-                    avg_grad = []
-                    for chunk_set in all_chunks:
-                        vectors = [
-                            ts.ckks_vector_from(self.context, bytes(c.tolist()))
-                            for c in chunk_set
-                        ]
-                        avg_vector = vectors[0]
-                        for vec in vectors[1:]:
-                            avg_vector += vec
-                        avg_vector *= 1.0 / self.total_clients
-                        avg_grad.extend(avg_vector.decrypt())
+                    if (
+                        param_idx < len(gradient_tensors)
+                        and gradient_tensors[param_idx] is not None
+                    ):
+                        grad_tensor = (
+                            gradient_tensors[param_idx]
+                            .reshape_as(param)
+                            .to(self.device)
+                        )
+                        param.grad.copy_(grad_tensor)
 
-                    avg_grad_tensor = (
-                        torch.tensor(avg_grad[: param.numel()], dtype=torch.float32)
-                        .reshape_as(param)
-                        .to(self.device)
-                    )
-                    param.grad.copy_(avg_grad_tensor)
+                    param_idx += 1
 
             he_decryption_time = (perf_counter_ns() - init_time) / nanosec_to_millisec
 
@@ -204,6 +329,7 @@ class HomomorphicEncryptionBucketing:
             self.optimizer.zero_grad()
             self.local_step += 1
             itr_time = (perf_counter_ns() - itr_strt) / nanosec_to_millisec
+
             logging.info(
                 f"training_metrics local_step: {self.local_step} epoch {epoch} compute_time {compute_time} ms "
                 f"he_encryption_time: {he_encryption_time} ms he_decryption_time {he_decryption_time} ms "
