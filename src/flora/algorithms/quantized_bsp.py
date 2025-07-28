@@ -145,7 +145,7 @@ class QuantizedBSPTraining:
                 with torch.no_grad():
                     init_time = perf_counter_ns()
                     for name, param in self.model.named_parameters():
-                        quantized_grads[name] = self.compression.compress(
+                        quantized_grads[name], _ = self.compression.compress(
                             tensor=param.grad, name=name)
 
                     compression_time += (

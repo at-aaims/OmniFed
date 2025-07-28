@@ -35,29 +35,29 @@ class QSGDCompression(Compression):
     def compress(self, tensor, name, min_val=None, max_val=None):
         tensor = tensor.to(self.device)
 
-        # Apply error feedback compensation
-        tensor = self.residual.compensate(tensor, name)
-
-        # Get min/max if not provided
-        if min_val is None or max_val is None:
-            min_val, max_val = self.get_compress_minmax(tensor)
-
-        # Store original for residual calculation
+        # Store the ORIGINAL tensor before any compensation
         original_tensor = tensor.clone()
 
-        # Avoid division by zero
-        if max_val == min_val:
-            quantized_tensor = torch.zeros_like(tensor)
+        # Apply error feedback compensation AFTER storing original
+        compensated_tensor = self.residual.compensate(tensor, name)
+
+        # Get min/max from the compensated tensor (this is important!)
+        if min_val is None or max_val is None:
+            min_val, max_val = self.get_compress_minmax(compensated_tensor)
+
+        # Quantize the compensated tensor
+        if torch.abs(max_val - min_val) < 1e-8:  # Better numerical stability check
+            quantized_tensor = torch.zeros_like(compensated_tensor)
         else:
-            # Scale the tensor to [0, scale]
-            scaled_tensor = (tensor - min_val) / (max_val - min_val) * self.scale
+            # Scale the compensated tensor to [0, scale]
+            scaled_tensor = (compensated_tensor - min_val) / (max_val - min_val) * self.scale
             # Round and clamp to [0, scale]
             quantized_tensor = torch.round(scaled_tensor).clamp(0, self.scale)
 
         # Create context for decompression
         ctx = (min_val, max_val, tensor.shape)
 
-        # Update residuals with quantization error
+        # CRITICAL: Update residuals using the ORIGINAL tensor, not compensated
         self.residual.update(original_tensor, name, self, quantized_tensor, ctx)
 
         return quantized_tensor, ctx
@@ -66,58 +66,9 @@ class QSGDCompression(Compression):
         min_val, max_val, shape = ctx
 
         # Avoid division by zero
-        if max_val == min_val:
+        if torch.abs(max_val - min_val) < 1e-8:
             return torch.full(shape, min_val.item(), dtype=torch.float32, device=self.device)
 
         # Transform tensors back to its original range
         decompressed = min_val + (tensor.float() / self.scale) * (max_val - min_val)
         return decompressed.view(shape)
-
-
-class AMPCompression(Compression):
-    """Implementation of Automatic Mixed-Precision (AMP) training with error feedback"""
-
-    def __init__(self, device):
-        super().__init__()
-        self.device = device
-        self.loss_scale_factor = (2 ** 16) - 1
-        self.residual = ResidualUpdates()  # Add error feedback
-
-    def compress(self, tensor, name):
-        tensor = tensor.to(self.device)
-
-        # Apply error feedback compensation
-        tensor = self.residual.compensate(tensor, name)
-
-        # Store original for residual calculation
-        original_tensor = tensor.clone()
-
-        # Convert tensors to 16-bit
-        compressed_tensor = tensor.half()
-
-        # Create context for decompression
-        ctx = tensor.shape
-
-        # Update residuals with precision loss error
-        self.residual.update(original_tensor, name, self, compressed_tensor, ctx)
-
-        return compressed_tensor, ctx
-
-    def decompress(self, tensor, ctx):
-        shape = ctx
-        # Convert tensors back to 32-bit
-        return tensor.float().view(shape)
-
-    def loss_scaling(self, loss):
-        return loss * self.loss_scale_factor
-
-    def gradient_unscaling(self, model):
-        if isinstance(model, torch.nn.Module):
-            for p in model.parameters():
-                if p.grad is not None:
-                    p.grad.data /= self.loss_scale_factor
-            return model
-        else:
-            raise TypeError(
-                "gradient_unscaling fn needs torch.nn.Module type for model argument"
-            )
