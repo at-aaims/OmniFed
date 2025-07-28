@@ -173,9 +173,7 @@ class QuantizedBSPTraining:
                     sync_init = perf_counter_ns()
 
                     # For per-parameter approach
-                    quantized_grads = self.communicator.quantized_aggregate(
-                        quantized_dict=quantized_grads, compute_mean=True
-                    )
+                    quantized_grads = self.communicator.quantized_aggregate(quantized_dict=quantized_grads)
 
                     compress_sync_time += (perf_counter_ns() - sync_init) / nanosec_to_millisec
 
@@ -188,6 +186,7 @@ class QuantizedBSPTraining:
                                 tensor=quantized_grads[name],
                                 ctx=param_contexts[name]
                             )
+                            param.grad /= self.total_clients
 
                     compression_time += (perf_counter_ns() - init_time) / nanosec_to_millisec
 
@@ -203,9 +202,7 @@ class QuantizedBSPTraining:
                     ) / nanosec_to_millisec
 
                 init_time = perf_counter_ns()
-                quantized_grads = self.communicator.quantized_aggregate(
-                    quantized_dict=quantized_grads, compute_mean=True
-                )
+                quantized_grads = self.communicator.quantized_aggregate(quantized_dict=quantized_grads)
                 compress_sync_time += (
                     perf_counter_ns() - init_time
                 ) / nanosec_to_millisec
