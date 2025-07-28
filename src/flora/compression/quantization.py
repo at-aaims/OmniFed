@@ -11,10 +11,91 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+import logging
 
 import torch
 
 from src.flora.compression import Compression, ResidualUpdates
+
+
+class QSGDCompressionDebug(Compression):
+    """Debug version of QSGD with extensive logging"""
+
+    def __init__(self, device, bit_width):
+        super().__init__()
+        self.device = device
+        self.bit_width = bit_width
+        self.scale = (2 ** self.bit_width) - 1
+        self.residual = ResidualUpdates()
+        self.step_count = 0
+
+    def get_compress_minmax(self, tensor):
+        tensor = tensor.to(self.device)
+        min_val, max_val = tensor.min(), tensor.max()
+        return min_val, max_val
+
+    def compress(self, tensor, name, min_val=None, max_val=None):
+        tensor = tensor.to(self.device)
+        self.step_count += 1
+
+        # Store original tensor before compensation
+        original_tensor = tensor.clone()
+        original_norm = original_tensor.norm().item()
+
+        # Apply error feedback compensation
+        compensated_tensor = self.residual.compensate(tensor, name)
+        compensated_norm = compensated_tensor.norm().item()
+
+        # Debug logging every 50 steps
+        if self.step_count % 50 == 0:
+            logging.info(f"DEBUG {name}: original_norm={original_norm:.6f}, compensated_norm={compensated_norm:.6f}")
+            if name in self.residual.residuals:
+                residual_norm = self.residual.residuals[name].norm().item()
+                logging.info(f"DEBUG {name}: residual_norm={residual_norm:.6f}")
+
+        # Get min/max from compensated tensor
+        if min_val is None or max_val is None:
+            min_val, max_val = self.get_compress_minmax(compensated_tensor)
+
+        range_val = (max_val - min_val).item()
+
+        # Debug logging for problematic ranges
+        if range_val < 1e-6 or range_val > 1000:
+            logging.info(f"WARNING {name}: range={range_val:.8f}, min={min_val:.6f}, max={max_val:.6f}")
+
+        # Quantize the compensated tensor
+        if torch.abs(max_val - min_val) < 1e-8:
+            quantized_tensor = torch.zeros_like(compensated_tensor)
+            logging.info(f"WARNING {name}: Zero range, setting to zeros")
+        else:
+            # Scale tensor to [0, scale]
+            scaled_tensor = (compensated_tensor - min_val) / (max_val - min_val) * self.scale
+            quantized_tensor = torch.round(scaled_tensor).clamp(0, self.scale)
+
+        # Create context
+        ctx = (min_val, max_val, tensor.shape)
+
+        # Update residuals using original tensor
+        self.residual.update(original_tensor, name, self, quantized_tensor, ctx)
+
+        return quantized_tensor, ctx
+
+    def decompress(self, tensor, ctx):
+        min_val, max_val, shape = ctx
+
+        if torch.abs(max_val - min_val) < 1e-8:
+            return torch.full(shape, min_val.item(), dtype=torch.float32, device=self.device)
+
+        # Decompress back to original range
+        decompressed = min_val + (tensor.float() / self.scale) * (max_val - min_val)
+
+        # Debug logging
+        if self.step_count % 50 == 0:
+            decompressed_norm = decompressed.norm().item()
+            quantization_error = (decompressed.view(-1) - tensor.float().view(-1)).norm().item()
+            logging.info(f"DEBUG decompress: norm={decompressed_norm:.6f}, quant_error={quantization_error:.6f}")
+
+        return decompressed.view(shape)
 
 
 class QSGDCompression(Compression):

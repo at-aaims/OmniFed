@@ -27,8 +27,8 @@ masteraddr='127.0.0.1'
 backend='gloo'
 model='resnet18'
 dataset='cifar10'
-compression='AMP'
-bitwidth=8
+compression='QSGD'
+bitwidth=16
 
 for val in $(seq 1 $worldsize)
 do

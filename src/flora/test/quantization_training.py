@@ -44,7 +44,10 @@ class QuantizedCompressionTrainer(object):
         self.compression_type = args.compression_type
         self.quantized_bitwidth = args.quantized_bitwidth
         if self.compression_type == "QSGD":
-            self.compression = quantization.QSGDCompression(
+            # self.compression = quantization.QSGDCompression(
+            #     device=device, bit_width=self.quantized_bitwidth
+            # )
+            self.compression = quantization.QSGDCompressionDebug(
                 device=device, bit_width=self.quantized_bitwidth
             )
         elif self.compression_type == "AMP":
