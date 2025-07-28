@@ -219,15 +219,15 @@ class SecureAggregation:
             compute_time = (perf_counter_ns() - init_time) / nanosec_to_millisec
 
             # compute original gradients' norm after aggregation
-            with torch.no_grad():
-                duplicate_model = copy.deepcopy(self.model)
-                for (name1, param1), (name2, param2) in zip(self.model.named_parameters(), duplicate_model.named_parameters()):
-                    param2.data = param1.data
-                    param2.grad = param1.grad
-
-                self.communicator.aggregate(msg=duplicate_model, communicate_params=False, compute_mean=False)
-                og_grad_norm = compute_gradient_norm(model=duplicate_model)
-                print(f'original aggregated grad_norm on client-{self.client_id}: {og_grad_norm}')
+            # with torch.no_grad():
+            #     duplicate_model = copy.deepcopy(self.model)
+            #     for (name1, param1), (name2, param2) in zip(self.model.named_parameters(), duplicate_model.named_parameters()):
+            #         param2.data = param1.data
+            #         param2.grad = param1.grad
+            #
+            #     self.communicator.aggregate(msg=duplicate_model, communicate_params=False, compute_mean=False)
+            #     og_grad_norm = compute_gradient_norm(model=duplicate_model)
+            #     print(f'original aggregated grad_norm on client-{self.client_id}: {og_grad_norm}')
 
             init_time = perf_counter_ns()
             # scaled_gradients = []
@@ -277,9 +277,9 @@ class SecureAggregation:
                     param.grad.copy_(self.finite_field_to_float(ff_value_tensor=agg_mask_grad))
 
             # compute unmasked, aggregated gradients' norm
-            with torch.no_grad():
-                masked_agg_grad_norm = compute_gradient_norm(model=self.model)
-                print(f"secure_aggregation grad_norm on client-{self.client_id}: {masked_agg_grad_norm}")
+            # with torch.no_grad():
+            #     masked_agg_grad_norm = compute_gradient_norm(model=self.model)
+            #     print(f"secure_aggregation grad_norm on client-{self.client_id}: {masked_agg_grad_norm}")
 
             self.optimizer.step()
             self.optimizer.zero_grad()
