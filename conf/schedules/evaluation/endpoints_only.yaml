@@ -1,35 +1,32 @@
 # ══════════════════════════════════════════════════════════════════════════════
-# Simple CNN Model Configuration
+# Endpoints-Only Evaluation Configuration
 #
-# Basic convolutional neural network for image classification.
-# Composable architecture with separate backbone and head components.
-# Configure input channels for your data and number of classes for your task.
+# Minimal evaluation for fast experiments.
+# Only evaluate at the very beginning and end of the experiment.
+#
 # ══════════════════════════════════════════════════════════════════════════════
 
-defaults:
-  - base
-  - _self_
-
 # NOTE: Check constructor signature for complete parameter list, defaults, types, and docs.
-_target_: src.flora.models.ComposableModel
+_target_: src.flora.utils.EvaluationTriggers
 
 # ─────────────────────────────────────────
-# Feature Extraction Backbone
-# ─────────────────────────────────────────
-backbone:
-  # NOTE: Check constructor signature for complete parameter list, defaults, types, and docs.
-  _target_: src.flora.models.SimpleCNNBackbone
-  in_channels: ??? # Input channels: 1 for grayscale, 3 for RGB
-  hidden_channels: [32, 64] # Channel progression through conv layers
-  out_channels: 128 # Final feature channels for head input
-  kernel_sizes: 3 # Convolution kernel size (uniform)
-  paddings: 1 # Padding to preserve spatial dimensions
+experiment_start: true # Evaluate at experiment start (baseline)
+# experiment_start: false  # Skip initial evaluation
 
 # ─────────────────────────────────────────
-# Classification Head
+experiment_end: true # Evaluate at experiment end (final result)
+# experiment_end: false    # Skip final evaluation
+
 # ─────────────────────────────────────────
-head:
-  # NOTE: Check constructor signature for complete parameter list, defaults, types, and docs.
-  _target_: src.flora.models.ClassificationHead
-  in_channels: 128 # Must match backbone output
-  num_classes: ??? # Number of target classes
+pre_aggregation: false # Don't evaluate before aggregation
+# pre_aggregation: true    # Evaluate before every aggregation
+# pre_aggregation:         # Selective pre-aggregation evaluation
+#   every: 2               # Before every 2nd aggregation
+#   at: [0, 1, 5, 10]      # Before specific aggregations
+
+# ─────────────────────────────────────────
+post_aggregation: false # Don't evaluate after aggregation
+# post_aggregation: true   # Evaluate after aggregation (standard FL)
+# post_aggregation:        # Custom evaluation schedule
+#   every: 2               # After every 2nd aggregation
+#   at: [0, 1, 5, 10]      # After specific aggregations

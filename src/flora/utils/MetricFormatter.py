@@ -108,20 +108,21 @@ class MetricStats:
 @dataclass
 class DisplayConfiguration:
     """Configuration for display formatting and styling."""
-    
+
     show_node_coverage: bool = True
     use_emoji_indicators: bool = True
     group_metrics: bool = True
     decimal_precision: int = 4
-    
+
     @classmethod
-    def create_default(cls) -> 'DisplayConfiguration':
+    def create_default(cls) -> "DisplayConfiguration":
         """Create default display configuration."""
         return cls()
 
 
 class TrendThresholds:
     """Threshold values for trend analysis."""
+
     SMALL_CHANGE = 2.0
     LARGE_CHANGE = 10.0
 
@@ -325,21 +326,23 @@ class MetricFormatter:
 
         return groups
 
-    def _calculate_metric_statistics(self, values: List[float], rule: MetricFormatRule) -> Dict[str, str]:
+    def _calculate_metric_statistics(
+        self, values: List[float], rule: MetricFormatRule
+    ) -> Dict[str, str]:
         """Calculate formatted statistics for a list of numeric values."""
         if len(values) == 1:
             return {
                 "mean": f"{values[0]:.{rule.precision}f}{rule.units}",
                 "std": "-",
-                "min": "-", 
-                "max": "-"
+                "min": "-",
+                "max": "-",
             }
-        
+
         mean_val = np.mean(values)
         std_val = np.std(values)
         min_val = np.min(values)
         max_val = np.max(values)
-        
+
         return {
             "mean": f"{mean_val:.{rule.precision}f}{rule.units}",
             "std": f"{std_val:.{rule.precision}f}{rule.units}",
@@ -347,7 +350,9 @@ class MetricFormatter:
             "max": f"{max_val:.{rule.precision}f}{rule.units}",
         }
 
-    def _extract_numeric_values(self, results: List[Dict[str, Any]], metric: str) -> List[float]:
+    def _extract_numeric_values(
+        self, results: List[Dict[str, Any]], metric: str
+    ) -> List[float]:
         """Extract numeric values for a metric across all results."""
         return [
             result[metric]
@@ -393,8 +398,7 @@ class MetricFormatter:
 
         return round_metrics
 
-
-    def format_stats_structured(self, results: List[Dict[str, Any]]) -> List[MetricStats]:
+    def format_stats(self, results: List[Dict[str, Any]]) -> List[MetricStats]:
         """Format statistical summary as structured MetricStats objects."""
         if not results:
             return []
@@ -411,7 +415,7 @@ class MetricFormatter:
             # Extract values and metadata using helper methods
             numeric_values = self._extract_numeric_values(results, metric)
             node_count = self._count_reporting_nodes(results, metric)
-            
+
             # Get formatting metadata
             rule = self._find_rule(metric)
             emoji = rule.emoji
@@ -434,9 +438,7 @@ class MetricFormatter:
             else:
                 # Handle non-numeric metrics
                 all_values = [
-                    str(result[metric]) 
-                    for result in results 
-                    if metric in result
+                    str(result[metric]) for result in results if metric in result
                 ]
                 if all_values:
                     unique_values = list(set(all_values))
@@ -446,7 +448,7 @@ class MetricFormatter:
                         mean_display = f"{len(unique_values)} unique values"
                 else:
                     mean_display = "No data"
-                
+
                 metric_stats = MetricStats(
                     name=metric,
                     emoji=emoji,
@@ -463,7 +465,7 @@ class MetricFormatter:
 
         return metric_stats_list
 
-    def group_structured_metrics(self, metrics: List[MetricStats]) -> Dict[str, List[MetricStats]]:
+    def group_metrics(self, metrics: List[MetricStats]) -> Dict[str, List[MetricStats]]:
         """Group MetricStats objects by their group category."""
         groups = {}
         for metric_stats in metrics:
@@ -504,7 +506,10 @@ class MetricFormatter:
         goal = self.optimization_goal(metric_name)
 
         # Neutral metrics - no performance judgment
-        if goal == OptimizationGoal.NEUTRAL or pct_change < TrendThresholds.SMALL_CHANGE:
+        if (
+            goal == OptimizationGoal.NEUTRAL
+            or pct_change < TrendThresholds.SMALL_CHANGE
+        ):
             color = TrendColor.NEUTRAL
         else:
             # Good change: increase for MAXIMIZE metrics, decrease for MINIMIZE metrics

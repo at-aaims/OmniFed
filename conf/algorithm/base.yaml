@@ -1,19 +1,14 @@
 # ══════════════════════════════════════════════════════════════════════════════
-# FLORA Test Configuration – MNIST with Centralized Topology + TorchDist Communication
+# Default Algorithm Configuration
 #
-# Extends the base MNIST test configuration.
-# Uses centralized topology with PyTorch distributed communication.
+# Base template for federated learning algorithms.
+# Must be a subclass of src.flora.algorithms.BaseAlgorithm.
 # ══════════════════════════════════════════════════════════════════════════════
 
-defaults:
-  - base_mnist_fedavg
-  - topology: centralized
-  - _self_
+_target_: ??? # Algorithm implementation class
 
 # ─────────────────────────────────────────
-# Topology Overrides
-
-topology:
-  num_clients: 2 # 2 clients + 1 server = 3 total nodes
-  local_comm:
-    _target_: src.flora.communicator.TorchDistCommunicator
+# Training Parameters
+# ─────────────────────────────────────────
+local_lr: ??? # Local learning rate for client training
+max_epochs_per_round: ??? # Maximum training epochs per round

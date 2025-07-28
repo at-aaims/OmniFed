@@ -1,17 +1,13 @@
 # ══════════════════════════════════════════════════════════════════════════════
-# MOON Algorithm Configuration
+# Default Schedules Configuration
 #
-# Model-Contrastive Federated Learning.
-# Uses contrastive learning to prevent forgetting of global knowledge.
+# Standard federated learning execution schedule combining sensible defaults
+# for both aggregation and evaluation timing.
 # ══════════════════════════════════════════════════════════════════════════════
 
 defaults:
-    - base
-    - _self_
+  - aggregation: round_end
+  - evaluation: post_agg
 
 # NOTE: Check constructor signature for complete parameter list, defaults, types, and docs.
-_target_: src.flora.algorithms.MOON
-
-mu: 1.0 # Contrastive loss weight coefficient
-temperature: 0.5 # Temperature parameter for softmax in contrastive loss
-num_prev_models: 1 # Number of previous global models to maintain for contrastive learning
+_target_: src.flora.utils.ExecutionSchedules

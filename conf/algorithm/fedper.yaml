@@ -5,6 +5,11 @@
 # Personalized layers kept local, only base model is aggregated.
 # ══════════════════════════════════════════════════════════════════════════════
 
+defaults:
+    - base
+    - _self_
+
+# NOTE: Check constructor signature for complete parameter list, defaults, types, and docs.
 _target_: src.flora.algorithms.FedPer
 
 personal_layers: ["classifier", "head", "fc"] # Layer names to keep local (not aggregated)

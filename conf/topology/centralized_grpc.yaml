@@ -1,0 +1,28 @@
+# ══════════════════════════════════════════════════════════════════════════════
+# Centralized Topology with gRPC Communication
+#
+# Traditional server-client federated learning topology structure.
+# One aggregator node coordinates multiple client nodes.
+# Uses gRPC for cross-network and heterogeneous deployments.
+#
+# ══════════════════════════════════════════════════════════════════════════════
+
+defaults:
+  - base
+  - _self_
+
+# NOTE: Check constructor signature for complete parameter list, defaults, types, and docs.
+_target_: src.flora.topology.CentralizedTopology
+
+# ─────────────────────────────────────────
+num_clients: ???
+
+# ─────────────────────────────────────────
+# Intra-Group Communication
+local_comm:
+  _target_: src.flora.communicator.GrpcCommunicator
+  # NOTE: Check constructor signature for complete parameter list, defaults, types, and docs.
+  # master_addr: 127.0.0.1        # Server address
+  # master_port: 50051            # Server port
+  # max_workers: 10               # gRPC server thread pool size
+  # aggregation_timeout: 600.0    # Server wait time for all clients

@@ -5,6 +5,11 @@
 # Balances global model performance with local personalization.
 # ══════════════════════════════════════════════════════════════════════════════
 
+defaults:
+  - base
+  - _self_
+
+# NOTE: Check constructor signature for complete parameter list, defaults, types, and docs.
 _target_: src.flora.algorithms.Ditto
 
 global_lr: 0.01 # Learning rate for global model updates

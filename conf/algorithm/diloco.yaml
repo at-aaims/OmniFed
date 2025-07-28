@@ -5,6 +5,11 @@
 # Distributed optimizer coordination on server side.
 # ══════════════════════════════════════════════════════════════════════════════
 
+defaults:
+  - base
+  - _self_
+
+# NOTE: Check constructor signature for complete parameter list, defaults, types, and docs.
 _target_: src.flora.algorithms.DiLoCo
 
 outer_lr: 0.7 # Learning rate for server-side outer optimizer

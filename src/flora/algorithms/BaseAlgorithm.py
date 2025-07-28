@@ -470,9 +470,6 @@ class BaseAlgorithm(SetupMixin, LifecycleHooksMixin):
         epoch_metrics_list = []
 
         for epoch_idx in range(self.global_max_epochs_per_round):
-            # Reset metrics for this epoch
-            self.summary.reset_metrics()
-
             # Run epoch training
             self.run_train_epoch(epoch_idx)
 
@@ -481,7 +478,11 @@ class BaseAlgorithm(SetupMixin, LifecycleHooksMixin):
             self.summary.log_epoch_to_tensorboard(
                 round_idx, epoch_idx, self.global_max_epochs_per_round
             )
-            epoch_metrics_list.append(epoch_metrics)
+            
+            # For intermediate epochs: capture and reset before next epoch
+            if epoch_idx < self.global_max_epochs_per_round - 1:
+                epoch_metrics_list.append(epoch_metrics)
+                self.summary.reset_metrics()
 
             # Print epoch summary with simple formatting
             print(
@@ -517,6 +518,10 @@ class BaseAlgorithm(SetupMixin, LifecycleHooksMixin):
         # Experiment end evaluation (only on last round)
         if round_idx == max_rounds - 1 and self.schedules.evaluation.experiment_end():
             self.run_eval_epoch(self.local_model, "global")
+
+        # Capture final epoch with all round-end work included
+        final_epoch_metrics = self.summary.compute_metrics()
+        epoch_metrics_list.append(final_epoch_metrics)
 
         return epoch_metrics_list
 

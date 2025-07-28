@@ -1,0 +1,29 @@
+# ══════════════════════════════════════════════════════════════════════════════
+# Centralized Topology with TorchDist Communication
+#
+# Traditional server-client federated learning topology structure.
+# One aggregator node coordinates multiple client nodes.
+# Uses PyTorch distributed backend for communication.
+#
+# ══════════════════════════════════════════════════════════════════════════════
+
+defaults:
+  - base
+  - _self_
+
+# NOTE: Check constructor signature for complete parameter list, defaults, types, and docs.
+_target_: src.flora.topology.CentralizedTopology
+
+# ─────────────────────────────────────────
+num_clients: ???
+
+# ─────────────────────────────────────────
+# Intra-Group Communication
+local_comm:
+  # NOTE: Check constructor signature for complete parameter list, defaults, types, and docs.
+  _target_: src.flora.communicator.TorchDistCommunicator
+  # backend: gloo            # CPU backend (default)
+  # backend: nccl            # GPU backend
+  # master_addr: "127.0.0.1" # Localhost for single-node setups
+  # master_port: 29500       # Default port
+  # timeout: 60              # Connection timeout

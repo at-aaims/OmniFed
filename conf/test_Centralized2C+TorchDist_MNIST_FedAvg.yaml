@@ -1,0 +1,41 @@
+# ══════════════════════════════════════════════════════════════════════════════
+# MNIST FedAvg Centralized Experiment with TorchDist Communication
+#
+# Complete configuration for MNIST experiments with FedAvg algorithm.
+# Uses centralized topology with 2 clients and TorchDist communication.
+# ══════════════════════════════════════════════════════════════════════════════
+
+defaults:
+  - base # Base framework configuration
+  - override topology: centralized_torchdist # Centralized FL topology with TorchDist
+  - override algorithm: fedavg # FedAvg algorithm
+  - override model: simple_cnn # Simple CNN for image classification
+  - override datamodule: mnist # MNIST dataset
+  - _self_ # Override with local settings
+
+# ─────────────────────────────────────────
+# Experiment Parameters
+
+global_rounds: 2
+
+# ─────────────────────────────────────────
+# Component Overrides
+
+topology:
+  num_clients: 2
+
+algorithm:
+  local_lr: 0.01
+  max_epochs_per_round: 2
+
+model:
+  backbone:
+    in_channels: 1 # MNIST grayscale images
+  head:
+    num_classes: 10 # 10 digit classes
+
+datamodule:
+  train:
+    batch_size: 16
+  eval:
+    batch_size: 16

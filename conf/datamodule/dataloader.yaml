@@ -1,35 +1,23 @@
 # ══════════════════════════════════════════════════════════════════════════════
-# Simple CNN Model Configuration
+# DataLoader Template
 #
-# Basic convolutional neural network for image classification.
-# Composable architecture with separate backbone and head components.
-# Configure input channels for your data and number of classes for your task.
+# Template for torch.utils.data.DataLoader configuration.
+# Used by DataModule configurations to ensure consistent structure.
 # ══════════════════════════════════════════════════════════════════════════════
 
-defaults:
-  - base
-  - _self_
-
 # NOTE: Check constructor signature for complete parameter list, defaults, types, and docs.
-_target_: src.flora.models.ComposableModel
+_target_: torch.utils.data.DataLoader
 
 # ─────────────────────────────────────────
-# Feature Extraction Backbone
+# Dataset Configuration
 # ─────────────────────────────────────────
-backbone:
-  # NOTE: Check constructor signature for complete parameter list, defaults, types, and docs.
-  _target_: src.flora.models.SimpleCNNBackbone
-  in_channels: ??? # Input channels: 1 for grayscale, 3 for RGB
-  hidden_channels: [32, 64] # Channel progression through conv layers
-  out_channels: 128 # Final feature channels for head input
-  kernel_sizes: 3 # Convolution kernel size (uniform)
-  paddings: 1 # Padding to preserve spatial dimensions
+dataset: ??? # Required: Dataset implementation (e.g., torchvision.datasets.MNIST)
 
 # ─────────────────────────────────────────
-# Classification Head
+# DataLoader Parameters
 # ─────────────────────────────────────────
-head:
-  # NOTE: Check constructor signature for complete parameter list, defaults, types, and docs.
-  _target_: src.flora.models.ClassificationHead
-  in_channels: 128 # Must match backbone output
-  num_classes: ??? # Number of target classes
+batch_size: ??? # Required: Batch size for training/evaluation
+shuffle: ??? # Required: Whether to shuffle data (true for train, false for eval)
+num_workers: 2 # Number of worker processes for data loading
+pin_memory: true # Pin memory for faster GPU transfer
+persistent_workers: true # Keep workers alive between epochs

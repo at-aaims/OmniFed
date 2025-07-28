@@ -1,13 +1,8 @@
 # ══════════════════════════════════════════════════════════════════════════════
-# FedBN Algorithm Configuration
+# Default Model Configuration
 #
-# Federated learning with Batch Normalization.
-# Keeps batch norm layers local, aggregates other parameters.
+# Base template for neural network models.
+# Must be a torch.nn.Module.
 # ══════════════════════════════════════════════════════════════════════════════
 
-defaults:
-    - base
-    - _self_
-
-# NOTE: Check constructor signature for complete parameter list, defaults, types, and docs.
-_target_: src.flora.algorithms.FedBN
+_target_: ??? # Model implementation class

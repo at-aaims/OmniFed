@@ -35,6 +35,7 @@ from .Node import Node, NodeSpec
 from .topology.BaseTopology import BaseTopology
 from .utils.MetricFormatter import MetricFormatter
 
+
 @rich.repr.auto
 class Engine(SetupMixin):
     """
@@ -132,6 +133,7 @@ class Engine(SetupMixin):
             _experiment_duration = _t_experiment_end - _t_experiment_start
 
             utils.log_sep("FL Experiment Complete", color="blue")
+            time.sleep(1)  # NOTE: allow logs to flush before displaying summary
 
             # ----------------------------------------------------------------
 
@@ -175,8 +177,8 @@ class Engine(SetupMixin):
                 final_round_results.append(round_metrics)
 
             # Use MetricFormatter for intelligent formatting with structured data
-            metric_stats_list = formatter.format_stats_structured(final_round_results)
-            metric_groups = formatter.group_structured_metrics(metric_stats_list)
+            metric_stats_list = formatter.format_stats(final_round_results)
+            metric_groups = formatter.group_metrics(metric_stats_list)
 
             # Create enhanced metrics table with better styling
             timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -358,7 +360,9 @@ class Engine(SetupMixin):
                         for round_idx in range(num_rounds):
                             # Add round value
                             if stats[round_idx] is not None:
-                                formatted_value = formatter.format(metric, stats[round_idx])
+                                formatted_value = formatter.format(
+                                    metric, stats[round_idx]
+                                )
                                 row_values.append(formatted_value)
                             else:
                                 row_values.append("-")

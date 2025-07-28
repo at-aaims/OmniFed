@@ -42,7 +42,7 @@ class TorchDistCommunicator(BaseCommunicator):
         init_method: str = "tcp",
         # group_name: str = "default",
         master_addr: str = "127.0.0.1",
-        master_port: str = "29500",
+        master_port: int = 29500,
         backend: str = "gloo",
         sharedfile: str = "sharedfile",
         timeout: int = 60,
@@ -58,7 +58,7 @@ class TorchDistCommunicator(BaseCommunicator):
         self.init_method: str = init_method
         # self.group_name = group_name
         self.master_addr: str = master_addr
-        self.master_port: str = master_port
+        self.master_port: int = master_port
         self.backend: str = backend
         self.sharedfile: str = sharedfile
         self.timeout: datetime.timedelta = datetime.timedelta(seconds=timeout)

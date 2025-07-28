@@ -5,5 +5,9 @@
 # Maintains control variables to correct for heterogeneous data distributions.
 # ══════════════════════════════════════════════════════════════════════════════
 
-_target_: src.flora.algorithms.Scaffold
+defaults:
+    - base
+    - _self_
 
+# NOTE: Check constructor signature for complete parameter list, defaults, types, and docs.
+_target_: src.flora.algorithms.Scaffold

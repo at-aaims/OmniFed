@@ -1,13 +1,8 @@
 # ══════════════════════════════════════════════════════════════════════════════
-# FedBN Algorithm Configuration
+# Default Topology Configuration
 #
-# Federated learning with Batch Normalization.
-# Keeps batch norm layers local, aggregates other parameters.
+# Base template for network topologies.
+# Must be a subclass of src.flora.topology.BaseTopology.
 # ══════════════════════════════════════════════════════════════════════════════
 
-defaults:
-    - base
-    - _self_
-
-# NOTE: Check constructor signature for complete parameter list, defaults, types, and docs.
-_target_: src.flora.algorithms.FedBN
+_target_: ??? # Topology implementation class

@@ -1,103 +1,24 @@
 # ══════════════════════════════════════════════════════════════════════════════
 # FLORA Base Configuration
 #
-# Foundation config for all FLORA experiments.
-# Child configs inherit this structure via defaults list.
-#
-# Usage: Add "- base" to your defaults list, then override what you need.
-# Architecture: algorithm + model + datamodule + topology + schedules
-#
-# Docs: https://hydra.cc/docs/patterns/extending_configs/
-#       https://hydra.cc/docs/advanced/defaults_list/
+# Base template with required components for federated learning experiments.
 # ══════════════════════════════════════════════════════════════════════════════
 
 defaults:
+  - topology: base
+  - algorithm: base
+  - model: base
+  - datamodule: base
+  - schedules: base
   - _self_
 
 # ─────────────────────────────────────────
-# Required Components (override in child configs)
+# Experiment Settings
 
-global_rounds: ??? # Number of FL rounds
-
-# -------------------
-# Topology
-
-topology:
-  _target_: ??? # Full dotpath to topology class
-
-# -------------------
-# Algorithm
-
-algorithm:
-  _target_: ??? # Full dotpath to algorithm class
-  local_lr: ??? # Learning rate for local training
-  max_epochs_per_round: ??? # Local epochs per FL round
-
-# -------------------
-# Model
-
-model:
-  _target_: ??? # Full dotpath to model class
-
-# -------------------
-# DataModule
-
-datamodule:
-  _target_: src.flora.data.DataModule
-  train:
-    _target_: torch.utils.data.DataLoader
-    batch_size: ??? # Training batch size
-  eval:
-    _target_: torch.utils.data.DataLoader
-    batch_size: ??? # Eval batch size
+global_rounds: ??? # Number of federated learning rounds to execute
 
 # ─────────────────────────────────────────
-# Schedules Configuration
-#
-# Controls when aggregation and evaluation happen.
-# Options: true/false, every: N, at: [X, Y], or combined patterns
-schedules:
-  _target_: src.flora.utils.ExecutionSchedules
-  aggregation:
-    _target_: src.flora.utils.AggregationTriggers
-    round_end: true # Aggregate every round (standard FL)
-    # round_end: false           # Never aggregate at round end
-    # round_end: null            # Explicitly disabled (same as false)
-    # round_end:                 # Custom frequency
-    #   every: 2                 # Every 2nd round
-    # round_end:                 # Specific milestones
-    #   at: [0, 5, 10]          # Only at rounds 0, 5, and 10
-
-    epoch_end: false
-    # epoch_end: true            # Every epoch
-    # epoch_end:                 # Custom patterns
-    #   every: 3                 # Every 3rd epoch
-    #   at: [1, 4]              # Also at epochs 1 and 4
-
-    batch_end: false
-    # batch_end:                 # High-frequency aggregation
-    #   every: 100               # Every 100 batches
-
-  evaluation:
-    _target_: src.flora.utils.EvaluationTriggers
-    experiment_start: true
-    # experiment_start: true     # Evaluate at experiment start
-
-    experiment_end: true
-    # experiment_end: true       # Evaluate at experiment end
-
-    pre_aggregation: false
-    # pre_aggregation: true      # Before every aggregation
-    # pre_aggregation:           # Selective evaluation
-    #   every: 2                 # Before every 2nd aggregation
-
-    post_aggregation: true # Evaluate after every aggregation
-    # post_aggregation: false
-    # post_aggregation:          # Custom evaluation schedule
-    #   at: [0, 1, 5]           # After 1st, 2nd, and 6th aggregations
-
-# ─────────────────────────────────────────
-# Hydra Config
+# Hydra Configuration
 # Docs:
 # - https://hydra.cc/docs/configure_hydra/intro/
 # - https://hydra.cc/docs/configure_hydra/job/
