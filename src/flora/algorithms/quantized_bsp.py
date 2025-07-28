@@ -94,52 +94,100 @@ class QuantizedBSPTraining:
             quantized_grads = {}
             compression_time = 0.0
             compress_sync_time = 0.0
+            # if self.compression.__class__.__name__ == "QSGDCompression":
+            #     # perform gradient quantization here
+            #     with torch.no_grad():
+            #         for name, param in self.model.named_parameters():
+            #             init_time = perf_counter_ns()
+            #             quant_min, quant_max = self.compression.get_compress_minmax(
+            #                 tensor=param.grad
+            #             )
+            #             compression_time += (
+            #                 perf_counter_ns() - init_time
+            #             ) / nanosec_to_millisec
+            #             sync_init = perf_counter_ns()
+            #             quant_min, quant_max = self.communicator.quantized_minmaxval(
+            #                 min_val=quant_min, max_val=quant_max
+            #             )
+            #             compress_sync_time += (
+            #                 perf_counter_ns() - sync_init
+            #             ) / nanosec_to_millisec
+            #             init_time = perf_counter_ns()
+            #             quantized_grads[name], _ = self.compression.compress(
+            #                 tensor=param.grad, name=name, min_val=quant_min, max_val=quant_max
+            #             )
+            #             compression_time += (
+            #                 perf_counter_ns() - init_time
+            #             ) / nanosec_to_millisec
+            #
+            #     sync_init = perf_counter_ns()
+            #     quantized_grads = self.communicator.quantized_aggregate(
+            #         quantized_dict=quantized_grads, compute_mean=True
+            #     )
+            #     compress_sync_time += (
+            #         perf_counter_ns() - sync_init
+            #     ) / nanosec_to_millisec
+            #
+            #     init_time = perf_counter_ns()
+            #     for (name, param), (q_name, quantized_grad) in zip(
+            #         self.model.named_parameters(), quantized_grads.items()
+            #     ):
+            #         assert name == q_name, f"Parameter mismatch: {name} vs {q_name}"
+            #
+            #         ctx = quant_min, quant_max, quantized_grad.shape
+            #         param.grad = self.compression.decompress(tensor=quantized_grad, ctx=ctx)
+            #
+            #     compression_time += (
+            #         perf_counter_ns() - init_time
+            #     ) / nanosec_to_millisec
+
             if self.compression.__class__.__name__ == "QSGDCompression":
-                # perform gradient quantization here
+                # Perform layer-wise gradient quantization
                 with torch.no_grad():
+                    quantized_grads = {}
+                    param_contexts = {}
+
                     for name, param in self.model.named_parameters():
-                        init_time = perf_counter_ns()
-                        quant_min, quant_max = self.compression.get_compress_minmax(
-                            tensor=param.grad
-                        )
-                        compression_time += (
-                            perf_counter_ns() - init_time
-                        ) / nanosec_to_millisec
-                        sync_init = perf_counter_ns()
-                        quant_min, quant_max = self.communicator.quantized_minmaxval(
-                            min_val=quant_min, max_val=quant_max
-                        )
-                        compress_sync_time += (
-                            perf_counter_ns() - sync_init
-                        ) / nanosec_to_millisec
-                        init_time = perf_counter_ns()
-                        quantized_grads[name], _ = self.compression.compress(
-                            tensor=param.grad, name=name, min_val=quant_min, max_val=quant_max
-                        )
-                        compression_time += (
-                            perf_counter_ns() - init_time
-                        ) / nanosec_to_millisec
+                        if param.grad is not None:
+                            init_time = perf_counter_ns()
 
-                sync_init = perf_counter_ns()
-                quantized_grads = self.communicator.quantized_aggregate(
-                    quantized_dict=quantized_grads, compute_mean=True
-                )
-                compress_sync_time += (
-                    perf_counter_ns() - sync_init
-                ) / nanosec_to_millisec
+                            # Get min/max for THIS specific parameter tensor
+                            quant_min, quant_max = self.compression.get_compress_minmax(param.grad)
 
-                init_time = perf_counter_ns()
-                for (name, param), (q_name, quantized_grad) in zip(
-                    self.model.named_parameters(), quantized_grads.items()
-                ):
-                    assert name == q_name, f"Parameter mismatch: {name} vs {q_name}"
+                            compression_time += (perf_counter_ns() - init_time) / nanosec_to_millisec
 
-                    ctx = quant_min, quant_max, quantized_grad.shape
-                    param.grad = self.compression.decompress(tensor=quantized_grad, ctx=ctx)
+                            # OPTION 1: Per-parameter quantization (recommended)
+                            # Compress with parameter-specific min/max
+                            quantized_grads[name], param_contexts[name] = self.compression.compress(
+                                tensor=param.grad, name=name, min_val=quant_min, max_val=quant_max
+                            )
 
-                compression_time += (
-                    perf_counter_ns() - init_time
-                ) / nanosec_to_millisec
+                            # OPTION 2: If you must use global min/max, collect all first:
+                            # Store min/max for later global synchronization
+                            # local_mins[name] = quant_min
+                            # local_maxs[name] = quant_max
+
+                    # Aggregate quantized gradients
+                    sync_init = perf_counter_ns()
+
+                    # For per-parameter approach
+                    quantized_grads = self.communicator.quantized_aggregate(
+                        quantized_dict=quantized_grads, compute_mean=True
+                    )
+
+                    compress_sync_time += (perf_counter_ns() - sync_init) / nanosec_to_millisec
+
+                    # Decompress gradients
+                    init_time = perf_counter_ns()
+                    for name, param in self.model.named_parameters():
+                        if param.grad is not None and name in quantized_grads:
+                            # Use the stored context for this parameter
+                            param.grad = self.compression.decompress(
+                                tensor=quantized_grads[name],
+                                ctx=param_contexts[name]
+                            )
+
+                    compression_time += (perf_counter_ns() - init_time) / nanosec_to_millisec
 
             elif self.compression.__class__.__name__ == "AMPCompression":
                 with torch.no_grad():
@@ -172,6 +220,7 @@ class QuantizedBSPTraining:
                 ) / nanosec_to_millisec
 
                 self.model = self.compression.gradient_unscaling(model=self.model)
+                logging.info(f"model did gradient unscaling!!!")
 
             self.optimizer.step()
             self.optimizer.zero_grad()
