@@ -14,57 +14,99 @@
 
 import torch
 
-from src.flora.compression import Compression
-
-# TODO: check loss scaling is correctly applied in AMPCompression for mixed-precision training
+from src.flora.compression import Compression, ResidualUpdates
 
 
 class QSGDCompression(Compression):
-    """Implementation of quantized SGD or QSGD lossy quantization-based compression"""
+    """Implementation of quantized SGD or QSGD lossy quantization-based compression with error feedback"""
 
     def __init__(self, device, bit_width):
         super().__init__()
         self.device = device
         self.bit_width = bit_width
-        self.scale = (2**self.bit_width) - 1
+        self.scale = (2 ** self.bit_width) - 1
+        self.residual = ResidualUpdates()  # Add error feedback
 
     def get_compress_minmax(self, tensor):
         tensor = tensor.to(self.device)
         min_val, max_val = tensor.min(), tensor.max()
-
         return min_val, max_val
 
-    def compress(self, tensor, min_val, max_val):
+    def compress(self, tensor, name, min_val=None, max_val=None):
         tensor = tensor.to(self.device)
-        # Scale the tensor to [0, scale]
-        tensor = (tensor - min_val) / (max_val - min_val) * self.scale
-        # Round and clamp to [0, scale]
-        tensor = torch.round(tensor).clamp(0, self.scale)
 
-        # return quantized tensor, min and max val for communication.
-        # In MPI, call allreduce on first, and allgather on latter two
-        return tensor
+        # Apply error feedback compensation
+        tensor = self.residual.compensate(tensor, name)
 
-    def decompress(self, tensor, max_val, min_val):
+        # Get min/max if not provided
+        if min_val is None or max_val is None:
+            min_val, max_val = self.get_compress_minmax(tensor)
+
+        # Store original for residual calculation
+        original_tensor = tensor.clone()
+
+        # Avoid division by zero
+        if max_val == min_val:
+            quantized_tensor = torch.zeros_like(tensor)
+        else:
+            # Scale the tensor to [0, scale]
+            scaled_tensor = (tensor - min_val) / (max_val - min_val) * self.scale
+            # Round and clamp to [0, scale]
+            quantized_tensor = torch.round(scaled_tensor).clamp(0, self.scale)
+
+        # Create context for decompression
+        ctx = (min_val, max_val, tensor.shape)
+
+        # Update residuals with quantization error
+        self.residual.update(original_tensor, name, self, quantized_tensor, ctx)
+
+        return quantized_tensor, ctx
+
+    def decompress(self, tensor, ctx):
+        min_val, max_val, shape = ctx
+
+        # Avoid division by zero
+        if max_val == min_val:
+            return torch.full(shape, min_val.item(), dtype=torch.float32, device=self.device)
+
         # Transform tensors back to its original range
-        return min_val + (tensor.float() / self.scale) * (max_val - min_val)
+        decompressed = min_val + (tensor.float() / self.scale) * (max_val - min_val)
+        return decompressed.view(shape)
 
 
 class AMPCompression(Compression):
-    """Implementation of Automatic Mixed-Precision (AMP) training, where gradients are compressed to 16-bit"""
+    """Implementation of Automatic Mixed-Precision (AMP) training with error feedback"""
 
     def __init__(self, device):
         super().__init__()
         self.device = device
-        self.loss_scale_factor = (2**16) - 1
+        self.loss_scale_factor = (2 ** 16) - 1
+        self.residual = ResidualUpdates()  # Add error feedback
 
-    def compress(self, tensor):
+    def compress(self, tensor, name):
+        tensor = tensor.to(self.device)
+
+        # Apply error feedback compensation
+        tensor = self.residual.compensate(tensor, name)
+
+        # Store original for residual calculation
+        original_tensor = tensor.clone()
+
         # Convert tensors to 16-bit
-        return tensor.to(self.device).half()
+        compressed_tensor = tensor.half()
 
-    def decompress(self, tensor):
+        # Create context for decompression
+        ctx = tensor.shape
+
+        # Update residuals with precision loss error
+        self.residual.update(original_tensor, name, self, compressed_tensor, ctx)
+
+        return compressed_tensor, ctx
+
+    def decompress(self, tensor, ctx):
+        shape = ctx
         # Convert tensors back to 32-bit
-        return tensor.float()
+        return tensor.float().view(shape)
 
     def loss_scaling(self, loss):
         return loss * self.loss_scale_factor
@@ -74,7 +116,6 @@ class AMPCompression(Compression):
             for p in model.parameters():
                 if p.grad is not None:
                     p.grad.data /= self.loss_scale_factor
-
             return model
         else:
             raise TypeError(

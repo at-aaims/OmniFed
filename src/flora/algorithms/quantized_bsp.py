@@ -17,6 +17,7 @@ from time import perf_counter_ns
 
 import torch
 
+# from src.flora.compression.quantization_noEF import QSGDCompression
 from src.flora.compression.quantization import QSGDCompression
 from src.flora.communicator.torch_mpi import TorchMPICommunicator
 from src.flora.helper.node_config import NodeConfig
@@ -112,8 +113,8 @@ class QuantizedBSPTraining:
                             perf_counter_ns() - sync_init
                         ) / nanosec_to_millisec
                         init_time = perf_counter_ns()
-                        quantized_grads[name] = self.compression.compress(
-                            tensor=param.grad, min_val=quant_min, max_val=quant_max
+                        quantized_grads[name], _ = self.compression.compress(
+                            tensor=param.grad, name=name, min_val=quant_min, max_val=quant_max
                         )
                         compression_time += (
                             perf_counter_ns() - init_time
@@ -132,9 +133,9 @@ class QuantizedBSPTraining:
                     self.model.named_parameters(), quantized_grads.items()
                 ):
                     assert name == q_name, f"Parameter mismatch: {name} vs {q_name}"
-                    param.grad = self.compression.decompress(
-                        tensor=quantized_grad, min_val=quant_min, max_val=quant_max
-                    )
+
+                    ctx = quant_min, quant_max, quantized_grad.shape
+                    param.grad = self.compression.decompress(tensor=quantized_grad, ctx=ctx)
 
                 compression_time += (
                     perf_counter_ns() - init_time
@@ -145,8 +146,7 @@ class QuantizedBSPTraining:
                     init_time = perf_counter_ns()
                     for name, param in self.model.named_parameters():
                         quantized_grads[name] = self.compression.compress(
-                            tensor=param.grad
-                        )
+                            tensor=param.grad, name=name)
 
                     compression_time += (
                         perf_counter_ns() - init_time
@@ -165,7 +165,7 @@ class QuantizedBSPTraining:
                     self.model.named_parameters(), quantized_grads.items()
                 ):
                     assert name == q_name, f"Parameter mismatch: {name} vs {q_name}"
-                    param.grad = self.compression.decompress(tensor=quantized_grad)
+                    param.grad = self.compression.decompress(tensor=quantized_grad, ctx=quantized_grad.shape)
 
                 compression_time += (
                     perf_counter_ns() - init_time

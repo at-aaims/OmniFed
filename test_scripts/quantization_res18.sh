@@ -6,26 +6,28 @@ cd ../
 # kill -9 $(ps aux | grep src.flora.test.launch_quantization | grep -v grep | awk '{print $2}')
 
 #dir='/Users/ssq/Desktop/datasets/flora_test/'
-#worldsize=3
+#worldsize=2
 #interface='lo0'
 #masterport=28670
 
-#dir='/ccsopen/home/ssq/datasets/'
-#masterport=25783
-dir='/ccsopen/home/ssq/datasets2/'
-masterport=29277
+dir='/ccsopen/home/ssq/datasets/'
+masterport=28360
+#dir='/ccsopen/home/ssq/datasets2/'
+#masterport=29277
 #dir='/ccsopen/home/ssq/datasets3/'
 #masterport=28139
 #dir='/ccsopen/home/ssq/datasets4/'
 #masterport=26290
+
 worldsize=8
 interface='eth1'
+
 bsz=32
 masteraddr='127.0.0.1'
 backend='gloo'
 model='resnet18'
 dataset='cifar10'
-compression='AMP'
+compression='QSGD'
 bitwidth=8
 
 for val in $(seq 1 $worldsize)

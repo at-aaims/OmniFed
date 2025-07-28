@@ -245,11 +245,13 @@ class SecureAggregation:
 
                     # # Create a boolean tensor where True indicates scaled_grad is negative
                     condition = scaled_grad < 0
+                    condition = condition.to(self.device)
                     # Calculate the modulus for negative and non-negative values separately
-                    negative_mod = (torch.remainder(scaled_grad, self.modulus_q) + self.modulus_q) % self.modulus_q
-                    positive_mod = torch.remainder(scaled_grad, self.modulus_q)
+                    negative_mod = (torch.remainder(scaled_grad, self.modulus_q).to(self.device) + self.modulus_q) % self.modulus_q
+                    positive_mod = torch.remainder(scaled_grad, self.modulus_q).to(self.device)
                     # Use torch.where to choose between the two results based on the condition
-                    scaled_grad = torch.where(condition, negative_mod, positive_mod)
+                    scaled_grad = torch.where(condition, negative_mod, positive_mod).to(self.device)
+                    masked_grad[name] = scaled_grad
 
                     # currently computed at every iteration, move later to run ONLY ONCE!
                     mask = self.generate_mask(
