@@ -289,7 +289,7 @@ class SecureAggregation:
                 f"training_metrics local_step: {self.local_step} epoch {epoch} compute_time {compute_time} ms "
                 f"sec_agg_mask_time {sec_agg_mask_time} ms sync_time {sync_time} ms itr_time: {itr_time} ms"
             )
-            del duplicate_model
+            # del duplicate_model
 
         epoch_time = (perf_counter_ns() - epoch_strt) / nanosec_to_millisec
         logging.info(f"epoch completion time for epoch {epoch} is {epoch_time} ms")
