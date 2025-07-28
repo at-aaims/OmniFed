@@ -142,7 +142,8 @@ class QuantizedBSPTraining:
             #         perf_counter_ns() - init_time
             #     ) / nanosec_to_millisec
 
-            if self.compression.__class__.__name__ == "QSGDCompression":
+            # if self.compression.__class__.__name__ == "QSGDCompression":
+            if self.compression.__class__.__name__ == "QSGDCompressionDebug":
                 # Perform layer-wise gradient quantization
                 with torch.no_grad():
                     quantized_grads = {}
