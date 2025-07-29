@@ -19,8 +19,9 @@ from src.flora.test import get_model
 from src.flora.communicator import torch_mpi
 from src.flora.helper import training_params
 from src.flora.datasets.image_classification import cifar, caltech
+# from src.flora.compression.quantization_OLD import QSGDQuantCompression
 from src.flora.compression.quantization import QSGDQuantCompression
-from src.flora.compression.qsgd_compresstrain import QSGDCompressTraining
+from src.flora.compression.qsgd_compresstrain_OLD import QSGDCompressTraining
 
 
 class QuantizedCompressionTraining:
