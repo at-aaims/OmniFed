@@ -88,7 +88,7 @@ class QSGDCompressTraining:
             compress_init = perf_counter_ns()
             compress_time, compress_sync_time = None, None
             if self.compression.__class__.__name__ == "QSGDQuantCompression":
-                logging.info(f"compression class QSGDQuantCompression!!!")
+                # logging.info(f"compression class QSGDQuantCompression!!!")
                 gradients = [p.grad for p in self.model.parameters() if p.requires_grad]
                 # Quantize gradients locally
                 quantized_data = self.compression.compress(gradients=gradients)
