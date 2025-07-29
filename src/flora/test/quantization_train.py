@@ -10,22 +10,20 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import logging
 import socket
+import logging
 
 import torch
 
-from src.flora.communicator import torch_mpi
-from src.flora.helper.node_config import NodeConfig
-# from src.flora.compression import quantization_noEF
-from src.flora.compression import quantization_debug
 from src.flora.test import get_model
-from src.flora.datasets.image_classification import cifar, caltech
+from src.flora.communicator import torch_mpi
 from src.flora.helper import training_params
-from src.flora.algorithms.quantized_bsp import QuantizedBSPTraining
+from src.flora.datasets.image_classification import cifar, caltech
+from src.flora.compression.quantization import QSGDQuantCompression
+from src.flora.compression.qsgd_compresstrain import QSGDCompressTraining
 
 
-class QuantizedCompressionTrainer(object):
+class QuantizedCompressionTraining:
     def __init__(self, args):
         self.args = args
         self.train_bsz = args.bsz
@@ -37,32 +35,25 @@ class QuantizedCompressionTrainer(object):
         self.backend = args.backend
         self.epochs = args.epochs
 
-        dev_id = NodeConfig().get_gpus() % self.world_size
-        device = torch.device(
+        # dev_id = NodeConfig().get_gpus() % self.world_size
+        dev_id = self.rank % 4
+        self.device = torch.device(
             "cuda:" + str(dev_id) if torch.cuda.is_available() else "cpu"
         )
         self.compression_type = args.compression_type
         self.quantized_bitwidth = args.quantized_bitwidth
         if self.compression_type == "QSGD":
-            # self.compression = quantization.QSGDCompression(
-            #     device=device, bit_width=self.quantized_bitwidth
-            # )
-            self.compression = quantization.QSGDCompressionDebug(
-                device=device, bit_width=self.quantized_bitwidth
-            )
-        elif self.compression_type == "AMP":
-            # automatic mixed-precision training with 16-bit floating point
-            self.compression = quantization.AMPCompression(device=device)
+            self.compression = QSGDQuantCompression(bit_width=args.quantized_bitwidth, device=self.device)
 
         logging.basicConfig(
             filename=self.logdir
-            + "/g"
-            + str(self.rank)
-            + "/"
-            + self.model_name
-            + "-"
-            + str(self.rank)
-            + ".log",
+                     + "/g"
+                     + str(self.rank)
+                     + "/"
+                     + self.model_name
+                     + "-"
+                     + str(self.rank)
+                     + ".log",
             level=logging.INFO,
         )
         self.dataset_name = args.dataset
@@ -139,8 +130,10 @@ class QuantizedCompressionTrainer(object):
             comm_freq=1,
             lr_scheduler=self.lr_scheduler,
         )
-        self.trainer = QuantizedBSPTraining(
+
+        self.trainer = QSGDCompressTraining(
             model=self.model,
+            client_id=self.rank,
             train_data=self.train_dataloader,
             test_data=self.test_dataloader,
             communicator=self.communicator,

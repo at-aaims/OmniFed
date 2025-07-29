@@ -365,11 +365,15 @@ class TorchMPICommunicator(Communicator):
 
         return min_val, max_val
 
-    def quantized_aggregate(self, quantized_dict):
-        quantized_aggregate = {}
-        if isinstance(quantized_dict, Dict):
-            for key, val in quantized_dict.items():
-                dist.all_reduce(tensor=val, op=dist.ReduceOp.SUM)
-                quantized_aggregate[key] = val
+    # def quantized_aggregate(self, quantized_dict):
+    #     quantized_aggregate = {}
+    #     if isinstance(quantized_dict, Dict):
+    #         for key, val in quantized_dict.items():
+    #             dist.all_reduce(tensor=val, op=dist.ReduceOp.SUM)
+    #             quantized_aggregate[key] = val
+    #
+    #         return quantized_aggregate
 
-            return quantized_aggregate
+    def quantized_aggregate(self, msg, communicate_params=False, compute_mean=False):
+        dist.all_reduce(tensor=msg, op=dist.ReduceOp.SUM)
+        return msg

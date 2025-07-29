@@ -18,7 +18,7 @@ from time import perf_counter_ns
 import torch
 
 # from src.flora.compression.quantization_noEF import QSGDCompression
-from src.flora.compression.quantization import QSGDCompressionDebug
+from src.flora.compression.quantization_debug import QSGDCompressionDebug
 from src.flora.communicator.torch_mpi import TorchMPICommunicator
 from src.flora.helper.node_config import NodeConfig
 from src.flora.helper.training_params import FedAvgTrainingParameters

@@ -16,7 +16,8 @@ import argparse
 import os
 
 import src.flora.helper as helper
-from src.flora.test.quantization_training import QuantizedCompressionTrainer
+# from src.flora.test.quantization_training import QuantizedCompressionTrainer
+from src.flora.test.quantization_train import QuantizedCompressionTraining
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -60,4 +61,5 @@ if __name__ == "__main__":
         os.environ["GLOO_SOCKET_IFNAME"] = args.network_interface
 
     helper.set_seed(args.seed, determinism=False)
-    QuantizedCompressionTrainer(args=args).start()
+    # QuantizedCompressionTrainer(args=args).start()
+    QuantizedCompressionTraining(args=args).start()
