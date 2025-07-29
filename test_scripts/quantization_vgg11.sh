@@ -17,7 +17,6 @@ interface='eth1'
 
 bsz=32
 testbsz=32
-worldsize=3
 masteraddr='127.0.0.1'
 masterport=28670
 backend='Gloo'
@@ -27,8 +26,8 @@ momentum=0.9
 weightdecay=5e-4
 model='vgg11'
 dataset='cifar100'
-compression='AMP'
-bitwidth=8
+compression='QSGD'
+bitwidth=16
 
 for val in $(seq 1 $worldsize)
 do
