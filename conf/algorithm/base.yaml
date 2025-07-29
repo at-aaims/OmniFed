@@ -5,6 +5,9 @@
 # Must be a subclass of src.flora.algorithms.BaseAlgorithm.
 # ══════════════════════════════════════════════════════════════════════════════
 
+defaults:
+  - schedules: base
+
 _target_: ??? # Algorithm implementation class
 
 # ─────────────────────────────────────────

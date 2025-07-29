@@ -20,7 +20,7 @@ import torch
 from torch import nn
 
 from . import BaseCommunicator, grpc_communicator_pb2_grpc
-from .BaseCommunicator import ReductionType
+from .BaseCommunicator import AggregationOp
 from .grpc_client import GrpcClient
 from .grpc_server import CentralServerServicer
 from .utils import get_msg_info
@@ -29,10 +29,12 @@ from .utils import get_msg_info
 @rich.repr.auto
 class GrpcCommunicator(BaseCommunicator):
     """
-    Communicator implementation using gRPC client-server architecture.
+    gRPC-based communication backend with centralized coordination.
 
-    Rank 0 operates as server, higher ranks as clients. Provides broadcast
-    and aggregation operations via centralized message passing.
+    Uses client-server architecture where rank 0 acts as coordinator for
+    broadcast and aggregation operations.
+    Provides reliable communication across heterogeneous networks with
+    built-in retry and timeout handling.
     """
 
     def __init__(
@@ -42,69 +44,119 @@ class GrpcCommunicator(BaseCommunicator):
         master_addr: str = "127.0.0.1",
         master_port: int = 50051,
         max_workers: int = 10,
-        max_send_message_length: int = 100 * 1024 * 1024,  # 100 MB
-        max_receive_message_length: int = 100 * 1024 * 1024,  # 100 MB
-        aggregation_timeout: float = 600,  # Seconds for server to wait for all clients
-        client_timeout: float = 60,  # Seconds for clients to wait for aggregation result
-        retry_delay: float = 5.0,  # Seconds between retries
-        max_retries: int = 5,  # Maximum retry attempts
+        max_send_message_length: int = 104857600,  # 100 MB
+        max_receive_message_length: int = 104857600,  # 100 MB
+        aggregation_timeout: float = 600.0,
+        client_timeout: float = 60.0,
+        retry_delay: float = 5.0,
+        max_retries: int = 5,
         **kwargs,
-    ):
+    ) -> None:
+        """
+        Initialize gRPC-based federated learning communicator.
+
+        Args:
+            rank: Process rank (0 becomes server, others become clients)
+            world_size: Total number of participants in FL experiment
+            master_addr: gRPC server address (rank 0 listens here)
+            master_port: gRPC server port
+            max_workers: Thread pool size for gRPC server
+            max_send_message_length: Maximum outbound message size in bytes
+            max_receive_message_length: Maximum inbound message size in bytes
+            aggregation_timeout: Server timeout waiting for all clients (seconds)
+            client_timeout: Client timeout waiting for aggregation result (seconds)
+            retry_delay: Seconds between connection retry attempts
+            max_retries: Maximum connection retry attempts
+        """
         super().__init__()
         print(
             f"[COMM-INIT] rank={rank}/{world_size} | addr={master_addr}:{master_port}"
         )
 
+        # Core distributed parameters
         self.rank: int = rank
         self.world_size: int = world_size
-
         self.master_addr: str = master_addr
         self.master_port: int = master_port
 
-        # Configuration
+        # gRPC configuration
         self.max_workers = max_workers
         self.max_send_message_length = max_send_message_length
         self.max_receive_message_length = max_receive_message_length
 
+        # Timeout and retry settings
         self.aggregation_timeout = aggregation_timeout
         self.client_timeout = client_timeout
         self.retry_delay = retry_delay
         self.max_retries = max_retries
 
-        # Components
+        # Runtime components (initialized in _setup)
         self._server = None
         self._client = None
         self._servicer = None
 
     @property
     def client(self):
-        """gRPC client instance."""
+        """
+        gRPC client instance for non-server ranks.
+
+        Returns:
+            GrpcClient instance for communication with server
+
+        Raises:
+            RuntimeError: If accessed before setup() or on server rank
+        """
         if self._client is None:
             raise RuntimeError("gRPC client not initialized. Call setup() first.")
         return self._client
 
     @property
     def server(self):
-        """gRPC server instance."""
+        """
+        gRPC server instance for rank 0.
+
+        Returns:
+            grpc.Server instance handling client connections
+
+        Raises:
+            RuntimeError: If accessed before setup() or on client rank
+        """
         if self._server is None:
             raise RuntimeError("gRPC server not initialized. Call setup() first.")
         return self._server
 
     @property
     def servicer(self):
-        """gRPC servicer instance."""
+        """
+        gRPC servicer instance containing FL coordination logic.
+
+        Returns:
+            CentralServerServicer managing aggregation and broadcast state
+
+        Raises:
+            RuntimeError: If accessed before setup() or on client rank
+        """
         if self._servicer is None:
             raise RuntimeError("gRPC servicer not initialized. Call setup() first.")
         return self._servicer
 
     @property
     def is_server(self) -> bool:
-        """True if rank 0 (server)."""
+        """
+        True if this rank acts as the central gRPC server.
+
+        Returns:
+            True for rank 0, False for all other ranks
+        """
         return self.rank == 0
 
     def _setup(self):
-        """Initialize gRPC server or client based on rank."""
-        # Setup - Ray already logs actor initialization
+        """
+        Initialize gRPC server (rank 0) or client (other ranks).
+
+        Server setup: Creates gRPC server, servicer, and starts listening
+        Client setup: Creates gRPC client and connects to server
+        """
         if self.is_server:
             self._server = grpc.server(
                 futures.ThreadPoolExecutor(max_workers=self.max_workers),
@@ -123,7 +175,7 @@ class GrpcCommunicator(BaseCommunicator):
             )
 
             self._server.add_insecure_port(f"[::]:{self.master_port}")
-            print(f"[COMM-SETUP] Server listening | port {self.master_port}")
+            print(f"[COMM-SETUP] Server listening on port {self.master_port}")
             self._server.start()
         else:
             self._client = GrpcClient(
@@ -140,36 +192,71 @@ class GrpcCommunicator(BaseCommunicator):
     def broadcast(
         self,
         msg: BaseCommunicator.MsgT,
-        src: int = 0,  # NOTE: unused here
+        src: int = 0,
     ) -> BaseCommunicator.MsgT:
-        """Broadcast from source rank to all ranks."""
+        """
+        Broadcast message from server to all clients via gRPC.
+
+        Server (rank 0): Stores message in broadcast state for client retrieval
+        Clients: Retrieve broadcast state from server via polling
+
+        Args:
+            msg: Model, tensor dict, or tensor to broadcast
+            src: Source rank (unused in centralized gRPC - always rank 0)
+
+        Returns:
+            Broadcasted message with updated values
+        """
         if self.is_server:
+            # Server: Store broadcast state for client retrieval
             tensordict = self._extract_tensordict_from_msg(msg)
             print(f"[BCAST-SEND] {get_msg_info(msg)} | src={src}")
             self.servicer.set_broadcast_state(tensordict)
             return msg
-        tensordict = self.client.get_broadcast_state()
-        print(f"[BCAST-RECV] {get_msg_info(msg)} | src={src}")
-        return self._apply_tensordict_to_msg(msg, tensordict)
+        else:
+            # Client: Retrieve broadcast state from server
+            tensordict = self.client.get_broadcast_state()
+            print(f"[BCAST-RECV] {get_msg_info(msg)} | src={src}")
+            return self._apply_tensordict_to_msg(msg, tensordict)
 
     def aggregate(
         self,
         msg: BaseCommunicator.MsgT,
-        reduction: ReductionType,
+        reduction: AggregationOp,
     ) -> BaseCommunicator.MsgT:
-        """Aggregate across all ranks via central server."""
-        # Extract tensors and perform aggregation
-        tensordict = self._extract_tensordict_from_msg(msg)
+        """
+        Aggregate message across all ranks via central gRPC server.
 
+        All ranks submit their data to the server, which performs aggregation
+        when all participants have contributed, then distributes results.
+
+        Args:
+            msg: Model, tensor dict, or tensor to aggregate
+            reduction: SUM, MEAN, or MAX aggregation operation
+
+        Returns:
+            Aggregated message with combined values from all ranks
+        """
+        # Extract tensors and perform distributed aggregation
+        tensordict = self._extract_tensordict_from_msg(msg)
         print(f"[COMM-AGG] {get_msg_info(msg)} | reduction={reduction}")
 
+        # Perform aggregation via gRPC protocol
         aggregated_tensordict = self._grpc_aggregate(tensordict, reduction)
 
-        # Apply result back to original message format
+        # Apply aggregated results back to original message format
         return self._apply_tensordict_to_msg(msg, aggregated_tensordict)
 
     def _extract_tensordict_from_msg(self, msg: BaseCommunicator.MsgT) -> dict:
-        """Convert message to tensor dictionary."""
+        """
+        Extract tensors from message for gRPC serialization.
+
+        Args:
+            msg: Model, tensor dict, or single tensor
+
+        Returns:
+            Dictionary mapping parameter names to tensor values
+        """
         if isinstance(msg, nn.Module):
             return {
                 name: param.data
@@ -184,7 +271,16 @@ class GrpcCommunicator(BaseCommunicator):
     def _apply_tensordict_to_msg(
         self, msg: BaseCommunicator.MsgT, tensordict: dict
     ) -> BaseCommunicator.MsgT:
-        """Apply tensor dictionary to message."""
+        """
+        Apply deserialized tensors back to original message format.
+
+        Args:
+            msg: Original message providing structure and device info
+            tensordict: Deserialized tensors from gRPC
+
+        Returns:
+            Message with updated tensor values and proper device placement
+        """
         if isinstance(msg, nn.Module):
             with torch.no_grad():
                 for name, param in msg.named_parameters():
@@ -198,8 +294,20 @@ class GrpcCommunicator(BaseCommunicator):
         else:
             return tensordict.get("tensor", msg)
 
-    def _grpc_aggregate(self, tensordict: dict, reduction: ReductionType) -> dict:
-        """Submit tensors for aggregation and retrieve result."""
+    def _grpc_aggregate(self, tensordict: dict, reduction: AggregationOp) -> dict:
+        """
+        Perform distributed aggregation via gRPC protocol.
+
+        Server: Submits data to local session and waits for aggregation
+        Clients: Submit data to server and retrieve aggregated result
+
+        Args:
+            tensordict: Local tensors to contribute
+            reduction: Aggregation operation type
+
+        Returns:
+            Aggregated tensor dictionary
+        """
         if self.is_server:
             current_session = self._submit_server_data(tensordict, reduction)
             return self._wait_for_aggregation_result(current_session)
@@ -207,8 +315,17 @@ class GrpcCommunicator(BaseCommunicator):
             self.client.submit_for_aggregation(tensordict, reduction)
             return self.client.get_aggregation_result()
 
-    def _submit_server_data(self, tensordict: dict, reduction: ReductionType) -> int:
-        """Submit server data to aggregation session."""
+    def _submit_server_data(self, tensordict: dict, reduction: AggregationOp) -> int:
+        """
+        Submit server's local data to current aggregation session.
+
+        Args:
+            tensordict: Server's local tensors
+            reduction: Aggregation operation type
+
+        Returns:
+            Session ID for tracking aggregation progress
+        """
         with self.servicer.lock:
             current_session = self.servicer.current_aggregation_session
             session_state = self.servicer.aggregation_state[current_session]
@@ -236,7 +353,18 @@ class GrpcCommunicator(BaseCommunicator):
             return current_session
 
     def _wait_for_aggregation_result(self, session_id: int) -> dict:
-        """Wait for aggregation completion and return result."""
+        """
+        Wait for aggregation to complete and return aggregated tensors.
+
+        Args:
+            session_id: Aggregation session identifier
+
+        Returns:
+            Aggregated tensor dictionary
+
+        Raises:
+            RuntimeError: If aggregation times out or fails
+        """
         session_state = self.servicer.aggregation_state[session_id]
 
         print(f"[COMM-AGG] Server wait | session={session_id}")
@@ -253,7 +381,12 @@ class GrpcCommunicator(BaseCommunicator):
         return session_state["result"]
 
     def close(self):
-        """Clean up gRPC resources."""
+        """
+        Clean up gRPC resources and close connections.
+
+        Gracefully shuts down server (rank 0) or closes client connections.
+        Should be called when communication is no longer needed.
+        """
         print("[COMM-CLOSE]")
         if self._server is not None:
             self._server.stop(grace=15)

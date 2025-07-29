@@ -19,7 +19,7 @@ import rich.repr
 import torch
 import torch.nn as nn
 
-from ..communicator import ReductionType
+from ..communicator import AggregationOp
 from .BaseAlgorithm import BaseAlgorithm
 
 # ======================================================================================
@@ -40,11 +40,11 @@ class FedMom(BaseAlgorithm):
         super().__init__(**kwargs)
         self.momentum = momentum
 
-    def _setup(self, device: torch.device) -> None:
+    def _setup(self, *args, **kwargs) -> None:
         """
         FedMom-specific setup: initialize global model and velocity buffers.
         """
-        super()._setup(device=device)
+        super()._setup(*args, **kwargs)
         # Deep-copy retains requires_grad state from local_model
         self.global_model = copy.deepcopy(self.local_model)
         # Global model is reference-only, disable gradients and set eval mode
@@ -65,7 +65,7 @@ class FedMom(BaseAlgorithm):
         """
         return torch.optim.SGD(self.local_model.parameters(), lr=local_lr)
 
-    def _batch_compute(
+    def _compute_loss(
         self,
         batch: Any,
     ) -> Tuple[torch.Tensor, int]:
@@ -93,12 +93,12 @@ class FedMom(BaseAlgorithm):
 
         # Aggregate local sample counts to compute federation total
         global_samples = self.local_comm.aggregate(
-            torch.tensor([self.summary.num_samples_trained], dtype=torch.float32),
-            reduction=ReductionType.SUM,
+            torch.tensor([self.metrics.num_samples_trained], dtype=torch.float32),
+            reduction=AggregationOp.SUM,
         ).item()
 
         # Calculate this client's data proportion for weighted aggregation
-        data_proportion = self.summary.num_samples_trained / max(global_samples, 1)
+        data_proportion = self.metrics.num_samples_trained / max(global_samples, 1)
 
         # Scale local deltas by data proportion
         for param_name in local_deltas:
@@ -107,7 +107,7 @@ class FedMom(BaseAlgorithm):
         # Aggregate scaled deltas
         aggregated_deltas = self.local_comm.aggregate(
             local_deltas,
-            reduction=ReductionType.SUM,
+            reduction=AggregationOp.SUM,
         )
 
         # Apply server-side momentum to aggregated deltas

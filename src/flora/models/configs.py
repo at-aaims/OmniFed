@@ -12,6 +12,22 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from .BaseCommunicator import BaseCommunicator, AggregationOp
-from .TorchDistCommunicator import TorchDistCommunicator
-from .grpc_communicator import GrpcCommunicator
+from dataclasses import dataclass
+from omegaconf import MISSING
+
+
+@dataclass
+class ModelConfig:
+    """
+    Base structured config for PyTorch neural network models.
+    
+    The _target_ must point to a torch.nn.Module subclass that can be instantiated
+    by Hydra. Model-specific parameters are added through config inheritance.
+    
+    Examples:
+    - ComposableModel (backbone + head architecture)
+    - Pre-trained models (ResNet, EfficientNet, etc.)
+    - Custom neural networks
+    """
+    
+    _target_: str = MISSING  # Must be torch.nn.Module subclass path

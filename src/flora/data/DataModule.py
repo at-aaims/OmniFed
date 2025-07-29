@@ -13,19 +13,24 @@
 # limitations under the License.
 
 from typing import Any, Optional
-import rich
-from torch.utils.data import DataLoader
-import rich.repr
-from typeguard import typechecked
 
-# ======================================================================================
+import rich.repr
+from torch.utils.data import DataLoader
+from typeguard import typechecked
 
 
 @rich.repr.auto
 class DataModule:
     """
-    Base class for data modules in FLORA.
-    This class encapsulates the training and evaluation DataLoaders.
+    Data loading container for federated learning experiments.
+
+    Encapsulates training and evaluation DataLoaders for a single node.
+    Provides consistent interface for algorithm access to local data.
+
+    Typically created by Hydra configuration and passed to Node constructors.
+    Algorithms access data via node.datamodule.train and node.datamodule.eval.
+
+    See conf/datamodule/ for configuration examples.
     """
 
     @typechecked
@@ -35,39 +40,13 @@ class DataModule:
         eval: Optional[DataLoader[Any]] = None,
     ):
         """
-        Initializes the DataModule with train and evaluation DataLoaders.
+        Initialize data module with PyTorch DataLoaders.
 
-        :param train: DataLoader for training data
-        :param eval: DataLoader for evaluation data
+        Args:
+            train: DataLoader for training data (local to this node)
+            eval: DataLoader for evaluation data (local to this node)
         """
         print("[DATAMODULE-INIT]")
 
         self.train: Optional[DataLoader[Any]] = train
         self.eval: Optional[DataLoader[Any]] = eval
-
-        # if self.train is None:
-        #     print("NOTE: Training DataLoader is not provided.")
-        # if self.eval is None:
-        #     print("NOTE: Evaluation DataLoader is not provided.")
-
-        # ---
-
-    # def __str__(self) -> str:
-    #     """
-    #     Returns a compact, single-line string representation of the DataModule.
-    #     """
-
-    #     def loader_info(name, loader):
-    #         if loader is not None:
-    #             num_samples = len(loader.dataset) if hasattr(loader, "dataset") else "?"
-    #             batch_size = loader.batch_size if hasattr(loader, "batch_size") else "?"
-    #             return f"{name}: {num_samples} samples, batch_size={batch_size}"
-    #         else:
-    #             return f"{name}: None"
-
-    #     return (
-    #         f"{self.__class__.__name__}("
-    #         f"{loader_info('train', self.train)} | "
-    #         f"{loader_info('eval', self.eval)} | "
-    #         f"{loader_info('test', self.test)})"
-    #     )

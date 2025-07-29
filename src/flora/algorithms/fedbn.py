@@ -19,7 +19,7 @@ import torch
 import torch.nn as nn
 
 
-from ..communicator import ReductionType
+from ..communicator import AggregationOp
 from . import utils
 from .BaseAlgorithm import BaseAlgorithm
 
@@ -43,7 +43,7 @@ class FedBN(BaseAlgorithm):
         """
         return torch.optim.SGD(self.local_model.parameters(), lr=local_lr)
 
-    def _batch_compute(self, batch: Any) -> tuple[torch.Tensor, int]:
+    def _compute_loss(self, batch: Any) -> tuple[torch.Tensor, int]:
         """
         Perform a forward pass and compute the loss for a single batch.
         """
@@ -67,12 +67,12 @@ class FedBN(BaseAlgorithm):
 
         # Aggregate local sample counts to compute federation total
         global_samples = self.local_comm.aggregate(
-            torch.tensor([self.summary.num_samples_trained], dtype=torch.float32),
-            reduction=ReductionType.SUM,
+            torch.tensor([self.metrics.num_samples_trained], dtype=torch.float32),
+            reduction=AggregationOp.SUM,
         ).item()
 
         # Calculate this client's data proportion for weighted aggregation
-        data_proportion = self.summary.num_samples_trained / max(global_samples, 1)
+        data_proportion = self.metrics.num_samples_trained / max(global_samples, 1)
 
         # Scale only non-BN parameters by data proportion (all nodes participate)
         utils.scale_params(
@@ -84,7 +84,7 @@ class FedBN(BaseAlgorithm):
         # Aggregate non-BN parameters
         aggregated_model = self.local_comm.aggregate(
             self.local_model,
-            reduction=ReductionType.SUM,
+            reduction=AggregationOp.SUM,
         )
 
         # Restore local BN parameters

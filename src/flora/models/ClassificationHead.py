@@ -25,11 +25,13 @@ from .ComposableModel import BaseHead
 
 class ClassificationHead(BaseHead):
     """
-    Classification head that converts features to class predictions.
+    Classification head for converting spatial features to class logits.
 
-    - Optional feature transform layers (1x1 convs)
-    - Global pooling to convert spatial features to vectors
-    - Final projection to class logits
+    Processes backbone features through optional transformation layers,
+    applies global pooling to create fixed-size vectors, then projects
+    to final class predictions.
+
+    Architecture: features → [transforms] → global_pool → classifier → logits
     """
 
     def __init__(
@@ -45,12 +47,12 @@ class ClassificationHead(BaseHead):
         Initialize classification head.
 
         Args:
-            in_channels: Number of input channels from the backbone
-            num_classes: Number of output classes
-            feature_layers: List of feature transform layer sizes
-            norm_layer: Optional normalization to apply after convolutions
-            activation_layer: Activation function to use
-            dropout_rate: Dropout rate for feature layers
+            in_channels: Input channels from backbone
+            num_classes: Number of classification classes
+            feature_layers: Optional intermediate layer sizes (1x1 convs)
+            norm_layer: Normalization factory (applied after convs)
+            activation_layer: Activation function factory
+            dropout_rate: Dropout probability for feature layers
         """
         super().__init__()
         self.__in_channels = in_channels
@@ -79,22 +81,29 @@ class ClassificationHead(BaseHead):
 
         self.feature_transform = nn.Sequential(*layers) if layers else nn.Identity()
 
-        # Classification output layer
-        self.classifier = nn.Conv2d(prev_channels, num_classes, kernel_size=1)
+        # Global average pooling (size-agnostic)
+        self.global_pool = nn.AdaptiveAvgPool2d(1)
+        
+        # Classification layer (linear instead of conv)
+        self.classifier = nn.Linear(prev_channels, num_classes)
 
     @property
     def in_channels(self) -> int:
+        """Input channels expected by this head."""
         return self.__in_channels
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        # Apply feature transform
+        """
+        Convert spatial features to class logits.
+
+        Args:
+            x: Feature tensor from backbone (B, C, H, W)
+
+        Returns:
+            Class logits (B, num_classes)
+        """
         x = self.feature_transform(x)
-
-        # Apply classifier
-        x = self.classifier(x)
-
-        # Global average pooling and flatten
-        x = F.adaptive_avg_pool2d(x, 1)
-        x = x.view(x.size(0), -1)  # [batch_size, num_classes]
-
+        x = self.global_pool(x)  # (B, C, H, W) -> (B, C, 1, 1)
+        x = x.flatten(1)  # (B, C, 1, 1) -> (B, C)
+        x = self.classifier(x)  # (B, C) -> (B, num_classes)
         return x

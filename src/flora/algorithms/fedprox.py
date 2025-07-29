@@ -19,7 +19,7 @@ import rich.repr
 import torch
 from torch import nn
 
-from ..communicator import ReductionType
+from ..communicator import AggregationOp
 from . import utils
 from .BaseAlgorithm import BaseAlgorithm
 
@@ -42,11 +42,11 @@ class FedProx(BaseAlgorithm):
         super().__init__(**kwargs)
         self.mu = mu
 
-    def _setup(self, device: torch.device) -> None:
+    def _setup(self, *args, **kwargs) -> None:
         """
         FedProx-specific setup: initialize global model for proximal term.
         """
-        super()._setup(device=device)
+        super()._setup(*args, **kwargs)
 
         # Deep-copy retains requires_grad state from local_model
         self.global_model = copy.deepcopy(self.local_model)
@@ -61,7 +61,7 @@ class FedProx(BaseAlgorithm):
         """
         return torch.optim.SGD(self.local_model.parameters(), lr=local_lr)
 
-    def _batch_compute(self, batch: Any) -> tuple[torch.Tensor, int]:
+    def _compute_loss(self, batch: Any) -> tuple[torch.Tensor, int]:
         """
         Forward pass and compute the FedProx loss for a single batch.
         """
@@ -87,12 +87,12 @@ class FedProx(BaseAlgorithm):
         """
         # Aggregate local sample counts to compute federation total
         global_samples = self.local_comm.aggregate(
-            torch.tensor([self.summary.num_samples_trained], dtype=torch.float32),
-            reduction=ReductionType.SUM,
+            torch.tensor([self.metrics.num_samples_trained], dtype=torch.float32),
+            reduction=AggregationOp.SUM,
         ).item()
 
         # Calculate this client's data proportion for weighted aggregation
-        data_proportion = self.summary.num_samples_trained / max(global_samples, 1)
+        data_proportion = self.metrics.num_samples_trained / max(global_samples, 1)
 
         # All nodes participate regardless of sample count
         utils.scale_params(self.local_model, data_proportion)
@@ -100,7 +100,7 @@ class FedProx(BaseAlgorithm):
         # Aggregate weighted model parameters from all clients
         aggregated_model = self.local_comm.aggregate(
             self.local_model,
-            reduction=ReductionType.SUM,
+            reduction=AggregationOp.SUM,
         )
 
         return aggregated_model

@@ -19,7 +19,7 @@ import rich.repr
 import torch
 from torch import nn
 
-from ..communicator import ReductionType
+from ..communicator import AggregationOp
 from .BaseAlgorithm import BaseAlgorithm
 
 # ======================================================================================
@@ -47,11 +47,11 @@ class DiLoCo(BaseAlgorithm):
         self.outer_lr = outer_lr
         self.outer_momentum = outer_momentum
 
-    def _setup(self, device: torch.device) -> None:
+    def _setup(self, *args, **kwargs) -> None:
         """
         DiLoCo-specific setup: initialize global model and velocity.
         """
-        super()._setup(device=device)
+        super()._setup(*args, **kwargs)
         # Deep-copy retains requires_grad state from local_model
         self.global_model = copy.deepcopy(self.local_model)
         # Global model is reference-only for delta computation, set eval mode and disable gradients
@@ -72,7 +72,7 @@ class DiLoCo(BaseAlgorithm):
         """
         return torch.optim.SGD(self.local_model.parameters(), lr=local_lr)
 
-    def _batch_compute(self, batch: Any) -> tuple[torch.Tensor, int]:
+    def _compute_loss(self, batch: Any) -> tuple[torch.Tensor, int]:
         """
         Forward pass and compute cross-entropy loss for a batch.
         """
@@ -97,7 +97,7 @@ class DiLoCo(BaseAlgorithm):
         # DiLoCo uses mean aggregation rather than weighted aggregation
         aggregated_deltas = self.local_comm.aggregate(
             msg=local_deltas,
-            reduction=ReductionType.MEAN,
+            reduction=AggregationOp.MEAN,
         )
 
         # Apply DiLoCo outer step with momentum using aggregated deltas

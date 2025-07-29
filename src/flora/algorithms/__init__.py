@@ -15,6 +15,13 @@
 from .BaseAlgorithm import BaseAlgorithm
 from .diloco import DiLoCo
 from .ditto import Ditto
+from .ExecutionMetrics import AccumulationMode, ExecutionMetrics
+from .ExecutionSchedules import (
+    AggregationTriggers,
+    EvaluationTriggers,
+    ExecutionSchedules,
+    Trigger,
+)
 from .fedavg import FedAvg
 from .fedbn import FedBN
 from .feddyn import FedDyn

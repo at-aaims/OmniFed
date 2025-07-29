@@ -18,21 +18,48 @@ from typing import Any
 
 class SetupMixin(ABC):
     """
-    Mixin for components that require setup before use.
+    Template Method pattern for deferred component initialization.
 
-    Provides consistent setup state management and template method pattern.
-    Automatically initializes state without requiring super().__init__() calls.
+    Provides consistent setup/teardown lifecycle for FLORA components that need
+    runtime initialization (device placement, network connections, etc.).
+
+    Pattern enforces clean separation:
+    - External callers use `setup()` (public interface)
+    - Classes override `_setup()` (private implementation)
+    - Built-in duplicate setup protection with state tracking
+
+    Usage pattern:
+    ```python
+    class MyComponent(SetupMixin):
+        def _setup(self):
+            # Runtime initialization logic here
+            pass
+
+    # External usage
+    component = MyComponent()
+    component.setup()  # Calls _setup() internally
+    component.setup()  # Subsequent calls ignored
+    ```
     """
 
     @property
     def is_ready(self) -> bool:
-        """True if component is ready for operations."""
+        """True if component has completed setup and is ready for operations."""
         if not hasattr(self, "_setup_complete"):
             self._setup_complete = False
         return self._setup_complete
 
     def setup(self, *args: Any, **kwargs: Any) -> None:
-        """Initialize component. Template method pattern."""
+        """
+        Initialize component with duplicate setup protection.
+
+        Template method that calls _setup() if not already initialized.
+        Subsequent calls are ignored with a notification message.
+
+        Args:
+            *args: Positional arguments passed to _setup()
+            **kwargs: Keyword arguments passed to _setup()
+        """
         if not hasattr(self, "_setup_complete"):
             self._setup_complete = False
 
@@ -45,5 +72,14 @@ class SetupMixin(ABC):
 
     @abstractmethod
     def _setup(self, *args: Any, **kwargs: Any) -> None:
-        """Implementation-specific setup logic."""
+        """
+        Component-specific setup logic (override required).
+
+        Called exactly once by setup() method. Contains the actual initialization
+        logic specific to each component type.
+
+        Args:
+            *args: Setup arguments (component-specific)
+            **kwargs: Setup keyword arguments (component-specific)
+        """
         pass

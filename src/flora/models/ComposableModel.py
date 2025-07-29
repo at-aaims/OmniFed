@@ -23,38 +23,51 @@ import torch.nn as nn
 
 class BaseHead(nn.Module, ABC):
     """
-    Abstract base class for CNN heads that defines the interface.
+    Abstract base class for model heads (output layers).
+    
+    Defines interface for final processing layers.
+    Converts backbone features to task-specific outputs (classification, regression, etc.).
     """
 
     @property
     @abstractmethod
     def in_channels(self) -> int:
-        """
-        Get the number of input channels to the head.
-        This should match the output channels of the backbone.
-        """
+        """Number of input channels expected by this head."""
         pass
 
 
 class BaseBackbone(nn.Module, ABC):
     """
-    Abstract base class for CNN backbones that defines the interface.
+    Abstract base class for feature extraction backbones.
+    
+    Defines interface for feature extraction components that process raw inputs
+    into meaningful representations for heads to consume.
     """
 
     @property
     @abstractmethod
     def out_channels(self) -> int:
-        """
-        Get the number of output channels from the backbone.
-        This should match the input channels of the head.
-        """
+        """Number of output channels produced by this backbone."""
         pass
 
 
 @rich.repr.auto
 class ComposableModel(nn.Module):
     """
-    Flexible composable model with swappable backbone and head components.
+    Modular neural network with swappable backbone and head components.
+
+    Combines feature extraction (backbone) with task-specific processing (head)
+    while enforcing channel compatibility between components.
+
+    Enables flexible model architectures through component composition rather
+    than monolithic model definitions.
+
+    Example:
+    ```python
+    backbone = SimpleCNNBackbone(...)
+    head = ClassificationHead(...)
+    model = ComposableModel(backbone=backbone, head=head)
+    ```
     """
 
     def __init__(
@@ -62,6 +75,16 @@ class ComposableModel(nn.Module):
         backbone: BaseBackbone,
         head: BaseHead,
     ):
+        """
+        Initialize composable model with backbone and head components.
+
+        Args:
+            backbone: Feature extraction component
+            head: Task-specific output component
+
+        Raises:
+            ValueError: If backbone output channels don't match head input channels
+        """
         super().__init__()
 
         # Validate component compatibility
@@ -75,10 +98,15 @@ class ComposableModel(nn.Module):
         self.head = head
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        # Extract features with backbone
+        """
+        Forward pass through backbone then head.
+
+        Args:
+            x: Input tensor
+
+        Returns:
+            Task-specific output tensor
+        """
         features = self.backbone(x)
-
-        # Process features with head
         output = self.head(features)
-
         return output

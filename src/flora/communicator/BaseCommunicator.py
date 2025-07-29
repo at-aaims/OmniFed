@@ -24,21 +24,24 @@ from ..mixins import SetupMixin
 # ======================================================================================
 
 
-class ReductionType(str, Enum):
-    """Aggregation reduction operations."""
+class AggregationOp(str, Enum):
+    """Distributed tensor reduction operations for federated learning aggregation."""
 
-    SUM = "SUM"
-    MEAN = "MEAN"
-    MAX = "MAX"
+    SUM = "SUM"  # Sum all tensors across ranks
+    MEAN = "MEAN"  # Average tensors across ranks
+    MAX = "MAX"  # Element-wise maximum across ranks
 
 
 class BaseCommunicator(SetupMixin, ABC):
     """
-    Abstract communication interface for federated learning message transport.
+    Abstract interface for federated learning communication backends.
 
-    Provides protocol-agnostic message passing operations (broadcast, aggregate)
-    across different communication backends. Algorithms handle aggregation logic;
-    communicators handle pure transport.
+    Provides protocol-agnostic operations for distributed message passing:
+    broadcasting from source to all ranks, and aggregating across ranks.
+
+    Implementations include gRPC (client-server coordination) and
+    PyTorch distributed (collective operations).
+    Algorithms focus on FL logic while communicators handle transport.
     """
 
     MsgT = TypeVar("MsgT", nn.Module, torch.Tensor, Dict[str, torch.Tensor])
@@ -49,52 +52,42 @@ class BaseCommunicator(SetupMixin, ABC):
         msg: MsgT,
         src: int = 0,
     ) -> MsgT:
-        """Broadcast message from source to all ranks."""
+        """
+        Broadcast message from source rank to all other ranks.
+
+        Args:
+            msg: Model, tensor dict, or tensor to broadcast
+            src: Source rank ID (default: 0)
+
+        Returns:
+            Same message type with updated values from source
+        """
         pass
 
     @abstractmethod
     def aggregate(
         self,
         msg: MsgT,
-        reduction: ReductionType,
+        reduction: AggregationOp,
     ) -> MsgT:
-        """Aggregate message across all ranks with specified reduction."""
+        """
+        Aggregate message across all ranks using specified reduction operation.
+
+        Args:
+            msg: Model, tensor dict, or tensor to aggregate
+            reduction: SUM, MEAN, or MAX reduction operation
+
+        Returns:
+            Same message type with aggregated values
+        """
         pass
-
-    # @abstractmethod
-    # def send(
-    #     self,
-    #     msg: MsgT,
-    #     dst: int,
-    # ) -> MsgT:
-    #     """
-    #     Send model parameters or tensor to a given destination rank.
-    #     """
-    #     pass
-
-    # @abstractmethod
-    # def receive(
-    #     self,
-    #     msg: MsgT,
-    #     src: int,
-    # ) -> MsgT:
-    #     """
-    #     Receive model parameters or tensor from a given source rank.
-    #     """
-    #     pass
-
-    # @abstractmethod
-    # def collect(
-    #     self,
-    #     msg: Union[nn.Module, torch.Tensor, float, int],
-    # ) -> list:
-    #     """
-    #     Gather an object from all ranks and return a list of (rank, data).
-    #     """
-    #     pass
 
     @abstractmethod
     def close(self):
-        """Clean up communication resources."""
-        pass
+        """
+        Clean up communication resources and connections.
 
+        Should be called when communication is no longer needed
+        to properly release network resources and process groups.
+        """
+        pass

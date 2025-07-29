@@ -19,7 +19,7 @@ import rich.repr
 import torch
 from torch import nn
 
-from ..communicator import ReductionType
+from ..communicator import AggregationOp
 from . import utils
 from .BaseAlgorithm import BaseAlgorithm
 
@@ -36,11 +36,11 @@ class Scaffold(BaseAlgorithm):
     Gradient correction and control variate updates are performed each round.
     """
 
-    def _setup(self, device: torch.device) -> None:
+    def _setup(self, *args, **kwargs) -> None:
         """
         SCAFFOLD-specific setup: initialize control variates and tracking structures.
         """
-        super()._setup(device=device)
+        super()._setup(*args, **kwargs)
 
         # Deep-copy retains requires_grad state from local_model
         self.global_model = copy.deepcopy(self.local_model)
@@ -71,7 +71,7 @@ class Scaffold(BaseAlgorithm):
         """
         return torch.optim.SGD(self.local_model.parameters(), lr=local_lr)
 
-    def _batch_compute(
+    def _compute_loss(
         self,
         batch: Any,
     ) -> Tuple[torch.Tensor, int]:
@@ -139,10 +139,10 @@ class Scaffold(BaseAlgorithm):
 
         # SCAFFOLD uses mean aggregation rather than weighted aggregation
         aggregated_model_deltas = self.local_comm.aggregate(
-            msg=self.model_delta, reduction=ReductionType.MEAN
+            msg=self.model_delta, reduction=AggregationOp.MEAN
         )
         aggregated_cv_deltas = self.local_comm.aggregate(
-            msg=self.cv_delta, reduction=ReductionType.MEAN
+            msg=self.cv_delta, reduction=AggregationOp.MEAN
         )
 
         # Update Global model with aggregated deltas and control variates

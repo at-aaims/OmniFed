@@ -23,7 +23,16 @@ from .ComposableModel import BaseBackbone
 
 class SimpleCNNBackbone(BaseBackbone):
     """
-    A simple & generic CNN backbone.
+    Configurable CNN backbone for feature extraction.
+
+    Builds a series of convolutional blocks (conv + norm + activation + pool)
+    followed by a 1x1 output projection layer. Supports flexible architecture
+    configuration through layer lists and function parameters.
+
+    Common use cases:
+    - Image classification feature extraction
+    - Transfer learning base models
+    - Federated learning backbone components
     """
 
     def __init__(
@@ -38,17 +47,17 @@ class SimpleCNNBackbone(BaseBackbone):
         pool_layer: Optional[Callable[..., nn.Module]] = nn.MaxPool2d,
     ):
         """
-        Initialize the CNN backbone.
+        Initialize configurable CNN backbone.
 
         Args:
-            in_channels: Number of input channels (1 for grayscale, 3 for RGB)
-            hidden_channels: List of channel sizes for each hidden convolutional block
-            out_channels: Number of output channels (must match head input channels)
-            kernel_sizes: Kernel size(s) for convolutional layers (single int or list)
-            paddings: Padding(s) for convolutional layers (single int, list, or None to auto-calculate)
-            norm_layer: Normalization layer to use (default: BatchNorm2d)
-            activation_layer: Activation function to use (default: ReLU)
-            pool_layer: Pooling layer to use (default: MaxPool2d)
+            in_channels: Input channels (1=grayscale, 3=RGB)
+            hidden_channels: Output channels for each convolutional block
+            out_channels: Final output channels (must match head input)
+            kernel_sizes: Convolutional kernel sizes (int or list per layer)
+            paddings: Padding values (int, list, or None for auto)
+            norm_layer: Normalization layer factory (default: BatchNorm2d)
+            activation_layer: Activation function factory (default: ReLU)
+            pool_layer: Pooling layer factory (default: MaxPool2d)
         """
         super().__init__()
 
@@ -99,18 +108,20 @@ class SimpleCNNBackbone(BaseBackbone):
 
     @property
     def out_channels(self) -> int:
-        """
-        Get the number of output channels from the backbone.
-        This should match the input channels of the head.
-        """
+        """Output channels produced by this backbone."""
         return self.__out_channels
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        # Process through stages
+        """
+        Extract features from input tensor.
+
+        Args:
+            x: Input tensor (B, C, H, W)
+
+        Returns:
+            Feature tensor with out_channels dimensions
+        """
         for stage in self.stages:
             x = stage(x)
-
-        # Final output projection
         x = self.out_proj(x)
-
         return x

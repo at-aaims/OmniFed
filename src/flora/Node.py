@@ -14,146 +14,251 @@
 
 import os
 import time
-from dataclasses import dataclass
-from typing import List, Optional
+from dataclasses import dataclass, field
+from typing import Any, Dict, List, Optional, Union
 
 import ray
-import rich.repr
 import torch
 from hydra.utils import instantiate
-from omegaconf import DictConfig
+from omegaconf import MISSING
 from torch import nn
 from typeguard import typechecked
 
-# from torch.utils.tensorboard import SummaryWriter
 from .algorithms.BaseAlgorithm import BaseAlgorithm
+from .algorithms.configs import AlgorithmConfig
 from .communicator.BaseCommunicator import BaseCommunicator
+from .communicator.configs import BaseCommunicatorConfig
+from .data.configs import DataModuleConfig
 from .data.DataModule import DataModule
 from .mixins import SetupMixin
-from .utils.ExecutionSchedules import ExecutionSchedules
-from .utils.ExecutionSummary import ExecutionSummary
+from .models.configs import ModelConfig
 
 
 @dataclass
-class NodeSpec:
-    # Node identity
-    id: str
+class RayActorConfig:
+    """
+    Ray actor options for Node resource allocation and scheduling.
 
-    # Communication setup
-    local_comm_cfg: DictConfig
-    global_comm_cfg: Optional[DictConfig] = None
+    Contains the same options available in Ray's .options() method for controlling
+    CPU/GPU assignment, memory limits, fault tolerance, and scheduling behavior.
 
-    # Miscellaneous
-    device: str = "auto"
-    log_dir_base: str = "/tmp/FLORA/node_logs"
+    Most users can ignore this - defaults work for typical FL experiments.
+    Useful for resource-constrained environments or when you need specific hardware.
+
+    Example overrides in topology configs:
+    ```yaml
+    overrides:
+      0: {ray_actor_options: {num_cpus: X.X, memory: NNNNNN}}  # Server
+      1: {ray_actor_options: {num_gpus: X.X, accelerator_type: "TYPE"}}  # Client
+    ```
+
+    Reference: https://docs.ray.io/en/latest/ray-core/api/doc/ray.actor.ActorClass.options.html
+    """
+
+    # The quantity of CPU cores to reserve for the lifetime of the actor
+    num_cpus: Optional[float] = None
+
+    # The quantity of GPUs to reserve for the lifetime of the actor
+    # None = automatic allocation, 0 = CPU-only, 0.5 = fractional sharing, 1+ = full GPUs
+    num_gpus: Optional[float] = None
+
+    # The quantity of various custom resources to reserve for the lifetime of the actor.
+    # Dictionary mapping strings (resource names) to floats
+    resources: Optional[Dict[str, float]] = None
+
+    # Requires that the actor run on a node which meets the specified label conditions
+    label_selector: Optional[Dict[str, str]] = None
+
+    # Requires that the actor run on a node with the specified type of accelerator
+    accelerator_type: Optional[str] = None
+
+    # The heap memory request in bytes for this actor, rounded down to the nearest integer
+    memory: Optional[int] = None
+
+    # The object store memory request for actors only
+    object_store_memory: Optional[int] = None
+
+    # Maximum number of times the actor should be restarted when it dies unexpectedly.
+    # 0 = no restarts (default), -1 = infinite restarts
+    max_restarts: int = 0
+
+    # How many times to retry an actor task if the task fails due to a runtime error.
+    # 0 = no retries (default), -1 = retry until max_restarts limit, n > 0 = retry up to n times
+    max_task_retries: int = 0
+
+    # Max number of pending calls allowed on the actor handle. -1 = unlimited
+    max_pending_calls: int = -1
+
+    # Max number of concurrent calls to allow for this actor (direct calls only).
+    # Defaults to 1 for threaded execution, 1000 for asyncio execution
+    max_concurrency: Optional[int] = None
+
+    # The globally unique name for the actor, retrievable via ray.get_actor(name)
+    name: Optional[str] = None
+
+    # Override the namespace to use for the actor. Default is anonymous namespace
+    namespace: Optional[str] = None
+
+    # Actor lifetime: None (fate share with creator) or "detached" (global object)
+    lifetime: Optional[str] = None
+
+    # Runtime environment for this actor and its children
+    runtime_env: Optional[Dict[str, Any]] = None
+
+    # Scheduling strategy: None, "DEFAULT", "SPREAD", or placement group strategies
+    scheduling_strategy: Optional[str] = None
+
+    # Extended options for Ray libraries (e.g., workflows)
+    _metadata: Optional[Dict[str, Any]] = None
+
+    # True if task events from the actor should be reported (tracing)
+    enable_task_events: bool = True
+
+
+@dataclass
+class NodeConfig:
+    """
+    Configuration for individual federated learning nodes.
+
+    Defines a node's identity, communication partners, and resource requirements.
+    Topologies create these automatically - you typically override specific settings
+    rather than creating from scratch.
+
+    Common overrides in topology configs:
+    ```yaml
+    overrides:
+      0: {device_hint: "cpu", ray_actor_options: {num_cpus: X.X}}  # Server settings
+      1: {device_hint: "cuda:X"}  # Client gets GPU
+    ```
+
+    See conf/ directory for working topology examples.
+    """
+
+    # Unique identifier for this node within the federated learning topology.
+    # Used for logging, debugging, and actor naming. Must be unique per experiment.
+    name: str = MISSING
+
+    # Local communication configuration for intra-group federated learning operations.
+    # Handles model aggregation within the same communication group (e.g., local cluster).
+    # Required - must specify either TorchDist (NCCL/Gloo) or GRPC communicator.
+    local_comm: BaseCommunicatorConfig = MISSING
+
+    # Global communication configuration for inter-group federated learning operations.
+    # Used by hierarchical topologies where local groups communicate with global coordinators.
+    # Optional - None for purely local/centralized topologies.
+    global_comm: Optional[BaseCommunicatorConfig] = MISSING
+
+    # Ray actor configuration options for distributed execution.
+    # Controls resource allocation, fault tolerance, and scheduling behavior.
+    # Default creates actor with Ray defaults (no special resource requirements).
+    ray_actor_options: RayActorConfig = field(default_factory=RayActorConfig)
+
+    # Device hint for this node's computation placement
+    device_hint: str = "auto"
+
+    # Experiment directory for this node's log files
+    exp_dir: Optional[str] = "/tmp/flora"
 
 
 @ray.remote
 class Node(SetupMixin):
     """
-    Distributed compute node for federated learning participants.
+    Distributed federated learning participant (server or client).
 
-    Responsibilities:
-    - Execute local federated learning algorithm implementations
-    - Manage local model state (and training data access? # TODO: local data may be unnecessary & redundant for some roles e.g. aggregator)
-    - Own and manage local copy of global model model and communicator instances
-    - Handle device management for hardware resources
+    Ray actor that executes FL algorithms with local data and model state.
+    Each node manages its own training loop, model updates, and communication with other nodes.
 
-    Integration:
-    - Instantiated as Ray actors by the Engine for distributed execution
-    - Configured through Hydra with algorithm and communication dependencies
-    - Should enable any topology pattern through consistent and generalizable interfaces
+    Nodes execute FL rounds autonomously once Engine calls run_experiment().
+
+    See conf/ directory for topology examples.
     """
 
-    @typechecked
     def __init__(
         self,
-        node_spec: NodeSpec,
-        algorithm_cfg: DictConfig,
-        model_cfg: DictConfig,
-        datamodule_cfg: DictConfig,
-        schedules_cfg: DictConfig,
+        name: str,
+        local_comm: BaseCommunicatorConfig,
+        global_comm: Optional[BaseCommunicatorConfig],
+        algorithm: AlgorithmConfig,
+        model: ModelConfig,
+        datamodule: DataModuleConfig,
+        device_hint: str,
+        exp_dir: str,
+        **kwargs,  # Accept additional config fields (e.g., ray_actor_options)
     ):
+        """
+        Initialize federated learning node with configs.
+
+        Args:
+            name: Unique node identifier (e.g., "0.1" for group 0, rank 1)
+            local_comm: Communication config for intra-group coordination
+            global_comm: Communication config for inter-group coordination (hierarchical only)
+            algorithm: FL algorithm config
+            model: Neural network model config
+            datamodule: Data loading and preprocessing config
+            device_hint: Device placement ("auto", "cpu", "cuda:X", etc.)
+            exp_dir: Base experiment directory for logs and outputs
+        """
         super().__init__()
-        self.node_spec = node_spec
-        print(f"[NODE-INIT] {node_spec.id}")
+        self.name: str = name
+        self.device_hint: str = device_hint
+        self.log_dir: str = os.path.join(exp_dir, name)
 
-        # Local communicator for intra-group communication
-        self.local_comm: BaseCommunicator = instantiate(node_spec.local_comm_cfg)
+        # Store config for model (instantiated during setup)
+        self.model_cfg: ModelConfig = model
 
-        # Global communicator for inter-group coordination (optional)
-        self.global_comm: Optional[BaseCommunicator] = None
-        if node_spec.global_comm_cfg is not None:
-            self.global_comm = instantiate(node_spec.global_comm_cfg)
-
-        # Federated learning algorithm
-        self.algorithm: BaseAlgorithm = instantiate(
-            algorithm_cfg,
-            local_comm=self.local_comm,
-            global_comm=self.global_comm,
-            local_model=instantiate(model_cfg),
-            datamodule=instantiate(datamodule_cfg),
-            schedules=instantiate(schedules_cfg),
-            # local_model=model_cfg,
-            # datamodule=datamodule_cfg,
-            # schedules=schedules_cfg,
-            log_dir=os.path.join(self.node_spec.log_dir_base, self.node_spec.id),
-            # _recursive_=False,  # Prevent recursive instantiation
+        # Instantiate components with setup phases
+        self.local_comm: BaseCommunicator = instantiate(local_comm)
+        self.global_comm: Optional[BaseCommunicator] = (
+            instantiate(global_comm) if global_comm else None
         )
+        self.algorithm: BaseAlgorithm = instantiate(algorithm, log_dir=self.log_dir)
+        self.datamodule: DataModule = instantiate(datamodule)
 
-        # Extract rank information from local communicator for device selection
-        self.device: torch.device = self.select_device(
-            self.node_spec.device, rank=self.local_comm.rank
+        # Deferred instantiation
+        self.__model: Optional[nn.Module] = None  # Setup-time instantiation
+        self.__device: Optional[torch.device] = (
+            None  # Runtime-dependent lazy initialization
         )
-
-    def __repr__(self) -> str:
-        """
-        String representation showing node ID and capabilities.
-
-        Returns:
-            Formatted string with node ID and role list
-        """
-        # role_names = [role.value for role in self.roles]
-        # return f"Node {self.id}: {role_names}"
-        _time = time.strftime("%H:%M:%S", time.gmtime())
-        # _time = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
-
-        prefix = f"G{self.global_comm.rank}" if self.global_comm else ""
-        prefix += f"L{self.local_comm.rank}"
-
-        return f"{prefix}_{self.node_spec.id} {_time}"
 
     def _setup(self) -> None:
         """
-        Setup node with device assignment and algorithm initialization.
+        Instantiate remaining components and establish connections.
+
+        Called by Engine after all nodes are created but before experiment starts.
+        Instantiates model, establishes communicator connections,
+        and passes dependencies to algorithm.
         """
+        self.__model = instantiate(self.model_cfg)
+        if self.__model is None:
+            raise RuntimeError(
+                f"Failed to instantiate model from config: {self.model_cfg}"
+            )
+
         print(f"[NODE-SETUP] Device: {self.device}", flush=True)
 
-        # Setup primary communicator
+        # Establish communicator connections
         self.local_comm.setup()
-
-        # Setup global communicator if present
-        if self.global_comm is not None:
+        if self.global_comm:
             self.global_comm.setup()
 
-        # Setup algorithm
-        self.algorithm.setup(device=self.device)
-        # summary(self.model, verbose=1)
+        # Initialize algorithm with dependencies
+        self.algorithm.setup(
+            self.local_comm, self.global_comm, self.model, self.datamodule
+        )
 
     def run_experiment(self, total_rounds: int) -> List[List[dict[str, float]]]:
         """
-        Execute complete federated learning experiment autonomously.
+        Execute federated learning experiment autonomously.
 
-        Handles the full experiment lifecycle:
-        - Experiment start evaluation
-        - All training rounds
-        - Experiment end evaluation
+        Runs the complete experiment lifecycle.
+        Moves model to compute device, executes all FL rounds via the algorithm.
+        Collects metrics and restores model to original device afterward.
 
         Args:
-            total_rounds: Total number of federated learning rounds to execute
+            total_rounds: Number of federated learning rounds to execute
 
         Returns:
-            List of rounds, each containing a list of epoch-level metrics dictionaries
+            List of rounds, each containing epoch-level metrics dictionaries
         """
         if not self.is_ready:
             raise RuntimeError("Node not ready - call setup() first")
@@ -163,57 +268,88 @@ class Node(SetupMixin):
             flush=True,
         )
 
-        # Execute all rounds and collect epoch-level metrics from each round
-        all_round_metrics = []
-        for round_idx in range(total_rounds):
-            epoch_metrics_list = self.algorithm.round_exec(round_idx, total_rounds)
-            all_round_metrics.append(epoch_metrics_list)
+        # Device management for experiment execution
+        original_device = next(self.model.parameters()).device
+        self.model = self.model.to(self.device)
 
-        print(
-            f"[EXPERIMENT-END] Node completed {total_rounds} round experiment",
-            flush=True,
-        )
+        all_round_metrics = []
+
+        try:
+            for round_idx in range(total_rounds):
+                epoch_metrics_list = self.algorithm.round_exec(round_idx, total_rounds)
+                all_round_metrics.append(epoch_metrics_list)
+
+            print(
+                f"[EXPERIMENT-END] Node completed {total_rounds} round experiment",
+                flush=True,
+            )
+
+        finally:
+            # Restore original device placement
+            self.model = self.model.to(original_device)
+            print(
+                f"[EXPERIMENT-CLEANUP] Model restored to original device: {original_device}",
+                flush=True,
+            )
+
         return all_round_metrics
 
+    def __repr__(self) -> str:
+        """Node string representation with name and timestamp."""
+        _time = time.strftime("%H:%M:%S", time.gmtime())
+        return f"{self.name} {_time}"
+
+    @property
+    def device(self) -> torch.device:
+        """Compute device with automatic GPU assignment based on rank."""
+        if self.__device is None:
+            self.__device = self.__resolve_device(
+                self.device_hint, rank=self.local_comm.rank
+            )
+        return self.__device
+
+    @property
+    def model(self) -> nn.Module:
+        """Neural network model, instantiated during setup."""
+        if self.__model is None:
+            raise RuntimeError("Model accessed before setup() - call setup() first")
+        return self.__model
+
+    @model.setter
+    def model(self, value: nn.Module) -> None:
+        """Update model (used during FL training)."""
+        self.__model = value
+
     @staticmethod
-    def select_device(device_hint: str, rank: Optional[int] = None) -> torch.device:
+    def __resolve_device(device_hint: str, rank: Optional[int] = None) -> torch.device:
         """
-        Select and configure compute device for this node.
-
-        Supports automatic GPU detection with round-robin assignment based on rank.
-        Falls back to CPU if no GPUs are available.
-
-        # TODO: Round-robin GPU assignment assumes all nodes are on the same machine, which may not be true for multi-node setups.
-        # TODO: If some nodes lack GPUs, we may need smarter logic for heterogeneous environments.
-        # TODO: Potentially move into a NodeResources mixin in the future.
+        Resolve device placement for this node.
 
         Args:
-            device_hint: Device specification ("auto", "cpu", "cuda", "cuda:0", etc.)
+            device_hint: Device specification ("auto", "cpu", "cuda", "cuda:X", etc.)
             rank: Process rank for round-robin GPU assignment (optional)
 
         Returns:
-            Configured PyTorch device for computation
+            PyTorch device for computation
         """
+        if device_hint != "auto":
+            print(f"[NODE-DEVICE] Explicit: {device_hint}")
+            return torch.device(device_hint)
 
-        if device_hint == "auto":
-            local_gpu_count = torch.cuda.device_count()
-            if local_gpu_count > 0:
-                # Use provided rank for round-robin GPU assignment
-                if rank is None:
-                    print(
-                        "WARN: No rank provided for device assignment, defaulting to GPU 0"
-                    )
-                    rank = 0
-
-                assigned_gpu_id = rank % local_gpu_count
-                device_str = f"cuda:{assigned_gpu_id}"
-                print(
-                    f"[NODE-DEVICE] {local_gpu_count} GPUs detected | assigned {device_str} | rank {rank}"
-                )
-                return torch.device(device_str)
-
-            print("[NODE-DEVICE] Device auto-selection: No GPUs detected, using CPU")
+        # Auto-assignment with GPU detection
+        gpu_count = torch.cuda.device_count()
+        if gpu_count == 0:
+            print("[NODE-DEVICE] Auto: CPU (no GPUs available)")
             return torch.device("cpu")
 
-        print(f"[NODE-DEVICE] Device explicit: Using {device_hint}")
-        return torch.device(device_hint)
+        # Round-robin GPU assignment
+        effective_rank = rank if rank is not None else 0
+        if rank is None:
+            print("WARN: No rank provided, defaulting to GPU 0")
+
+        gpu_id = effective_rank % gpu_count
+        device_str = f"cuda:{gpu_id}"
+        print(
+            f"[NODE-DEVICE] Auto: {device_str} (rank {effective_rank}, {gpu_count} GPUs)"
+        )
+        return torch.device(device_str)

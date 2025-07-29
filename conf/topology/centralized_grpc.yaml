@@ -18,6 +18,18 @@ _target_: src.flora.topology.CentralizedTopology
 num_clients: ???
 
 # ─────────────────────────────────────────
+# Optional Node-Specific Overrides
+# ─────────────────────────────────────────
+# Useful for forcing specific resource allocation (e.g., server CPU-only)
+# overrides:
+#   0: # Server: CPU-only aggregation
+#     device_hint: "cpu"
+#     ray_actor_options: {num_gpus: 0}
+#   1: # Client: Custom GPU allocation
+#     device_hint: "cuda:0"
+#     ray_actor_options: {num_gpus: 1.5}
+
+# ─────────────────────────────────────────
 # Intra-Group Communication
 local_comm:
   _target_: src.flora.communicator.GrpcCommunicator

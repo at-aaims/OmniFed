@@ -17,89 +17,65 @@ from abc import ABC
 
 class LifecycleHooksMixin(ABC):
     """
-    Mixin providing standardized lifecycle hooks for federated learning components.
+    Optional lifecycle hooks for federated learning algorithm customization.
 
-    Defines optional override points throughout the federated learning execution
-    lifecycle for algorithm-specific customization.
+    Provides standardized extension points during FL execution for algorithm-specific
+    logic like custom metrics, logging, or state management.
+
+    All hooks are optional - override only what your algorithm needs.
+    Default implementations are no-ops.
+
+    Hook execution order:
+    ```
+    _round_start()
+      _train_epoch_start()
+        _train_batch_start()
+        _train_batch_end()
+      _train_epoch_end()
+      _eval_epoch_start()
+        _eval_batch_start()
+        _eval_batch_end()
+      _eval_epoch_end()
+    _round_end()
+    ```
     """
 
     def _round_start(self) -> None:
-        """
-        Optional lifecycle hook: Called at the start of each federated learning round.
-
-        Override in subclasses for algorithm-specific round initialization logic
-        such as model synchronization and state reset.
-        """
+        """Called at start of each FL round."""
         pass
 
     def _round_end(self) -> None:
-        """
-        Optional lifecycle hook: Called at the end of each federated learning round.
-
-        Override in subclasses for custom round finalization logic.
-        """
+        """Called at end of each FL round."""
         pass
 
     def _train_epoch_start(self) -> None:
-        """
-        Optional lifecycle hook: Called at the start of each local training epoch.
-
-        Override in subclasses for custom epoch initialization logic.
-        """
+        """Called at start of each training epoch."""
         pass
 
     def _train_epoch_end(self) -> None:
-        """
-        Optional lifecycle hook: Called at the end of each local training epoch.
-
-        Override in subclasses for custom epoch finalization logic.
-        """
+        """Called at end of each training epoch."""
         pass
 
     def _train_batch_start(self) -> None:
-        """
-        Optional lifecycle hook: Called before processing each training batch.
-
-        Override in subclasses for custom batch initialization logic.
-        """
+        """Called before processing each training batch."""
         pass
 
     def _train_batch_end(self) -> None:
-        """
-        Optional lifecycle hook: Called after processing each training batch.
-
-        Override in subclasses for custom batch finalization logic.
-        """
+        """Called after processing each training batch."""
         pass
 
     def _eval_epoch_start(self) -> None:
-        """
-        Optional lifecycle hook: Called at the start of each evaluation epoch.
-
-        Override in subclasses for custom evaluation initialization logic.
-        """
+        """Called at start of each evaluation epoch."""
         pass
 
     def _eval_epoch_end(self) -> None:
-        """
-        Optional lifecycle hook: Called after evaluation epoch completion.
-
-        Override in subclasses for custom evaluation finalization logic.
-        """
+        """Called at end of each evaluation epoch."""
         pass
 
     def _eval_batch_start(self) -> None:
-        """
-        Optional lifecycle hook: Called before processing each evaluation batch.
-
-        Override in subclasses for custom evaluation batch initialization logic.
-        """
+        """Called before processing each evaluation batch."""
         pass
 
     def _eval_batch_end(self) -> None:
-        """
-        Optional lifecycle hook: Called after processing each evaluation batch.
-
-        Override in subclasses for custom evaluation batch finalization logic.
-        """
+        """Called after processing each evaluation batch."""
         pass

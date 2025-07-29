@@ -19,7 +19,7 @@ import rich.repr
 import torch
 import torch.nn as nn
 
-from ..communicator import ReductionType
+from ..communicator import AggregationOp
 from . import utils
 from .BaseAlgorithm import BaseAlgorithm
 
@@ -78,7 +78,7 @@ class MOON(BaseAlgorithm):
         self.temperature = temperature
         self.num_prev_models = num_prev_models
 
-    def _setup(self, device: torch.device) -> None:
+    def _setup(self, *args, **kwargs) -> None:
         """
         MOON-specific setup: wrap model and initialize global model and previous models.
         """
@@ -86,7 +86,7 @@ class MOON(BaseAlgorithm):
             wrapped_initial = MOONWrapper(self.local_model)
             self.local_model = wrapped_initial
 
-        super()._setup(device=device)
+        super()._setup(*args, **kwargs)
 
         # Deep-copy retains requires_grad state from local_model
         self.global_model = copy.deepcopy(self.local_model)
@@ -104,7 +104,7 @@ class MOON(BaseAlgorithm):
         """
         return torch.optim.SGD(self.local_model.parameters(), lr=local_lr)
 
-    def _batch_compute(self, batch: Any) -> tuple[torch.Tensor, int]:
+    def _compute_loss(self, batch: Any) -> tuple[torch.Tensor, int]:
         """
         Forward pass and compute the MOON loss for a single batch, including contrastive loss.
         """
@@ -168,12 +168,12 @@ class MOON(BaseAlgorithm):
         # Aggregate local sample counts to compute federation total
 
         global_samples = self.local_comm.aggregate(
-            torch.tensor([self.summary.num_samples_trained], dtype=torch.float32),
-            reduction=ReductionType.SUM,
+            torch.tensor([self.metrics.num_samples_trained], dtype=torch.float32),
+            reduction=AggregationOp.SUM,
         ).item()
 
         # Calculate this client's data proportion for weighted aggregation
-        data_proportion = self.summary.num_samples_trained / max(global_samples, 1)
+        data_proportion = self.metrics.num_samples_trained / max(global_samples, 1)
 
         # All nodes participate regardless of sample count
         utils.scale_params(self.local_model, data_proportion)
@@ -181,7 +181,7 @@ class MOON(BaseAlgorithm):
         # Aggregate scaled models
         aggregated_model = self.local_comm.aggregate(
             self.local_model,
-            reduction=ReductionType.SUM,
+            reduction=AggregationOp.SUM,
         )
 
         # Update previous model history

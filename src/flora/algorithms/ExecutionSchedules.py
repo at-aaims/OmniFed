@@ -21,19 +21,21 @@ from typeguard import typechecked
 
 class Trigger:
     """
-    Defines when an operation should execute during federated learning.
+    Controls when FL operations execute during training.
 
-    Each trigger maintains its own call counter and determines execution
-    based on how many times it has been called.
-
-    Examples:
-        Trigger(every=1)     # Every call
-        Trigger(every=5)     # Every 5th call
-        Trigger(at=[0,10])   # At calls 0 and 10
-        Trigger()            # Never
+    ```python
+    Trigger(every=10)       # Every 10th step (0, 10, 20, ...)
+    Trigger(at=[0, 50])     # Only at steps 0 and 50
+    Trigger()               # Never
+    ```
     """
 
     def __init__(self, every: Optional[int] = None, at: Optional[List[int]] = None):
+        """
+        Args:
+            every: Fire every N calls (None/0 = never)
+            at: Fire at these exact call numbers
+        """
         self.every = every
         self.at = at or []
         self._step_counter = 0
@@ -47,13 +49,13 @@ class Trigger:
             self.at = sorted(set(self.at))
 
     def __call__(self) -> bool:
-        """Check if should run and increment internal counter."""
+        """Check if should execute now, then advance counter."""
         should_run = self._should_run(self._step_counter)
         self._step_counter += 1
         return should_run
 
     def _should_run(self, step: int) -> bool:
-        """Check if should run at given step."""
+        """Check firing condition without advancing counter."""
         if self.every is None and not self.at:
             return False
         if self.every is not None:
@@ -67,18 +69,26 @@ class Trigger:
 
     @classmethod
     def always(cls) -> "Trigger":
-        """Create a trigger that always runs."""
+        """Create trigger that fires every step."""
         return cls(every=1)
 
     @classmethod
     def never(cls) -> "Trigger":
-        """Create a trigger that never runs."""
-        return cls(every=0, at=[])
+        """Create trigger that never fires."""
+        return cls()
 
 
 @typechecked
 def resolve_trigger(val: Union[Trigger, bool, None]) -> Trigger:
-    """Convert config value to Trigger instance."""
+    """
+    Convert config shorthand to Trigger objects.
+    
+    Args:
+        val: True=always, False/None=never, Trigger=passthrough
+        
+    Returns:
+        Corresponding Trigger instance
+    """
     if val is None or val is False:
         return Trigger.never()
     if val is True:
@@ -87,7 +97,11 @@ def resolve_trigger(val: Union[Trigger, bool, None]) -> Trigger:
 
 
 class AggregationTriggers:
-    """Aggregation schedule."""
+    """
+    Controls when nodes share model updates during FL training.
+
+    Most algorithms only aggregate at round_end to minimize communication cost.
+    """
 
     def __init__(
         self,
@@ -95,13 +109,23 @@ class AggregationTriggers:
         epoch_end: Union[Trigger, bool, None] = True,
         batch_end: Union[Trigger, bool, None] = True,
     ):
+        """
+        Args:
+            round_end: Aggregate after local training finishes
+            epoch_end: Aggregate after each local epoch
+            batch_end: Aggregate after each mini-batch (expensive)
+        """
         self.round_end: Trigger = resolve_trigger(round_end)
         self.epoch_end: Trigger = resolve_trigger(epoch_end)
         self.batch_end: Trigger = resolve_trigger(batch_end)
 
 
 class EvaluationTriggers:
-    """Evaluation schedule."""
+    """
+    Controls when nodes evaluate their models on test/validation data.
+    
+    Default settings run evaluation only at experiment_start to minimize overhead.
+    """
 
     def __init__(
         self,
@@ -110,6 +134,13 @@ class EvaluationTriggers:
         pre_aggregation: Union[Trigger, bool, None] = False,
         post_aggregation: Union[Trigger, bool, None] = False,
     ):
+        """
+        Args:
+            experiment_start: Evaluate before any training
+            experiment_end: Evaluate after all training finishes
+            pre_aggregation: Evaluate before sharing updates
+            post_aggregation: Evaluate after receiving aggregated model
+        """
         self.experiment_start: Trigger = resolve_trigger(experiment_start)
         self.experiment_end: Trigger = resolve_trigger(experiment_end)
         self.pre_aggregation: Trigger = resolve_trigger(pre_aggregation)
@@ -118,7 +149,9 @@ class EvaluationTriggers:
 
 class ExecutionSchedules:
     """
-    Federated learning execution scheduler.
+    Combined aggregation and evaluation scheduling for FL algorithms.
+
+    Provides default schedules if none specified.
     """
 
     def __init__(
@@ -126,5 +159,10 @@ class ExecutionSchedules:
         aggregation: Optional[AggregationTriggers] = None,
         evaluation: Optional[EvaluationTriggers] = None,
     ):
+        """
+        Args:
+            aggregation: When to share model updates
+            evaluation: When to run model evaluation
+        """
         self.aggregation: AggregationTriggers = aggregation or AggregationTriggers()
         self.evaluation: EvaluationTriggers = evaluation or EvaluationTriggers()

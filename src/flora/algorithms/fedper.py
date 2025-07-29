@@ -18,7 +18,7 @@ import rich.repr
 import torch
 import torch.nn as nn
 
-from ..communicator import ReductionType
+from ..communicator import AggregationOp
 from . import utils
 from .BaseAlgorithm import BaseAlgorithm
 
@@ -54,7 +54,7 @@ class FedPer(BaseAlgorithm):
         """
         return any(layer_name in param_name for layer_name in self.personal_layers)
 
-    def _batch_compute(self, batch: Any) -> tuple[torch.Tensor, int]:
+    def _compute_loss(self, batch: Any) -> tuple[torch.Tensor, int]:
         """
         Perform a forward pass and compute the loss for a single batch.
         """
@@ -70,12 +70,12 @@ class FedPer(BaseAlgorithm):
 
         # Aggregate local sample counts to compute federation total
         global_samples = self.local_comm.aggregate(
-            torch.tensor([self.summary.num_samples_trained], dtype=torch.float32),
-            reduction=ReductionType.SUM,
+            torch.tensor([self.metrics.num_samples_trained], dtype=torch.float32),
+            reduction=AggregationOp.SUM,
         ).item()
 
         # Calculate this client's data proportion for weighted aggregation
-        data_proportion = self.summary.num_samples_trained / max(global_samples, 1)
+        data_proportion = self.metrics.num_samples_trained / max(global_samples, 1)
 
         # All nodes participate regardless of sample count
         utils.scale_params(self.local_model, data_proportion)
@@ -91,7 +91,7 @@ class FedPer(BaseAlgorithm):
         # Aggregate entire model (including personal layers)
         aggregated_model = self.local_comm.aggregate(
             self.local_model,
-            reduction=ReductionType.SUM,
+            reduction=AggregationOp.SUM,
         )
 
         # Restore personal layer parameters (keep them local)

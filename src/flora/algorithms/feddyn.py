@@ -19,7 +19,7 @@ import torch
 from torch import nn
 
 
-from ..communicator import ReductionType
+from ..communicator import AggregationOp
 from . import utils
 from .BaseAlgorithm import BaseAlgorithm
 
@@ -41,11 +41,11 @@ class FedDyn(BaseAlgorithm):
         super().__init__(**kwargs)
         self.alpha = alpha
 
-    def _setup(self, device: torch.device) -> None:
+    def _setup(self, *args, **kwargs) -> None:
         """
         FedDyn-specific setup: initialize server momentum.
         """
-        super()._setup(device=device)
+        super()._setup(*args, **kwargs)
 
         # Initialize server momentum for dynamic regularization
         # all zero-initialized tensors based on param.data have requires_grad=False by default
@@ -60,7 +60,7 @@ class FedDyn(BaseAlgorithm):
         """
         return torch.optim.SGD(self.local_model.parameters(), lr=local_lr)
 
-    def _batch_compute(self, batch: Any) -> tuple[torch.Tensor, int]:
+    def _compute_loss(self, batch: Any) -> tuple[torch.Tensor, int]:
         """
         Perform a forward pass and compute the FedDyn loss for a single batch.
         """
@@ -108,12 +108,12 @@ class FedDyn(BaseAlgorithm):
 
         # Aggregate local sample counts to compute federation total
         global_samples = self.local_comm.aggregate(
-            torch.tensor([self.summary.num_samples_trained], dtype=torch.float32),
-            reduction=ReductionType.SUM,
+            torch.tensor([self.metrics.num_samples_trained], dtype=torch.float32),
+            reduction=AggregationOp.SUM,
         ).item()
 
         # Calculate this client's data proportion for weighted aggregation
-        data_proportion = self.summary.num_samples_trained / max(global_samples, 1)
+        data_proportion = self.metrics.num_samples_trained / max(global_samples, 1)
 
         # All nodes participate regardless of sample count
         utils.scale_params(self.local_model, data_proportion)
@@ -121,7 +121,7 @@ class FedDyn(BaseAlgorithm):
         # Aggregate weighted model parameters
         aggregated_model = self.local_comm.aggregate(
             self.local_model,
-            reduction=ReductionType.SUM,
+            reduction=AggregationOp.SUM,
         )
 
         # Update server momentum (dynamic regularizer)

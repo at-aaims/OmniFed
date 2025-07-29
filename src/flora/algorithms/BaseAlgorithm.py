@@ -13,23 +13,25 @@
 # limitations under the License.
 
 import logging
+import math
 import time
+import warnings
 from abc import abstractmethod
-from typing import Any, Optional, Dict, List
+from functools import wraps
+from typing import Any, Callable, Dict, List, Optional
 
 import rich.repr
 import torch
 from torch import nn
 from typeguard import typechecked
 
-from ..communicator.BaseCommunicator import BaseCommunicator, ReductionType
+from ..communicator.BaseCommunicator import AggregationOp, BaseCommunicator
 from ..data.DataModule import DataModule
 from ..mixins import SetupMixin
 from ..mixins.LifecycleHooksMixin import LifecycleHooksMixin
-from ..utils.ExecutionSummary import ExecutionSummary, MetricReduction
-from ..utils.ExecutionSchedules import ExecutionSchedules
 from . import utils
-from .utils import log_param_changes
+from .ExecutionMetrics import AccumulationMode, ExecutionMetrics
+from .ExecutionSchedules import ExecutionSchedules
 
 # ======================================================================================
 
@@ -41,7 +43,7 @@ class BaseAlgorithm(SetupMixin, LifecycleHooksMixin):
 
     **Required implementations:**
     - `_configure_local_optimizer()`: Return optimizer (e.g., SGD, Adam)
-    - `_batch_compute()`: Forward pass, return (loss, batch_size)
+    - `_compute_loss()`: Forward pass, return (loss, batch_size)
     - `_aggregate()`: Federated aggregation using self.local_comm
 
     **Optional lifecycle hooks:**
@@ -57,50 +59,32 @@ class BaseAlgorithm(SetupMixin, LifecycleHooksMixin):
         super().__init_subclass__(**kwargs)
         # Apply decorators to required abstract methods if they exist
         try:
-            cls._aggregate = log_param_changes(cls._aggregate)
+            cls._aggregate = cls._log_param_changes(cls._aggregate)
         except AttributeError:
             pass  # Method not implemented yet, will be caught by abstract method validation
-        try:
-            cls._setup = log_param_changes(cls._setup)
-        except AttributeError:
-            pass  # Method not overridden, will use base implementation
 
     @typechecked
     def __init__(
         self,
-        # -----------------------
-        # Core federated learning and infrastructure components
-        # (Node is responsible for these)
-        local_comm: BaseCommunicator,
-        global_comm: BaseCommunicator | None,
-        local_model: nn.Module,
-        datamodule: DataModule,
-        schedules: ExecutionSchedules,
-        log_dir: str,
-        # -----------------------
-        # The rest of the parameters are from subclass constructors
-        # Training hyperparameters
+        # Training hyperparameters (algorithm-specific)
         local_lr: float,
         max_epochs_per_round: int,
+        schedules: ExecutionSchedules,
+        log_dir: str,
     ):
         """
         Initialize the BaseAlgorithm instance.
 
         Args:
-            local_comm (BaseCommunicator): Communicator for intra-group operations.
-            global_comm (Optional[BaseCommunicator]): Optional communicator for inter-group operations.
-            local_model (nn.Module): The neural network model for this algorithm instance.
-            datamodule (DataModule): DataModule containing train and eval data loaders.
-            schedules (Schedules): Schedules for unified operation scheduling (aggregation and evaluation).
-            metrics_manager (MetricsManager): MetricsManager for tracking and logging metrics.
             local_lr (float): Learning rate for local training.
             max_epochs_per_round (int): Maximum number of epochs per round.
-            **kwargs: Additional algorithm-specific parameters.
+            schedules (ExecutionSchedules): Execution schedules for timing control.
+            log_dir (str): Directory for metrics logging and TensorBoard output.
         """
         # Initialize parent mixins
         super().__init__()
 
-        # Training hyperparameters
+        # Validate algorithm-specific parameters
         if local_lr <= 0:
             raise ValueError(f"local_lr must be positive, got {local_lr}")
         if max_epochs_per_round <= 0:
@@ -108,27 +92,29 @@ class BaseAlgorithm(SetupMixin, LifecycleHooksMixin):
                 f"max_epochs_per_round must be positive, got {max_epochs_per_round}"
             )
 
-        # Core federated learning components
-        self.datamodule: DataModule = datamodule
-        self.local_comm: BaseCommunicator = local_comm
-        self.global_comm: BaseCommunicator | None = global_comm
-        self.local_model: nn.Module = local_model
-
-        # Infrastructure components
-        self.schedules: ExecutionSchedules = schedules
-        self.summary = ExecutionSummary(log_dir=log_dir)
-
-        # Training hyperparameters
+        # Store algorithm-specific parameters
         self.local_lr: float = local_lr
         self.max_epochs_per_round: int = max_epochs_per_round
+        # Store execution schedules
+        self.schedules: ExecutionSchedules = schedules
+        # Initialize metrics collection and logging infrastructure
+        self.metrics: ExecutionMetrics = ExecutionMetrics(log_dir=log_dir)
 
-        # Initialize state
-        self.__local_optimizer: Optional[torch.optim.Optimizer] = None
+        # Node context dependencies (injected via _setup())
+        self.__local_comm: Optional[BaseCommunicator] = None
+        self.__global_comm: Optional[BaseCommunicator] = None
+        self.__local_model: Optional[nn.Module] = None
+        self.__datamodule: Optional[DataModule] = None
+
+        # Training state indices
         self.__round_idx: int = 0
         self.__epoch_idx: int = 0
         self.__batch_idx: int = 0
 
-        # ---
+        # Training components (initialized per round)
+        self.__local_optimizer: Optional[torch.optim.Optimizer] = None
+
+        # Distributed training parameters (discovered during setup)
         self._local_iters_per_epoch: Optional[int] = None
         self._global_max_iters_per_epoch: Optional[int] = None
         self._global_max_epochs_per_round: Optional[int] = None
@@ -136,6 +122,41 @@ class BaseAlgorithm(SetupMixin, LifecycleHooksMixin):
     # =============================================================================
     # PROPERTIES
     # =============================================================================
+
+    @property
+    def local_comm(self) -> BaseCommunicator:
+        """Local communication interface for FL operations."""
+        if self.__local_comm is None:
+            raise RuntimeError(
+                "local_comm accessed before setup() - call setup() first"
+            )
+        return self.__local_comm
+
+    @property
+    def global_comm(self) -> Optional[BaseCommunicator]:
+        """Global communication interface for hierarchical FL operations."""
+        return self.__global_comm
+
+    @property
+    def local_model(self) -> nn.Module:
+        """Current ML model being trained."""
+        if self.__local_model is None:
+            raise RuntimeError("model accessed before setup() - call setup() first")
+        return self.__local_model
+
+    @local_model.setter
+    def local_model(self, value: nn.Module) -> None:
+        """Update the ML model (used during FL training phases)."""
+        self.__local_model = value
+
+    @property
+    def datamodule(self) -> DataModule:
+        """Data loading interface providing train/eval dataloaders."""
+        if self.__datamodule is None:
+            raise RuntimeError(
+                "datamodule accessed before setup() - call setup() first"
+            )
+        return self.__datamodule
 
     @property
     def local_optimizer(self) -> torch.optim.Optimizer:
@@ -238,32 +259,39 @@ class BaseAlgorithm(SetupMixin, LifecycleHooksMixin):
     # SETUP
     # =============================================================================
 
-    def _setup(self, device: torch.device) -> None:
+    def _setup(
+        self,
+        local_comm: BaseCommunicator,
+        global_comm: Optional[BaseCommunicator],
+        model: nn.Module,
+        datamodule: DataModule,
+    ) -> None:
         """
-        Default setup for federated learning algorithms (OPTIONAL override).
-
-        Performs standard federated learning initialization:
-        - Moves model to target device
-        - Broadcasts initial model from rank 0 to all participants
-
-        Override this method if your algorithm needs custom setup behavior.
-        When overriding, ALWAYS call super()._setup(device) first to ensure
-        the standard model setup happens before your custom logic.
+        Setup algorithm with injected dependencies.
 
         Args:
-            device: Target device for model placement
+            local_comm: Local communication interface for intra-group operations
+            global_comm: Optional global communication interface for hierarchical FL
+            model: ML model being trained
+            datamodule: Data loading interface providing train/eval dataloaders
 
         Override for algorithm-specific initialization logic.
+        ALWAYS call super()._setup() first when overriding.
         """
-        # Move model to target device (one-time operation)
-        self.local_model = self.local_model.to(device)
+        # Store injected dependencies
+        self.__local_comm = local_comm
+        self.__global_comm = global_comm
+        self.__local_model = model
+        self.__datamodule = datamodule
 
         # Standard federated learning setup: broadcast initial model from server
         _t_sync_start = time.time()
         self.local_model = self.local_comm.broadcast(self.local_model)
         _t_sync_end = time.time()
-        self.summary.log_metric(
-            "time/sync_broadcast_init", _t_sync_end - _t_sync_start, MetricReduction.AVG
+        self.metrics.log_metric(
+            "time/sync_broadcast_init",
+            _t_sync_end - _t_sync_start,
+            AccumulationMode.AVG,
         )
 
     # =============================================================================
@@ -287,7 +315,7 @@ class BaseAlgorithm(SetupMixin, LifecycleHooksMixin):
         pass
 
     @abstractmethod
-    def _batch_compute(self, batch: Any) -> tuple[torch.Tensor, int]:
+    def _compute_loss(self, batch: Any) -> tuple[torch.Tensor, int]:
         """
         Compute loss for a single batch (REQUIRED override).
 
@@ -313,7 +341,7 @@ class BaseAlgorithm(SetupMixin, LifecycleHooksMixin):
         (controlled by schedules.aggregation triggers). Use self.local_comm for communication.
 
         Common patterns:
-        - FedAvg: return self.local_comm.aggregate(self.local_model, ReductionType.MEAN)
+        - FedAvg: return self.local_comm.aggregate(self.model, AllReduceOp.MEAN)
         - Custom: Scale local weights → aggregate → apply optimizations → return result
 
         Returns:
@@ -352,10 +380,10 @@ class BaseAlgorithm(SetupMixin, LifecycleHooksMixin):
         _t_sync_start = time.time()
         self.local_model = self._aggregate()
         _t_sync_end = time.time()
-        self.summary.log_metric(
+        self.metrics.log_metric(
             "time/sync_aggregate_local",
             _t_sync_end - _t_sync_start,
-            MetricReduction.AVG,
+            AccumulationMode.AVG,
         )
         print(f"[LOCAL-AGG] {self.progress_context} | Complete", flush=True)
 
@@ -364,13 +392,13 @@ class BaseAlgorithm(SetupMixin, LifecycleHooksMixin):
             print(f"[GLOBAL-AGG] {self.progress_context} | Start", flush=True)
             _t_sync_start = time.time()
             self.local_model = self.global_comm.aggregate(
-                self.local_model, reduction=ReductionType.MEAN
+                self.local_model, reduction=AggregationOp.MEAN
             )
             _t_sync_end = time.time()
-            self.summary.log_metric(
+            self.metrics.log_metric(
                 "time/sync_aggregate_global",
                 _t_sync_end - _t_sync_start,
-                MetricReduction.AVG,
+                AccumulationMode.AVG,
             )
             print(f"[GLOBAL-AGG] {self.progress_context} | Complete", flush=True)
 
@@ -378,7 +406,7 @@ class BaseAlgorithm(SetupMixin, LifecycleHooksMixin):
         needs_final_broadcast = (
             self.local_comm.aggregate(
                 torch.tensor(1.0 if self.global_comm is not None else 0.0),
-                ReductionType.MAX,
+                AggregationOp.MAX,
             )
             > 0
         )
@@ -388,10 +416,10 @@ class BaseAlgorithm(SetupMixin, LifecycleHooksMixin):
             _t_sync_start = time.time()
             self.local_model = self.local_comm.broadcast(self.local_model)
             _t_sync_end = time.time()
-            self.summary.log_metric(
+            self.metrics.log_metric(
                 "time/sync_broadcast_final",
                 _t_sync_end - _t_sync_start,
-                MetricReduction.AVG,
+                AccumulationMode.AVG,
             )
             print(f"[LOCAL-BCAST] {self.progress_context} | Complete", flush=True)
         else:
@@ -422,7 +450,7 @@ class BaseAlgorithm(SetupMixin, LifecycleHooksMixin):
                 self.max_epochs_per_round, dtype=torch.int
             ),
         }
-        group_limits = self.local_comm.aggregate(local_limits, ReductionType.MAX)
+        group_limits = self.local_comm.aggregate(local_limits, AggregationOp.MAX)
 
         self._global_max_iters_per_epoch = int(group_limits["iters_per_epoch"].item())
         self._global_max_epochs_per_round = int(group_limits["epochs_per_round"].item())
@@ -474,25 +502,20 @@ class BaseAlgorithm(SetupMixin, LifecycleHooksMixin):
             self.run_train_epoch(epoch_idx)
 
             # Compute epoch metrics and log to TensorBoard (after all epoch work is complete)
-            epoch_metrics = self.summary.compute_metrics()
-            self.summary.log_epoch_to_tensorboard(
+            epoch_metrics = self.metrics.compute_metrics()
+            self.metrics.log_to_tensorboard(
                 round_idx, epoch_idx, self.global_max_epochs_per_round
             )
-            
+
             # For intermediate epochs: capture and reset before next epoch
             if epoch_idx < self.global_max_epochs_per_round - 1:
                 epoch_metrics_list.append(epoch_metrics)
-                self.summary.reset_metrics()
+                self.metrics.reset_metrics()
 
             # Print epoch summary with simple formatting
             print(
                 f"[EPOCH-END] {self.progress_context} |",
-                {
-                    k: self.summary.format(k, v)
-                    if isinstance(v, (int, float))
-                    else str(v)
-                    for k, v in epoch_metrics.items()
-                },
+                {k: self.metrics.format_metric(k, v) for k, v in epoch_metrics.items()},
                 flush=True,
             )
 
@@ -506,9 +529,9 @@ class BaseAlgorithm(SetupMixin, LifecycleHooksMixin):
         _t_end = time.time()
         round_duration = _t_end - _t_start
 
-        # Log round timing to the metrics system for aggregation
-        # Note: This gets logged outside the epoch loop, but round timing is a round-level metric
-        self.summary.log_metric("time/round", round_duration, MetricReduction.AVG)
+        # # Log round timing to the metrics system for aggregation
+        # # Note: This gets logged outside the epoch loop, but round timing is a round-level metric
+        # self.metrics.log_metric("time/round", round_duration, AccumulationMode.AVG)
 
         print(
             f"[ROUND-END] {self.progress_context} | time/round={round_duration:.4f}s",
@@ -520,7 +543,7 @@ class BaseAlgorithm(SetupMixin, LifecycleHooksMixin):
             self.run_eval_epoch(self.local_model, "global")
 
         # Capture final epoch with all round-end work included
-        final_epoch_metrics = self.summary.compute_metrics()
+        final_epoch_metrics = self.metrics.compute_metrics()
         epoch_metrics_list.append(final_epoch_metrics)
 
         return epoch_metrics_list
@@ -588,20 +611,20 @@ class BaseAlgorithm(SetupMixin, LifecycleHooksMixin):
             # Update timing metrics
             _t_batch_end = time.time()
 
-            self.summary.log_metric(
+            self.metrics.log_metric(
                 "time/batch_data_train",
                 _t_batch_data_end - _t_batch_data_start,
-                MetricReduction.AVG,
+                AccumulationMode.AVG,
             )
-            self.summary.log_metric(
+            self.metrics.log_metric(
                 "time/batch_compute_train",
                 _t_batch_compute_end - _t_batch_compute_start,
-                MetricReduction.AVG,
+                AccumulationMode.AVG,
             )
 
             # Overall batch timing for all nodes
-            self.summary.log_metric(
-                "time/batch_train", _t_batch_end - _t_batch_start, MetricReduction.AVG
+            self.metrics.log_metric(
+                "time/batch_train", _t_batch_end - _t_batch_start, AccumulationMode.AVG
             )
 
         # ---
@@ -609,10 +632,10 @@ class BaseAlgorithm(SetupMixin, LifecycleHooksMixin):
         print(f"[EPOCH-SYNC-START] {self.progress_context}", flush=True)
         _t_start = time.time()
         sync_signal = torch.tensor([1.0])
-        total_signals = self.local_comm.aggregate(sync_signal, ReductionType.SUM)
+        total_signals = self.local_comm.aggregate(sync_signal, AggregationOp.SUM)
         sync_time = time.time() - _t_start
-        self.summary.log_metric(
-            "time/sync_epoch_boundary", sync_time, MetricReduction.AVG
+        self.metrics.log_metric(
+            "time/sync_epoch_boundary", sync_time, AccumulationMode.AVG
         )
         print(
             f"[EPOCH-SYNC-END] {self.progress_context} | time={sync_time:.4f}s signals={int(total_signals.item())}",
@@ -629,8 +652,8 @@ class BaseAlgorithm(SetupMixin, LifecycleHooksMixin):
         _t_epoch_end = time.time()
 
         # Log epoch timing (metrics will be computed later in main loop)
-        self.summary.log_metric(
-            "time/epoch_train", _t_epoch_end - _t_epoch_start, MetricReduction.AVG
+        self.metrics.log_metric(
+            "time/epoch_train", _t_epoch_end - _t_epoch_start, AccumulationMode.AVG
         )
 
     def run_eval_epoch(self, model: nn.Module, eval_type: str) -> None:
@@ -690,20 +713,20 @@ class BaseAlgorithm(SetupMixin, LifecycleHooksMixin):
 
                 # Update timing metrics
                 _t_batch_end = time.time()
-                self.summary.log_metric(
+                self.metrics.log_metric(
                     "time/batch_data_eval",
                     _t_batch_data_end - _t_batch_data_start,
-                    MetricReduction.AVG,
+                    AccumulationMode.AVG,
                 )
-                self.summary.log_metric(
+                self.metrics.log_metric(
                     "time/batch_compute_eval",
                     _t_batch_compute_end - _t_batch_compute_start,
-                    MetricReduction.AVG,
+                    AccumulationMode.AVG,
                 )
-                self.summary.log_metric(
+                self.metrics.log_metric(
                     "time/batch_eval",
                     _t_batch_end - _t_batch_start,
-                    MetricReduction.AVG,
+                    AccumulationMode.AVG,
                 )
 
         # Overridable hook for algorithm-specific logic
@@ -711,8 +734,8 @@ class BaseAlgorithm(SetupMixin, LifecycleHooksMixin):
 
         _t_end = time.time()
         # Log eval timing (metrics will be computed later with training metrics)
-        self.summary.log_metric(
-            "time/epoch_eval", _t_end - _t_start, MetricReduction.AVG
+        self.metrics.log_metric(
+            "time/epoch_eval", _t_end - _t_start, AccumulationMode.AVG
         )
 
         # Restore original mode
@@ -729,13 +752,13 @@ class BaseAlgorithm(SetupMixin, LifecycleHooksMixin):
         processing to maintain consistent metrics collection.
         """
         # Forward pass
-        loss, batch_size = self._batch_compute(batch)
+        loss, batch_size = self._compute_loss(batch)
 
         # Metric tracking
-        self.summary.log_metric(
+        self.metrics.log_metric(
             f"loss/{metric_namespace}",
             loss.detach().item(),
-            MetricReduction.AVG,
+            AccumulationMode.AVG,
             batch_size,
         )
 
@@ -749,18 +772,18 @@ class BaseAlgorithm(SetupMixin, LifecycleHooksMixin):
         optimizer updates, and training-specific metrics collection.
         """
         loss, batch_size = self.__run_batch(batch, "train")
-        self.summary.log_metric("samples/train", batch_size, MetricReduction.SUM)
-        self.summary.log_metric("batches/train", 1, MetricReduction.SUM)
+        self.metrics.log_metric("samples/train", batch_size, AccumulationMode.SUM)
+        self.metrics.log_metric("batches/train", 1, AccumulationMode.SUM)
 
         # Training-only operations
-        self.summary.num_samples_trained += batch_size  # For aggregation weights only
+        self.metrics.num_samples_trained += batch_size  # For aggregation weights only
 
         self.local_optimizer.zero_grad()
         self._backward_pass(loss)
-        self.summary.log_metric(
+        self.metrics.log_metric(
             "grad_norm/train",
             utils.get_grad_norm(self.local_model),
-            MetricReduction.AVG,
+            AccumulationMode.AVG,
         )
         self._optimizer_step()
 
@@ -772,8 +795,8 @@ class BaseAlgorithm(SetupMixin, LifecycleHooksMixin):
         but without gradient computation or parameter updates.
         """
         loss, batch_size = self.__run_batch(batch, metric_namespace)
-        self.summary.log_metric("samples/eval", batch_size, MetricReduction.SUM)
-        self.summary.log_metric("batches/eval", 1, MetricReduction.SUM)
+        self.metrics.log_metric("samples/eval", batch_size, AccumulationMode.SUM)
+        self.metrics.log_metric("batches/eval", 1, AccumulationMode.SUM)
 
     # =============================================================================
 
@@ -841,3 +864,77 @@ class BaseAlgorithm(SetupMixin, LifecycleHooksMixin):
             "Override this method for custom batch formats."
         )
         return batch
+
+    @staticmethod
+    def _log_param_changes(func: Callable[..., Any]) -> Callable[..., Any]:
+        """Decorator to automatically track parameter changes for BaseAlgorithm methods."""
+
+        @wraps(func)
+        def wrapper(algo: "BaseAlgorithm", *args: Any, **kwargs: Any) -> Any:
+            phase = func.__name__  # Automatically get the function name
+            before_norm = utils.get_param_norm(algo.local_model)
+            before_hash = utils.hash_model_params(algo.local_model)
+
+            # Fatal check: model must have valid parameters before operation
+            if before_norm == 0.0:
+                raise RuntimeError(
+                    f"Model has zero parameter norm before {phase}(). All parameters are zero."
+                )
+            if math.isnan(before_norm) or math.isinf(before_norm):
+                raise RuntimeError(
+                    f"Model has invalid parameter norm before {phase}(). Contains NaN or Inf values."
+                )
+
+            # Execute the original function
+            result = func(algo, *args, **kwargs)
+
+            after_norm = utils.get_param_norm(algo.local_model)
+            after_hash = utils.hash_model_params(algo.local_model)
+
+            delta = after_norm - before_norm
+            changed = before_hash != after_hash
+
+            print(
+                f"[{phase.upper()}] local_model hash: {before_hash[:8]} → {after_hash[:8]} | "
+                f"norm: {before_norm:.4f} → {after_norm:.4f} (Δ={delta:.6f}) | "
+                f"{'CHANGED' if changed else 'UNCHANGED'}"
+            )
+
+            # Fatal check: operation must not break the model
+            if after_norm == 0.0:
+                raise RuntimeError(
+                    f"Operation {phase}() zeroed all model parameters. Norm became 0.0."
+                )
+            if math.isnan(after_norm) or math.isinf(after_norm):
+                raise RuntimeError(
+                    f"Operation {phase}() caused numerical instability. Norm is now NaN or Inf."
+                )
+
+            # Non-fatal warnings for concerning patterns
+            if phase == "_aggregate" and not changed:
+                warnings.warn(
+                    f"Aggregation operation {phase}() completed but parameters unchanged. "
+                    f"No model updates occurred. "
+                    f"Check if nodes have training data and aggregation weights are non-zero.",
+                    UserWarning,
+                )
+
+            if after_norm > before_norm * 10:
+                warnings.warn(
+                    f"Parameter norm explosion in {phase}(). "
+                    f"Increased {after_norm / before_norm:.1f}x from {before_norm:.4f} to {after_norm:.4f}. "
+                    f"Consider reducing learning rate or adding gradient clipping.",
+                    UserWarning,
+                )
+
+            if after_norm < before_norm * 0.1:
+                warnings.warn(
+                    f"Parameter norm vanishing in {phase}(). "
+                    f"Decreased {before_norm / after_norm:.1f}x from {before_norm:.4f} to {after_norm:.4f}. "
+                    f"Check for gradient vanishing, excessive regularization, or incorrect scaling.",
+                    UserWarning,
+                )
+
+            return result
+
+        return wrapper

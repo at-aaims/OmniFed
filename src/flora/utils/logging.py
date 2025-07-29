@@ -23,6 +23,15 @@ console = Console()
 
 
 def setup_rich_logging(level=logging.INFO) -> None:
+    """
+    Configure rich console logging for FLORA.
+
+    Sets up enhanced logging with timestamps, paths, markup support,
+    and rich tracebacks for better debugging experience.
+    
+    Args:
+        level: Logging level (default: INFO)
+    """
     root_logger = logging.getLogger()
     root_logger.handlers.clear()
 
@@ -44,7 +53,14 @@ def setup_rich_logging(level=logging.INFO) -> None:
 
 
 def log_sep(title: str = "", style: str = "═", color: str = "yellow") -> None:
-    """full-width separator for different logging stages"""
+    """
+    Print full-width separator for different logging stages.
+
+    Args:
+        title: Optional title text to display in separator
+        style: Character to use for separator line
+        color: Color for title and line styling
+    """
     if title:
         console.print()
         console.print(

@@ -19,7 +19,7 @@ import rich.repr
 import torch
 import torch.nn as nn
 
-from ..communicator import ReductionType
+from ..communicator import AggregationOp
 from . import utils
 from .BaseAlgorithm import BaseAlgorithm
 
@@ -42,11 +42,11 @@ class FedNova(BaseAlgorithm):
         super().__init__(**kwargs)
         self.weight_decay = weight_decay
 
-    def _setup(self, device: torch.device) -> None:
+    def _setup(self, *args, **kwargs) -> None:
         """
         FedNova-specific setup: initialize global model and step counter.
         """
-        super()._setup(device=device)
+        super()._setup(*args, **kwargs)
 
         # Deep-copy retains requires_grad state from local_model
         self.global_model = copy.deepcopy(self.local_model)
@@ -65,7 +65,7 @@ class FedNova(BaseAlgorithm):
             self.local_model.parameters(), lr=local_lr, weight_decay=self.weight_decay
         )
 
-    def _batch_compute(self, batch: Any) -> tuple[torch.Tensor, int]:
+    def _compute_loss(self, batch: Any) -> tuple[torch.Tensor, int]:
         """
         Perform a forward pass and compute cross-entropy loss for a batch.
         """
@@ -114,12 +114,12 @@ class FedNova(BaseAlgorithm):
 
         # Aggregate local sample counts to compute federation total
         global_samples = self.local_comm.aggregate(
-            torch.tensor([self.summary.num_samples_trained], dtype=torch.float32),
-            reduction=ReductionType.SUM,
+            torch.tensor([self.metrics.num_samples_trained], dtype=torch.float32),
+            reduction=AggregationOp.SUM,
         ).item()
 
         # Calculate this client's data proportion for weighted aggregation
-        data_proportion = self.summary.num_samples_trained / max(global_samples, 1)
+        data_proportion = self.metrics.num_samples_trained / max(global_samples, 1)
 
         # Scale normalized deltas by the data proportion for weighted aggregation
         with torch.no_grad():
@@ -129,7 +129,7 @@ class FedNova(BaseAlgorithm):
         # Aggregate normalized deltas
         aggregated_deltas = self.local_comm.aggregate(
             msg=normalized_deltas,
-            reduction=ReductionType.SUM,
+            reduction=AggregationOp.SUM,
         )
 
         # Apply the aggregated normalized updates to the global model parameters

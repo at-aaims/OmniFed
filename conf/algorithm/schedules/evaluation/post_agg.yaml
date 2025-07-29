@@ -1,13 +1,13 @@
 # ══════════════════════════════════════════════════════════════════════════════
-# Endpoints-Only Evaluation Configuration
+# Post-Aggregation Evaluation Configuration
 #
-# Minimal evaluation for fast experiments.
-# Only evaluate at the very beginning and end of the experiment.
+# Standard federated learning evaluation pattern.
+# Evaluate at experiment endpoints and after each aggregation step.
 #
 # ══════════════════════════════════════════════════════════════════════════════
 
 # NOTE: Check constructor signature for complete parameter list, defaults, types, and docs.
-_target_: src.flora.utils.EvaluationTriggers
+_target_: src.flora.algorithms.EvaluationTriggers
 
 # ─────────────────────────────────────────
 experiment_start: true # Evaluate at experiment start (baseline)
@@ -25,8 +25,8 @@ pre_aggregation: false # Don't evaluate before aggregation
 #   at: [0, 1, 5, 10]      # Before specific aggregations
 
 # ─────────────────────────────────────────
-post_aggregation: false # Don't evaluate after aggregation
-# post_aggregation: true   # Evaluate after aggregation (standard FL)
+post_aggregation: true # Evaluate after aggregation (standard FL)
+# post_aggregation: false  # Disable post-aggregation evaluation
 # post_aggregation:        # Custom evaluation schedule
 #   every: 2               # After every 2nd aggregation
 #   at: [0, 1, 5, 10]      # After specific aggregations

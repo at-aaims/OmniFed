@@ -12,14 +12,19 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import Any, List
+from typing import Any, List, Union, cast
 
 import rich.repr
 from hydra.utils import instantiate
-from omegaconf import DictConfig
+from omegaconf import DictConfig, OmegaConf
 
+from ..communicator.configs import (
+    BaseCommunicatorConfig,
+    GrpcCommunicatorConfig,
+    TorchDistCommunicatorConfig,
+)
+from ..Node import NodeConfig
 from .BaseTopology import BaseTopology
-from ..Node import NodeSpec
 
 # ======================================================================================
 
@@ -27,35 +32,50 @@ from ..Node import NodeSpec
 @rich.repr.auto
 class MultiGroupTopology(BaseTopology):
     """
-    Multi-group federated learning topology for cross-institutional FL.
+    Cross-institutional federated learning with hierarchical aggregation.
 
-    Coordinates multiple independent federated learning groups,
-    where each group runs as a standard centralized topology internally.
-    Group servers can communicate across institutional boundaries.
+    When to use: Groups can't directly share data but want to coordinate globally.
+    Think hospitals collaborating while keeping patient data local.
 
-    Each group maintains its own TorchDistributed communication for local training,
-    while group servers use gRPC to coordinate global aggregation.
+    How it works:
+    - Each group runs centralized FL internally (server + clients)
+    - Group servers coordinate across institutions via global communication
+    - Regular clients only communicate within their local group
+    - Two-level aggregation: local → global → local
 
-    The topology composes multiple CentralizedTopology instances.
+    Example config:
+    ```yaml
+    topology:
+      _target_: src.flora.topology.MultiGroupTopology
+      groups:
+        - _target_: src.flora.topology.CentralizedTopology
+          num_clients: N
+        - _target_: src.flora.topology.CentralizedTopology
+          num_clients: M
+      global_comm:
+        _target_: src.flora.communicator.GrpcCommunicator
+    ```
+
+    Example with 2 groups, N and M clients each:
+    - 0.0 (Group A server), 0.1, 0.2, ... 0.N (Group A clients)
+    - 1.0 (Group B server), 1.1, 1.2, ... 1.M (Group B clients)
+
+    Communication flow: Clients → Local server → Global aggregation → Local server → Clients
+    Only 0.0, 1.0 communicate globally; others stay local.
     """
 
     def __init__(
         self,
         groups: List[DictConfig],
-        global_comm: DictConfig,
+        global_comm: Union[TorchDistCommunicatorConfig, GrpcCommunicatorConfig],
         **kwargs: Any,
     ):
         """
-        Initialize with a list of group configurations.
+        Set up multiple FL groups with global coordination.
 
         Args:
-            groups: List of DictConfig objects defining each group's topology configuration.
-                   Each group config should have _target_ pointing to a topology class
-                   and any group-specific parameters.
-            global_comm: Global communication configuration for inter-group coordination (required)
-
-        Raises:
-            ValueError: If no groups provided
+            groups: Each group's topology config (usually CentralizedTopology configs)
+            global_comm: How group servers communicate globally (typically gRPC)
         """
         super().__init__(**kwargs)
         self.global_comm_cfg = global_comm
@@ -63,50 +83,40 @@ class MultiGroupTopology(BaseTopology):
         if not groups:
             raise ValueError("At least one group must be specified")
 
-        # Instantiate all group topologies directly
+        # Create the actual topology for each group (e.g., CentralizedTopology instances)
         self.topologies: List[BaseTopology] = [
-            instantiate(
-                topology,
-                **kwargs,
-                _recursive_=False,
-            )
-            for topology in groups
+            instantiate(topology, **kwargs) for topology in groups
         ]
 
-    def create_node_specs(self) -> List[NodeSpec]:
+    def _create_node_configs(self) -> List[NodeConfig]:
         """
-        Configure nodes for all groups and set up cross-group communication.
+        Wire up all nodes with proper naming and cross-group communication.
 
-        Each group topology has already been instantiated and configured through
-        the constructor's instantiate() call, so their node specifications already exist.
-        This method retrieves those existing specifications and injects global
-        communicators for local rank 0 nodes (group servers) only.
+        Takes the nodes from each group's topology and gives them:
+        1. Names like 1.2 (group 1, local rank 2)
+        2. Global communication for group servers only
 
-        Group servers (local rank 0 nodes) get global communication configuration
-        for coordinating across institutional boundaries.
-
-        Returns:
-            Flattened list of all node specifications across all groups with
-            global communicators injected for group servers
+        Returns all nodes flattened into one list for the Engine to launch.
         """
+        world_size = len(self.topologies)
+        node_configs: List[NodeConfig] = []
 
-        all_node_specs: List[NodeSpec] = []
+        for group_id, local_topology in enumerate(self.topologies):
+            for node_cfg in local_topology:
+                # Give each node a name showing which group and local rank
+                node_cfg.name = f"{group_id}.{node_cfg.local_comm.rank}"
 
-        for group_idx, group_topology in enumerate(self.topologies):
-            # Inject global communicator for local rank 0 nodes only
-            # Note: group_topology.__iter__() returns node_specs directly
-            for node_spec in group_topology:
-                # Check if this is a local rank 0 node (server/aggregator)
-                if node_spec.local_comm_cfg["rank"] == 0:
-                    # Inject group's global rank into gRPC configuration for inter-group communication
-                    node_spec.global_comm_cfg = DictConfig(
-                        {
-                            **self.global_comm_cfg,
-                            "rank": group_idx,  # Group index becomes global rank
-                            "world_size": len(self.topologies),
-                        }
+                # Only group servers (local rank 0) need global communication
+                if node_cfg.local_comm.rank == 0:
+                    # Create global comm config with rank-specific parameters
+                    # Use structured config to preserve type information
+                    global_comm_cfg: BaseCommunicatorConfig = OmegaConf.structured(
+                        self.global_comm_cfg
                     )
+                    global_comm_cfg.rank = group_id
+                    global_comm_cfg.world_size = world_size
+                    node_cfg.global_comm = global_comm_cfg
 
-                all_node_specs.append(node_spec)
+                node_configs.append(node_cfg)
 
-        return all_node_specs
+        return node_configs

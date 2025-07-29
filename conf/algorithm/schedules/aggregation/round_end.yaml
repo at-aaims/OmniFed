@@ -7,7 +7,7 @@
 # ══════════════════════════════════════════════════════════════════════════════
 
 # NOTE: Check constructor signature for complete parameter list, defaults, types, and docs.
-_target_: src.flora.utils.AggregationTriggers
+_target_: src.flora.algorithms.AggregationTriggers
 
 # ─────────────────────────────────────────
 round_end: true # Aggregate after each round (standard FL)

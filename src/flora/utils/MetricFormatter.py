@@ -15,79 +15,103 @@
 from typing import List, Dict, Any, Optional, Callable
 from dataclasses import dataclass
 from enum import Enum
+from collections import defaultdict
 import numpy as np
 
 from .matchers import contains, any_of
 
 
-class AggregationStrategy(str, Enum):
-    """Strategy for aggregating epoch-level metrics to round-level metrics."""
+class EpochAggregation(str, Enum):
+    """
+    How to combine epoch-level metrics into round-level summaries.
 
-    SUM = "sum"
-    MEAN = "mean"
-    LAST = "last"
-    MAX = "max"
-    MIN = "min"
-    FIRST = "first"
+    Used when FL algorithms train for multiple epochs per round
+    and need to report a single value per metric per round.
+    """
+
+    SUM = "sum"  # Add all epoch values (total time, total samples)
+    MEAN = "mean"  # Average across epochs (typical for rates)
+    LAST = "last"  # Use final epoch value (final accuracy, loss)
+    MAX = "max"  # Peak value across epochs (max memory usage)
+    MIN = "min"  # Minimum value across epochs (best loss)
+    FIRST = "first"  # Initial epoch value (baseline metrics)
 
 
-class OptimizationGoal(str, Enum):
-    """How metric values should be interpreted for trend analysis."""
+class MetricDirection(str, Enum):
+    """
+    Whether higher or lower metric values indicate better performance.
 
-    MAXIMIZE = "maximize"
-    MINIMIZE = "minimize"
-    NEUTRAL = "neutral"
+    Used for trend analysis and color-coding metric changes.
+    """
+
+    MAXIMIZE = "maximize"  # Higher is better (accuracy, F1 score)
+    MINIMIZE = "minimize"  # Lower is better (loss, error, time)
+    NEUTRAL = "neutral"  # Neither higher nor lower is better (counts)
 
 
 class TrendColor(str, Enum):
-    """Colors for trend indicators based on performance impact."""
+    """Rich console colors for trend arrows showing performance changes."""
 
-    GOOD = "bright_green"
-    NEUTRAL = "white"
-    BAD = "bright_red"
+    GOOD = "bright_green"  # Performance improved
+    NEUTRAL = "white"  # No significant change or neutral metric
+    BAD = "bright_red"  # Performance degraded
 
 
 class MetricGroup(str, Enum):
-    """Standard metric group categories for organizing display tables."""
+    """Categories for grouping related metrics in display tables."""
 
-    PERFORMANCE = "Performance"
-    TRAINING = "Training"
-    ROUND_TIMING = "Round Timing"
-    EPOCH_TIMING = "Epoch Timing"
-    BATCH_TIMING = "Batch Timing"
-    SYNC_TIMING = "Sync Timing"
-    DATASET = "Dataset"
-    OTHER = "Other"
+    PERFORMANCE = "Performance"  # Accuracy, precision, F1, etc.
+    TRAINING = "Training"  # Loss, gradients, learning rates
+    ROUND_TIMING = "Round Timing"  # Complete FL round timing
+    EPOCH_TIMING = "Epoch Timing"  # Local epoch timing
+    BATCH_TIMING = "Batch Timing"  # Mini-batch processing timing
+    SYNC_TIMING = "Sync Timing"  # Model synchronization timing
+    DATASET = "Dataset"  # Sample counts, data statistics
+    OTHER = "Other"  # Unclassified metrics
 
 
 @dataclass
-class MetricFormatRule:
-    """Rule-based formatting system for federated learning metrics."""
+class MetricRule:
+    """
+    Formatting rule for specific metric types in FL experiments.
 
-    matcher: Callable[[str], bool]
-    precision: int
-    units: str = ""
-    optimization_goal: OptimizationGoal = OptimizationGoal.MAXIMIZE
-    format_as_integer: bool = False
-    emoji: str = ":bar_chart:"
-    group: str = MetricGroup.OTHER
-    description: str = ""
-    aggregation_strategy: AggregationStrategy = AggregationStrategy.LAST
+    Defines how to display, group, and aggregate metrics based on their names.
+    Rules are matched in order, with the first matching rule being used.
+    """
+
+    matcher: Callable[[str], bool]  # Function to test metric names
+    precision: int  # Decimal places for display
+    units: str = ""  # Unit suffix (s, %, etc.)
+    optimization_goal: MetricDirection = (
+        MetricDirection.MAXIMIZE
+    )  # Higher/lower is better
+    format_as_integer: bool = False  # Show as integer instead of float
+    emoji: str = ":bar_chart:"  # Display icon
+    group: str = MetricGroup.OTHER  # Category for grouping
+    description: str = ""  # Human-readable description
+    aggregation_strategy: EpochAggregation = (
+        EpochAggregation.LAST
+    )  # Epoch→round aggregation
 
 
 @dataclass
 class MetricStats:
-    """Structured metric statistics with metadata for display and analysis."""
+    """
+    Statistical summary of a metric across FL nodes.
 
-    name: str
-    emoji: str
-    group: str
-    node_count: int
-    total_nodes: int
-    mean: str
-    std: str
-    min: str
-    max: str
+    Contains both the computed statistics (mean, std, min, max) and
+    metadata for display formatting (emoji, group, coverage).
+    """
+
+    name: str  # Metric name (e.g., "train/accuracy")
+    emoji: str  # Display icon for this metric type
+    group: str  # Category for table grouping
+    node_count: int  # How many nodes reported this metric
+    total_nodes: int  # Total nodes in experiment
+    mean: str  # Formatted mean value
+    std: str  # Formatted standard deviation
+    min: str  # Formatted minimum value
+    max: str  # Formatted maximum value
 
     @property
     def coverage_display(self) -> str:
@@ -105,175 +129,170 @@ class MetricStats:
         return self.node_count == self.total_nodes
 
 
-@dataclass
-class DisplayConfiguration:
-    """Configuration for display formatting and styling."""
-
-    show_node_coverage: bool = True
-    use_emoji_indicators: bool = True
-    group_metrics: bool = True
-    decimal_precision: int = 4
-
-    @classmethod
-    def create_default(cls) -> "DisplayConfiguration":
-        """Create default display configuration."""
-        return cls()
-
-
 class TrendThresholds:
-    """Threshold values for trend analysis."""
+    """
+    Percentage change thresholds for categorizing metric trends.
 
-    SMALL_CHANGE = 2.0
-    LARGE_CHANGE = 10.0
+    Used to determine which arrow symbol and color to show
+    when comparing metric values across rounds.
+    """
+
+    SMALL_CHANGE = 2.0  # Below this: neutral arrow (→)
+    LARGE_CHANGE = 10.0  # Above this: double arrow (⇈/⇊)
 
 
 DEFAULT_FORMAT_RULES = [
-    # Round-level timing metrics (actual: time/round)
-    MetricFormatRule(
+    # Round-level timing metrics
+    MetricRule(
         matcher=contains("time/round"),
         precision=4,
         units="s",
-        optimization_goal=OptimizationGoal.MINIMIZE,
+        optimization_goal=MetricDirection.MINIMIZE,
         emoji=":repeat:",
         group=MetricGroup.ROUND_TIMING,
         description="Federated round timing",
-        aggregation_strategy=AggregationStrategy.SUM,
+        aggregation_strategy=EpochAggregation.SUM,
     ),
-    # Epoch-level timing metrics (actual: time/epoch_train, time/epoch_eval)
-    MetricFormatRule(
+    # Epoch-level timing metrics
+    MetricRule(
         matcher=contains("time/epoch"),
         precision=4,
         units="s",
-        optimization_goal=OptimizationGoal.MINIMIZE,
+        optimization_goal=MetricDirection.MINIMIZE,
         emoji=":hourglass:",
         group=MetricGroup.EPOCH_TIMING,
         description="Training epoch timing",
-        aggregation_strategy=AggregationStrategy.SUM,
+        aggregation_strategy=EpochAggregation.SUM,
     ),
-    # Batch-level timing metrics (actual: time/batch_train, time/batch_eval, time/batch_data_*, time/batch_compute_*)
-    MetricFormatRule(
+    # Batch-level timing metrics
+    MetricRule(
         matcher=contains("time/batch"),
         precision=4,
         units="s",
-        optimization_goal=OptimizationGoal.MINIMIZE,
+        optimization_goal=MetricDirection.MINIMIZE,
         emoji=":timer_clock:",
         group=MetricGroup.BATCH_TIMING,
         description="Batch processing timing",
-        aggregation_strategy=AggregationStrategy.MEAN,
+        aggregation_strategy=EpochAggregation.MEAN,
     ),
     # Synchronization timing metrics (time/sync_*)
-    MetricFormatRule(
+    MetricRule(
         matcher=contains("time/sync"),
         precision=4,
         units="s",
-        optimization_goal=OptimizationGoal.MINIMIZE,
+        optimization_goal=MetricDirection.MINIMIZE,
         emoji=":arrows_counterclockwise:",
         group=MetricGroup.SYNC_TIMING,
         description="Synchronization timing",
-        aggregation_strategy=AggregationStrategy.SUM,
+        aggregation_strategy=EpochAggregation.SUM,
     ),
     # Generic timing fallback for any other time/ metrics
-    MetricFormatRule(
+    MetricRule(
         matcher=contains("time/"),
         precision=4,
         units="s",
-        optimization_goal=OptimizationGoal.MINIMIZE,
+        optimization_goal=MetricDirection.MINIMIZE,
         emoji=":stopwatch:",
         group=MetricGroup.OTHER,
         description="Generic timing",
-        aggregation_strategy=AggregationStrategy.SUM,
+        aggregation_strategy=EpochAggregation.SUM,
     ),
     # Loss metrics (lower is better)
-    MetricFormatRule(
+    MetricRule(
         matcher=contains("loss"),
         precision=4,
         units="",
-        optimization_goal=OptimizationGoal.MINIMIZE,
+        optimization_goal=MetricDirection.MINIMIZE,
         emoji=":chart_decreasing:",
         group=MetricGroup.TRAINING,
         description="Loss metrics",
-        aggregation_strategy=AggregationStrategy.LAST,
+        aggregation_strategy=EpochAggregation.LAST,
     ),
     # Error metrics (lower is better)
-    MetricFormatRule(
+    MetricRule(
         matcher=any_of("error", "mse", "mae", "rmse"),
         precision=4,
         units="",
-        optimization_goal=OptimizationGoal.MINIMIZE,
+        optimization_goal=MetricDirection.MINIMIZE,
         emoji=":x:",
         group=MetricGroup.TRAINING,
         description="Error metrics",
-        aggregation_strategy=AggregationStrategy.LAST,
+        aggregation_strategy=EpochAggregation.LAST,
     ),
     # Accuracy and performance metrics (higher is better)
-    MetricFormatRule(
+    MetricRule(
         matcher=any_of("accuracy", "precision", "recall", "f1"),
         precision=5,
         units="",
-        optimization_goal=OptimizationGoal.MAXIMIZE,
+        optimization_goal=MetricDirection.MAXIMIZE,
         emoji=":dart:",
         group=MetricGroup.PERFORMANCE,
         description="Performance metrics",
-        aggregation_strategy=AggregationStrategy.LAST,
+        aggregation_strategy=EpochAggregation.LAST,
     ),
     # Count metrics (samples, batches, etc.) - neutral (higher neither good nor bad)
-    MetricFormatRule(
+    MetricRule(
         matcher=any_of("samples", "batches", "count", "num_"),
         precision=1,
         units="",
-        optimization_goal=OptimizationGoal.NEUTRAL,
+        optimization_goal=MetricDirection.NEUTRAL,
         format_as_integer=True,
         emoji=":package:",
         group=MetricGroup.DATASET,
         description="Count metrics",
-        aggregation_strategy=AggregationStrategy.SUM,
+        aggregation_strategy=EpochAggregation.SUM,
     ),
     # Gradient-related metrics (context dependent, but generally lower is better)
-    MetricFormatRule(
+    MetricRule(
         matcher=contains("grad"),
         precision=6,
         units="",
-        optimization_goal=OptimizationGoal.MINIMIZE,
+        optimization_goal=MetricDirection.MINIMIZE,
         emoji=":chart_increasing:",
         group=MetricGroup.TRAINING,
         description="Gradient metrics",
-        aggregation_strategy=AggregationStrategy.LAST,
+        aggregation_strategy=EpochAggregation.LAST,
     ),
 ]
 
 
 class MetricFormatter:
     """
-    Rule-based metric formatting, aggregation, and display utilities.
+    Formats and aggregates FL metrics for display.
 
-    Used by Engine for formatting final results without metric collection.
+    Handles metric classification, epoch-to-round aggregation, and statistical
+    summaries across nodes.
+    Provides consistent formatting rules and trend indicators.
     """
 
-    # Class-level aggregation functions to avoid recreating on every call
     _AGGREGATION_FUNCTIONS = {
-        AggregationStrategy.SUM: sum,
-        AggregationStrategy.MEAN: lambda values: sum(values) / len(values),
-        AggregationStrategy.LAST: lambda values: values[-1],
-        AggregationStrategy.FIRST: lambda values: values[0],
-        AggregationStrategy.MAX: max,
-        AggregationStrategy.MIN: min,
+        EpochAggregation.SUM: sum,
+        EpochAggregation.MEAN: lambda values: sum(values) / len(values),
+        EpochAggregation.LAST: lambda values: values[-1],
+        EpochAggregation.FIRST: lambda values: values[0],
+        EpochAggregation.MAX: max,
+        EpochAggregation.MIN: min,
     }
 
-    def __init__(self, rules: Optional[List[MetricFormatRule]] = None):
+    def __init__(self, rules: Optional[List[MetricRule]] = None):
+        """
+        Args:
+            rules: Custom formatting rules
+        """
         self.rules = rules or DEFAULT_FORMAT_RULES.copy()
-        self._rule_cache: Dict[str, MetricFormatRule] = {}
+        self._rule_cache: Dict[str, MetricRule] = {}
 
         # Default rule for unmatched metrics
-        self._default_rule = MetricFormatRule(
+        self._default_rule = MetricRule(
             matcher=lambda name: True,
             precision=3,
-            optimization_goal=OptimizationGoal.NEUTRAL,
+            optimization_goal=MetricDirection.NEUTRAL,
             emoji=":question:",
             group=MetricGroup.OTHER,
             description="Default formatting",
         )
 
-    def _find_rule(self, metric_name: str) -> MetricFormatRule:
+    def _find_rule(self, metric_name: str) -> MetricRule:
         """Find the formatting rule that matches the given metric name with caching."""
         if metric_name in self._rule_cache:
             return self._rule_cache[metric_name]
@@ -303,31 +322,29 @@ class MetricFormatter:
         """Get category group for the given metric based on formatting rules."""
         return self._find_rule(metric_name).group
 
-    def get_aggregation_strategy(self, metric_name: str) -> AggregationStrategy:
+    def get_aggregation_strategy(self, metric_name: str) -> EpochAggregation:
         """Get aggregation strategy for converting epoch-level to round-level metrics."""
         return self._find_rule(metric_name).aggregation_strategy
 
-    def optimization_goal(self, metric_name: str) -> OptimizationGoal:
+    def optimization_goal(self, metric_name: str) -> MetricDirection:
         """Get optimization goal for metric (MAXIMIZE, MINIMIZE, or NEUTRAL)."""
         return self._find_rule(metric_name).optimization_goal
 
-    def group_metrics(self, metric_names: List[str]) -> Dict[str, List[str]]:
+    def group_metric_names(self, metric_names: List[str]) -> Dict[str, List[str]]:
         """Group metrics by their category based on formatting rules."""
-        groups = {}
+        groups = defaultdict(list)
         for metric_name in metric_names:
             group = self.get_group(metric_name)
-            if group not in groups:
-                groups[group] = []
             groups[group].append(metric_name)
 
-        # Sort metrics within each group
+        # Sort metrics within each group and convert to regular dict
         for group in groups:
             groups[group].sort()
 
-        return groups
+        return dict(groups)
 
     def _calculate_metric_statistics(
-        self, values: List[float], rule: MetricFormatRule
+        self, values: List[float], rule: MetricRule
     ) -> Dict[str, str]:
         """Calculate formatted statistics for a list of numeric values."""
         if len(values) == 1:
@@ -418,16 +435,14 @@ class MetricFormatter:
 
             # Get formatting metadata
             rule = self._find_rule(metric)
-            emoji = rule.emoji
-            group = rule.group
 
             if numeric_values:
                 # Calculate statistics using extracted method
                 stats = self._calculate_metric_statistics(numeric_values, rule)
                 metric_stats = MetricStats(
                     name=metric,
-                    emoji=emoji,
-                    group=group,
+                    emoji=rule.emoji,
+                    group=rule.group,
                     node_count=node_count,
                     total_nodes=total_nodes,
                     mean=stats["mean"],
@@ -451,8 +466,8 @@ class MetricFormatter:
 
                 metric_stats = MetricStats(
                     name=metric,
-                    emoji=emoji,
-                    group=group,
+                    emoji=rule.emoji,
+                    group=rule.group,
                     node_count=node_count,
                     total_nodes=total_nodes,
                     mean=mean_display,
@@ -465,20 +480,19 @@ class MetricFormatter:
 
         return metric_stats_list
 
-    def group_metrics(self, metrics: List[MetricStats]) -> Dict[str, List[MetricStats]]:
+    def group_metric_stats(
+        self, metrics: List[MetricStats]
+    ) -> Dict[str, List[MetricStats]]:
         """Group MetricStats objects by their group category."""
-        groups = {}
+        groups = defaultdict(list)
         for metric_stats in metrics:
-            group = metric_stats.group
-            if group not in groups:
-                groups[group] = []
-            groups[group].append(metric_stats)
+            groups[metric_stats.group].append(metric_stats)
 
-        # Sort metrics within each group by name
+        # Sort metrics within each group by name and convert to regular dict
         for group in groups:
             groups[group].sort(key=lambda m: m.name)
 
-        return groups
+        return dict(groups)
 
     def get_trend_symbol(
         self, metric_name: str, new_value: float, old_value: float
@@ -494,28 +508,35 @@ class MetricFormatter:
             else abs(new_value - old_value) * 100
         )
 
-        # Determine magnitude and select symbol
-        if pct_change < TrendThresholds.SMALL_CHANGE:
-            symbol = "→"  # Small change
-        elif pct_change < TrendThresholds.LARGE_CHANGE:
-            symbol = "↑" if new_value > old_value else "↓"  # Medium change
-        else:
-            symbol = "⇈" if new_value > old_value else "⇊"  # Large change
+        # Select symbol based on change magnitude
+        symbol = self._get_trend_symbol_for_magnitude(pct_change, new_value > old_value)
 
-        # Determine color based on performance impact
-        goal = self.optimization_goal(metric_name)
-
-        # Neutral metrics - no performance judgment
-        if (
-            goal == OptimizationGoal.NEUTRAL
-            or pct_change < TrendThresholds.SMALL_CHANGE
-        ):
-            color = TrendColor.NEUTRAL
-        else:
-            # Good change: increase for MAXIMIZE metrics, decrease for MINIMIZE metrics
-            is_good_change = (new_value > old_value) == (
-                goal == OptimizationGoal.MAXIMIZE
-            )
-            color = TrendColor.GOOD if is_good_change else TrendColor.BAD
+        # Select color based on performance impact
+        color = self._get_trend_color(metric_name, pct_change, new_value > old_value)
 
         return f"[bold {color}]{symbol}[/bold {color}]"
+
+    def _get_trend_symbol_for_magnitude(
+        self, pct_change: float, is_increase: bool
+    ) -> str:
+        """Get trend symbol based on percentage change magnitude."""
+        if pct_change < TrendThresholds.SMALL_CHANGE:
+            return "→"  # Small change
+        elif pct_change < TrendThresholds.LARGE_CHANGE:
+            return "↑" if is_increase else "↓"  # Medium change
+        else:
+            return "⇈" if is_increase else "⇊"  # Large change
+
+    def _get_trend_color(
+        self, metric_name: str, pct_change: float, is_increase: bool
+    ) -> str:
+        """Get trend color based on optimization goal and change direction."""
+        goal = self.optimization_goal(metric_name)
+
+        # Neutral metrics or small changes - no performance judgment
+        if goal == MetricDirection.NEUTRAL or pct_change < TrendThresholds.SMALL_CHANGE:
+            return TrendColor.NEUTRAL
+
+        # Good change: increase for MAXIMIZE metrics, decrease for MINIMIZE metrics
+        is_good_change = is_increase == (goal == MetricDirection.MAXIMIZE)
+        return TrendColor.GOOD if is_good_change else TrendColor.BAD

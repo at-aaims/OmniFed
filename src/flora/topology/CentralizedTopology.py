@@ -12,16 +12,17 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import os
-import time
-from typing import Any, Dict, List
+from dataclasses import asdict, replace
+from typing import Any, Dict, List, Optional, cast
 
 import rich.repr
-import torch
-from omegaconf import DictConfig
+from omegaconf import DictConfig, OmegaConf
 
+from ..communicator.configs import (
+    BaseCommunicatorConfig,
+)
+from ..Node import NodeConfig
 from .BaseTopology import BaseTopology
-from ..Node import NodeSpec
 
 # ======================================================================================
 
@@ -29,70 +30,85 @@ from ..Node import NodeSpec
 @rich.repr.auto
 class CentralizedTopology(BaseTopology):
     """
-    Template for centralized federated learning topology with aggregator-trainer architecture.
+    Classic federated learning: one server coordinating multiple clients.
 
-    - One aggregator node (rank 0) collects and combines model updates
-    - Multiple trainer nodes (ranks 1+) perform local training
-    - All communication flows through the aggregator
+    When to use: All participants can communicate directly with a central server.
+    For cross-institutional setups, use MultiGroupTopology instead.
+
+    How it works:
+    - Server (rank 0) aggregates model updates, never trains locally
+    - Clients (ranks 1+) train on local data, send updates to server
+    - All communication stays within this single group
+
+    Example config:
+    ```yaml
+    topology:
+      _target_: src.flora.topology.CentralizedTopology
+      num_clients: N
+      local_comm:
+        _target_: src.flora.communicator.TorchDistCommunicator
+        backend: "gloo"
+    ```
+
+    Example with N clients (N+1 total nodes):
+    - 0.0 (server): Receives updates from clients → averages → sends back.
+    - 0.1, 0.2, ... 0.N (clients): Train locally → send updates → receive new model.
     """
 
     def __init__(
         self,
         num_clients: int,
-        local_comm: DictConfig,
+        local_comm: BaseCommunicatorConfig,
+        overrides: Optional[Dict[int, NodeConfig]] = None,
         **kwargs: Any,
     ):
         """
-        Initialize centralized topology.
+        Set up server-client FL topology.
 
         Args:
-            num_clients (int): Number of client nodes (server node is added automatically)
-            local_comm: Local communication configuration (required)
+            num_clients: How many client nodes to create (server added automatically)
+            local_comm: Communication config for server-client coordination
+            overrides: Custom settings per rank (0=server, 1+=clients).
+                      Example: {0: {"device_hint": "cpu"}, 1: {"device_hint": "cuda:X"}}
         """
         super().__init__(**kwargs)
         self.num_clients: int = num_clients
-        self.local_comm_cfg = local_comm
+        self.local_comm_cfg: BaseCommunicatorConfig = local_comm
+        self.overrides: Dict[int, NodeConfig] = overrides or {}
 
-    def create_node_specs(self) -> List[NodeSpec]:
+    def _create_node_configs(self) -> List[NodeConfig]:
         """
-        Configure nodes for centralized topology.
+        Create server and client node configurations.
 
-        In centralized topology:
-        - Rank 0: Aggregator (no training data, coordinates aggregation)
-        - Ranks 1+: Trainers (training data, perform local training)
+        Server gets rank 0, clients get ranks 1, 2, 3, etc.
+        Each node gets communication settings and can have custom overrides.
 
-        Returns:
-            List of NodeSpec objects defining network structure only
+        Returns all nodes ready for the Engine to launch as Ray actors.
         """
-        world_size: int = self.num_clients + 1  # 1 server + N clients
-
-        node_specs: List[NodeSpec] = []
-
-        # ----------------------------------------------------------------
-        # CONFIGURE ALL NODES
+        world_size: int = self.num_clients + 1
+        node_configs: List[NodeConfig] = []
 
         for rank in range(world_size):
-            # Create communicator configs with injected rank and world_size
-            local_comm_cfg = DictConfig(
-                {
-                    **self.local_comm_cfg,
-                    "rank": rank,
-                    "world_size": world_size,
-                }
+            # Create local comm config with rank-specific parameters
+            # Use structured config to preserve type information
+            local_comm_cfg: BaseCommunicatorConfig = OmegaConf.structured(
+                self.local_comm_cfg
+            )
+            local_comm_cfg.rank = rank
+            local_comm_cfg.world_size = world_size
+
+            node_cfg = NodeConfig(
+                name=f"0.{rank}",
+                local_comm=local_comm_cfg,
+                global_comm=None,
             )
 
-            if rank == 0:
-                node_id = "SERVER"
-            else:
-                node_id = "Client"
-
-            # Only network/communication specification
-            node_spec = NodeSpec(
-                id=node_id,
-                local_comm_cfg=local_comm_cfg,
-                global_comm_cfg=None,  # No global comm in centralized topology
+            merged_cfg = OmegaConf.merge(
+                node_cfg,
+                self.overrides.get(rank, {}),
             )
+            node_cfg = cast(NodeConfig, OmegaConf.to_object(merged_cfg))
 
-            node_specs.append(node_spec)
+            node_configs.append(node_cfg)
 
-        return node_specs
+        return node_configs

@@ -18,6 +18,9 @@ from typing import Callable
 
 # ======================================================================================
 # STRING MATCHER FUNCTIONS
+#
+# Utility functions for creating string pattern matchers.
+# Each function returns a callable that tests if a string matches specific patterns.
 # ======================================================================================
 
 

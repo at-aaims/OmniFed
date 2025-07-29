@@ -13,13 +13,12 @@
 # limitations under the License.
 
 from abc import ABC, abstractmethod
-from typing import Any, Dict, List, Optional
+from typing import Any, List, Optional
 
 import rich.repr
-from omegaconf import DictConfig
 
 from .. import utils
-from ..Node import NodeSpec
+from ..Node import NodeConfig
 
 # ======================================================================================
 
@@ -27,69 +26,87 @@ from ..Node import NodeSpec
 @rich.repr.auto
 class BaseTopology(ABC):
     """
-    Abstract network topology interface.
+    Base class for federated learning network topologies.
 
-    Defines the structure and coordination patterns for distributed nodes.
+    Defines how nodes are arranged and communicate in distributed FL experiments.
+    Concrete implementations include CentralizedTopology and MultiGroupTopology.
 
-    Each topology implementation determines how nodes are configured and how they communicate with each other.
+    Quick decision guide:
+    - Use CentralizedTopology: Single-site FL (all nodes can talk directly)
+    - Use MultiGroupTopology: Multi-site FL (hospitals, institutions, etc.)
+    - Extend BaseTopology: Custom communication patterns (advanced users)
+
+    How it works:
+    - Subclasses implement create_node_configs() to define network structure
+    - Returns NodeConfig objects that the Engine launches as Ray actors
+    - Provides iteration interface for easy access to all nodes
     """
 
-    def __init__(self):
+    def __init__(self, **kwargs: Any):
         """
-        Initialize topology.
+        Initialize topology base class.
+
+        Args:
+            **kwargs: Topology-specific parameters passed to subclasses
         """
         utils.log_sep(f"{self.__class__.__name__} Init")
 
-        # Lazy-initialized node specifications list
-        self.__node_specs: Optional[List[NodeSpec]] = None
+        # Lazy-initialized node configurations list
+        self.__node_configs: Optional[List[NodeConfig]] = None
 
     @property
-    def node_comm_specs(self) -> List[NodeSpec]:
+    def node_configs(self) -> List[NodeConfig]:
         """
-        Get the list of node specifications for this topology.
+        Get all node configurations for this topology.
+
+        Lazily calls _create_node_configs() on first access.
         """
-        if self.__node_specs is None:
-            self.__node_specs = self.create_node_specs()
+        if self.__node_configs is None:
+            self.__node_configs = self._create_node_configs()
             print(
-                f"[{self.__class__.__name__}] Configured {len(self.__node_specs)} nodes"
+                f"[{self.__class__.__name__}] Configured {len(self.__node_configs)} nodes"
             )
 
-        if not self.__node_specs:
+        if not self.__node_configs:
             raise ValueError(
-                "Topology.configure_nodes() must return at least one node specification."
+                "_create_node_configs() must return at least one node configuration"
             )
 
-        return self.__node_specs
+        return self.__node_configs
 
     @abstractmethod
-    def create_node_specs(self) -> List[NodeSpec]:
+    def _create_node_configs(self) -> List[NodeConfig]:
         """
-        Configure node specifications for this topology.
+        Create node configurations defining this topology's network structure.
 
-        This method is responsible for:
-        1. Creating node specifications with communication parameters
-        2. Establishing communication relationships between nodes
-        3. Setting up any topology-specific networking
+        Protected method - called internally by node_configs property.
+        External code should use the node_configs property, not call this directly.
+
+        Subclasses must implement this to define:
+        - How many nodes and their roles (server, client, etc.)
+        - Communication patterns between nodes
+        - Node naming conventions
+        - Device assignments and resource requirements
 
         Returns:
-            List of NodeSpec objects defining network structure
+            List of NodeConfig objects ready for Engine to launch as Ray actors
         """
         pass
 
     def __len__(self) -> int:
         """
-        Get the number of node specifications in this topology.
+        Get the number of nodes in this topology.
         """
-        return len(self.node_comm_specs)
+        return len(self.node_configs)
 
-    def __getitem__(self, index: int) -> NodeSpec:
+    def __getitem__(self, index: int) -> NodeConfig:
         """
-        Get a node specification by index.
+        Get a node configuration by index.
         """
-        return self.node_comm_specs[index]
+        return self.node_configs[index]
 
     def __iter__(self):
         """
-        Iterate over node specifications in this topology.
+        Iterate over all node configurations in this topology.
         """
-        return iter(self.node_comm_specs)
+        return iter(self.node_configs)

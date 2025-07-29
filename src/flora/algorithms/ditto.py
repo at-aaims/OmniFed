@@ -20,7 +20,7 @@ import torch
 import torch.nn as nn
 
 
-from ..communicator import ReductionType
+from ..communicator import AggregationOp
 from . import utils
 from .BaseAlgorithm import BaseAlgorithm
 
@@ -44,11 +44,11 @@ class Ditto(BaseAlgorithm):
         self.global_lr = global_lr
         self.ditto_lambda = ditto_lambda
 
-    def _setup(self, device: torch.device) -> None:
+    def _setup(self, *args, **kwargs) -> None:
         """
         Ditto-specific setup: initialize global model and optimizer.
         """
-        super()._setup(device=device)
+        super()._setup(*args, **kwargs)
 
         # Deep-copy retains requires_grad state from local_model
         self.global_model = copy.deepcopy(self.local_model)
@@ -64,7 +64,7 @@ class Ditto(BaseAlgorithm):
         """
         return torch.optim.SGD(self.local_model.parameters(), lr=local_lr)
 
-    def _batch_compute(self, batch: Any) -> tuple[torch.Tensor, int]:
+    def _compute_loss(self, batch: Any) -> tuple[torch.Tensor, int]:
         """
         Perform dual training: update both global model and personal model.
         """
@@ -102,12 +102,12 @@ class Ditto(BaseAlgorithm):
         """
         # Aggregate local sample counts to compute federation total
         global_samples = self.local_comm.aggregate(
-            torch.tensor([self.summary.num_samples_trained], dtype=torch.float32),
-            reduction=ReductionType.SUM,
+            torch.tensor([self.metrics.num_samples_trained], dtype=torch.float32),
+            reduction=AggregationOp.SUM,
         ).item()
 
         # Calculate this client's data proportion for weighted aggregation
-        data_proportion = self.summary.num_samples_trained / max(global_samples, 1)
+        data_proportion = self.metrics.num_samples_trained / max(global_samples, 1)
 
         # All nodes participate regardless of sample count
         utils.scale_params(self.global_model, data_proportion)
@@ -115,7 +115,7 @@ class Ditto(BaseAlgorithm):
         # Aggregate global models (personal models remain local)
         self.global_model = self.local_comm.aggregate(
             self.global_model,
-            reduction=ReductionType.SUM,
+            reduction=AggregationOp.SUM,
         )
 
         # Return the personal local model, not the aggregated global model
