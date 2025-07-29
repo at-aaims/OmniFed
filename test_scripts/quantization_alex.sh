@@ -5,21 +5,28 @@ cd ../
 # kill -s 9 `ps -ef | grep src.flora.test.launch_quantization |grep -v grep | awk '{print $2}'`
 # kill -9 $(ps aux | grep src.flora.test.launch_quantization | grep -v grep | awk '{print $2}')
 
-dir='/Users/ssq/Desktop/datasets/flora_test/'
+#dir='/Users/ssq/Desktop/datasets/flora_test/'
+#worldsize=2
+#interface='lo0'
+#masterport=28670
+
+dir='/ccsopen/home/ssq/datasets/'
+worldsize=8
+masterport=28670
+interface='eth1'
+
 bsz=32
 testbsz=128
-worldsize=3
 masteraddr='127.0.0.1'
-masterport=28670
-backend='Gloo'
+backend='gloo'
 model='alexnet'
 dataset='caltech101'
 lr=0.01
 gamma=0.1
 weightdecay=5e-4
 momentum=0.9
-compression='AMP'
-bitwidth=4
+compression='QSGD'
+bitwidth=16
 
 for val in $(seq 1 $worldsize)
 do
@@ -28,6 +35,7 @@ do
   python3 -m src.flora.test.launch_quantization --dir=$dir --bsz=$bsz --rank=$rank --world-size=$worldsize \
   --master-addr=$masteraddr --master-port=$masterport --backend=$backend --model=$model --dataset=$dataset \
   --train-dir=$dir --test-dir=$dir --compression-type=$compression --quantized-bitwidth=$bitwidth --lr=$lr \
-  --gamma=$gamma --weight-decay=$weightdecay --momentum=$momentum --test-bsz=$testbsz &
+  --gamma=$gamma --weight-decay=$weightdecay --momentum=$momentum --test-bsz=$testbsz \
+  --network-interface=$interface  &
   sleep 3
 done
