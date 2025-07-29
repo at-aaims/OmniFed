@@ -16,9 +16,11 @@ from abc import ABC, abstractmethod
 from typing import Any, List, Optional
 
 import rich.repr
+from rich.pretty import pprint
 
 from .. import utils
 from ..Node import NodeConfig
+from ..utils import print
 
 # ======================================================================================
 
@@ -49,7 +51,7 @@ class BaseTopology(ABC):
         Args:
             **kwargs: Topology-specific parameters passed to subclasses
         """
-        utils.log_sep(f"{self.__class__.__name__} Init")
+        utils.print_rule()
 
         # Lazy-initialized node configurations list
         self.__node_configs: Optional[List[NodeConfig]] = None
@@ -63,9 +65,9 @@ class BaseTopology(ABC):
         """
         if self.__node_configs is None:
             self.__node_configs = self._create_node_configs()
-            print(
-                f"[{self.__class__.__name__}] Configured {len(self.__node_configs)} nodes"
-            )
+            # Log the created node configurations (only on creation)
+            print()
+            pprint(self.__node_configs)
 
         if not self.__node_configs:
             raise ValueError(

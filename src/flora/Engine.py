@@ -14,27 +14,25 @@
 
 import time
 from dataclasses import asdict
-from typing import Any, Dict, List
+from typing import List
 
 import ray
 import rich.repr
-import torch
 from hydra.conf import HydraConf
 from hydra.core.hydra_config import HydraConfig
 from hydra.utils import instantiate
-from omegaconf import DictConfig, OmegaConf
+from omegaconf import DictConfig
+from rich.pretty import pprint
 
 from . import utils
 from .mixins import SetupMixin
 from .Node import Node
 from .topology.BaseTopology import BaseTopology
+from .utils import print
 from .utils.ExperimentDisplay import ExperimentDisplay
 from .utils.MetricFormatter import MetricFormatter
 
-# Timing constants
-LOG_FLUSH_DELAY = (
-    1.0  # Prevent race condition between async log output and result display
-)
+LOG_FLUSH_DELAY = 2.0
 
 
 @rich.repr.auto
@@ -65,7 +63,7 @@ class Engine(SetupMixin):
                       model, and datamodule specifications
         """
         super().__init__()
-        utils.log_sep(f"{self.__class__.__name__} Init", color="blue")
+        utils.print_rule()
 
         self.flora_cfg: DictConfig = flora_cfg
         self.hydra_cfg: HydraConf = HydraConfig.get()
@@ -86,41 +84,30 @@ class Engine(SetupMixin):
 
         Sets up the distributed infrastructure for FL experiment execution.
         """
-        utils.log_sep("FLORA Engine Setup", color="blue")
+        utils.print_rule()
 
         # Initialize Ray cluster with Hydra configuration
         ray.init(**self.flora_cfg.ray)
 
         # Smart GPU allocation: detect single-node vs multi-node scenarios
-        cluster_resources = ray.available_resources()
-        available_gpus = cluster_resources.get("GPU", 0)
-        available_cpus = cluster_resources.get("CPU", 0)
-        total_actors = len(list(self.topology))
-
-        # Log all available cluster resources
-        print(f"[CLUSTER-RESOURCES] {cluster_resources}")
+        ray_available_resources = ray.available_resources()
+        print("ray.available_resources()")
+        pprint(ray_available_resources)
 
         # Detect if running on single node (Ray local cluster)
-        cluster_nodes = ray.nodes()
-        alive_nodes = [node for node in cluster_nodes if node["Alive"]]
-        is_single_node = len(alive_nodes) == 1
+        ray_nodes = ray.nodes()
+        print("ray.nodes()")
+        pprint(ray_nodes)
+
+        ray_nodes_alive = [node for node in ray_nodes if node["Alive"]]
+        is_single_node = len(ray_nodes_alive) == 1
+
+        _available_gpus = ray_available_resources.get("GPU", 0)
+        _total_actors = len(list(self.topology))
 
         # Determine GPU allocation strategy
         use_fractional_gpu = (
-            is_single_node and total_actors > available_gpus and available_gpus > 0
-        )
-
-        # Log consolidated GPU allocation information
-        if use_fractional_gpu:
-            gpu_per_actor = available_gpus / total_actors
-            strategy = f"fractional ({gpu_per_actor:.2f} GPU/actor)"
-        elif available_gpus > 0:
-            strategy = "full (1 GPU/actor)" + ("" if is_single_node else " multi-node")
-        else:
-            strategy = "CPU-only"
-
-        print(
-            f"[GPU-AUTO] {len(alive_nodes)} nodes, {available_cpus} CPUs, {available_gpus} GPUs, {total_actors} actors → {strategy}"
+            is_single_node and _total_actors > _available_gpus and _available_gpus > 0
         )
 
         for node_config in self.topology:
@@ -133,10 +120,10 @@ class Engine(SetupMixin):
             ray_actor_options = asdict(node_config.ray_actor_options)
 
             # If no explicit GPU configuration, auto-assign based on deployment scenario
-            if ray_actor_options.get("num_gpus") is None and available_gpus > 0:
+            if ray_actor_options.get("num_gpus") is None and _available_gpus > 0:
                 if use_fractional_gpu:
                     # Single-node with GPU shortage: use fractional allocation
-                    ray_actor_options["num_gpus"] = gpu_per_actor
+                    ray_actor_options["num_gpus"] = _available_gpus / _total_actors
                 else:
                     # Multi-node or sufficient GPUs: request 1 GPU per actor
                     ray_actor_options["num_gpus"] = 1
@@ -152,20 +139,15 @@ class Engine(SetupMixin):
         setup_futures = [node.setup.remote() for node in self._ray_actor_refs]
         ray.get(setup_futures)
 
-    def start(self) -> None:
+    def run_experiment(self) -> None:
         """
         Run the federated learning experiment.
 
         Coordinates experiment execution across all nodes and displays results.
         """
         try:
-            utils.log_sep("FLORA Engine Start", color="blue")
-
-            print(
-                f"# Starting {self.global_rounds} round federated learning experiment",
-                flush=True,
-            )
-            print("# Nodes will execute autonomously", flush=True)
+            utils.print_rule()
+            print("Starting experiment...")
 
             experiment_start_time = time.time()
 
@@ -174,13 +156,14 @@ class Engine(SetupMixin):
                 future = node.run_experiment.remote(self.global_rounds)
                 experiment_futures.append(future)
 
-            print("# Waiting for nodes to complete experiments...", flush=True)
+            print("Waiting for nodes to complete experiments...", flush=True)
             results = ray.get(experiment_futures)
 
             experiment_end_time = time.time()
             experiment_duration = experiment_end_time - experiment_start_time
 
-            utils.log_sep("FL Experiment Complete", color="blue")
+            utils.print_rule()
+            print("Finished Experiment")
             time.sleep(
                 LOG_FLUSH_DELAY
             )  # Ensure async Ray logs complete before displaying results
@@ -193,5 +176,5 @@ class Engine(SetupMixin):
             )
 
         finally:
-            print("Engine shutting down...", flush=True)
+            print("Shutting down...", flush=True)
             ray.shutdown()

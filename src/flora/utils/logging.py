@@ -13,58 +13,96 @@
 # limitations under the License.
 
 import logging
+from typing import Any, Optional
 
+from rich.color import ANSI_COLOR_NAMES
 from rich.console import Console
 from rich.logging import RichHandler
 from rich.rule import Rule
+import inspect
+from rich import print as rich_print
 
 
-console = Console()
+# def setup_rich_logging(level=logging.INFO) -> None:
+#     """
+#     Configure rich console logging for FLORA.
+
+#     Sets up enhanced logging with timestamps, paths, markup support,
+#     and rich tracebacks for better debugging experience.
+
+#     Args:
+#         level: Logging level (default: INFO)
+#     """
+#     root_logger = logging.getLogger()
+#     root_logger.handlers.clear()
+
+#     rich_handler = RichHandler(
+#         console=console,
+#         show_time=True,
+#         show_path=True,
+#         markup=True,
+#         omit_repeated_times=True,
+#         rich_tracebacks=True,
+#         tracebacks_show_locals=True,
+#     )
+
+#     formatter = logging.Formatter(fmt="[%(name)s] %(message)s")
+#     rich_handler.setFormatter(formatter)
+
+#     root_logger.addHandler(rich_handler)
+#     root_logger.setLevel(level)
 
 
-def setup_rich_logging(level=logging.INFO) -> None:
-    """
-    Configure rich console logging for FLORA.
+ANSI_COLOR_NAMES_LIST = [
+    name
+    for name in ANSI_COLOR_NAMES.keys()
+    if not any(excluded in name for excluded in ["gray", "grey", "black"])
+]
 
-    Sets up enhanced logging with timestamps, paths, markup support,
-    and rich tracebacks for better debugging experience.
-    
-    Args:
-        level: Logging level (default: INFO)
-    """
-    root_logger = logging.getLogger()
-    root_logger.handlers.clear()
 
-    rich_handler = RichHandler(
-        console=console,
-        show_time=True,
-        show_path=True,
-        markup=True,
-        omit_repeated_times=True,
-        rich_tracebacks=True,
-        tracebacks_show_locals=True,
+def _get_color_for_prefix(prefix: str) -> str:
+    """Get a consistent color based on prefix hash."""
+    color_names = ANSI_COLOR_NAMES_LIST
+    color_hash = hash(prefix) % len(color_names)
+    return color_names[color_hash]
+
+
+def _get_caller_prefix() -> str:
+    """Generate a colored prefix based on caller context."""
+    # Get caller information to include function/class name if available
+    stack = inspect.stack()
+    # Skip this function and get the actual caller
+    caller_function = stack[2].function
+    caller_frame = stack[2].frame
+
+    # Check if called from within a class method (self exists)
+    if "self" in caller_frame.f_locals:
+        class_name = caller_frame.f_locals["self"].__class__.__name__
+        prefix = f"{class_name}->{caller_function}"
+    else:
+        # Just use function name if no class context
+        prefix = caller_function
+
+    return prefix
+
+
+def print_rule(msg: Optional[str] = None) -> None:
+    prefix = _get_caller_prefix()
+    color = _get_color_for_prefix(prefix.split("->")[0])
+    prefix = f"[bold {color}]{prefix}[/bold {color}]"
+
+    rich_print()
+    rich_print(
+        Rule(
+            f"[{prefix}] {msg}" if msg else prefix,
+            style=color,
+            characters="═",
+        )
     )
 
-    formatter = logging.Formatter(fmt="[%(name)s] %(message)s")
-    rich_handler.setFormatter(formatter)
 
-    root_logger.addHandler(rich_handler)
-    root_logger.setLevel(level)
-
-
-def log_sep(title: str = "", style: str = "═", color: str = "yellow") -> None:
-    """
-    Print full-width separator for different logging stages.
-
-    Args:
-        title: Optional title text to display in separator
-        style: Character to use for separator line
-        color: Color for title and line styling
-    """
-    if title:
-        console.print()
-        console.print(
-            Rule(f"[bold {color}]{title}[/bold {color}]", style=color, characters=style)
-        )
-    else:
-        console.print(Rule(style="dim", characters=style))
+def print(*args, **kwargs) -> None:
+    prefix = _get_caller_prefix()
+    color = _get_color_for_prefix(prefix.split("->")[0])
+    prefix = f"[bold {color}]{prefix}[/bold {color}]"
+    rich_print(f"[{prefix}]", *args, **kwargs)

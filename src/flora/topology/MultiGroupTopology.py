@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import Any, List, Union, cast
+from typing import Any, List, Union
 
 import rich.repr
 from hydra.utils import instantiate
@@ -104,7 +104,7 @@ class MultiGroupTopology(BaseTopology):
         for group_id, local_topology in enumerate(self.topologies):
             for node_cfg in local_topology:
                 # Give each node a name showing which group and local rank
-                node_cfg.name = f"{group_id}.{node_cfg.local_comm.rank}"
+                node_cfg.name = f"Node{group_id}.{node_cfg.local_comm.rank}"
 
                 # Only group servers (local rank 0) need global communication
                 if node_cfg.local_comm.rank == 0:

@@ -87,20 +87,20 @@ class RayActorConfig:
     max_task_retries: int = 0
 
     # Max number of pending calls allowed on the actor handle. -1 = unlimited
-    max_pending_calls: int = -1
+    # max_pending_calls: int = -1
 
     # Max number of concurrent calls to allow for this actor (direct calls only).
     # Defaults to 1 for threaded execution, 1000 for asyncio execution
-    max_concurrency: Optional[int] = None
+    # max_concurrency: Optional[int] = None
 
     # The globally unique name for the actor, retrievable via ray.get_actor(name)
-    name: Optional[str] = None
+    # name: Optional[str] = None
 
     # Override the namespace to use for the actor. Default is anonymous namespace
     namespace: Optional[str] = None
 
     # Actor lifetime: None (fate share with creator) or "detached" (global object)
-    lifetime: Optional[str] = None
+    # lifetime: Optional[str] = None
 
     # Runtime environment for this actor and its children
     runtime_env: Optional[Dict[str, Any]] = None
@@ -109,10 +109,10 @@ class RayActorConfig:
     scheduling_strategy: Optional[str] = None
 
     # Extended options for Ray libraries (e.g., workflows)
-    _metadata: Optional[Dict[str, Any]] = None
+    # _metadata: Optional[Dict[str, Any]] = None
 
     # True if task events from the actor should be reported (tracing)
-    enable_task_events: bool = True
+    # enable_task_events: bool = True
 
 
 @dataclass

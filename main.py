@@ -33,7 +33,7 @@ def main(cfg: DictConfig) -> None:
     # NOTE: migrate to logging soon (this is currently unused)
     logger = logging.getLogger(__name__)
 
-    utils.log_sep("FLORA Federated Learning Framework", color="blue")
+    utils.print_rule("FLORA Federated Learning Framework")
 
     print(f"Current working directory : {os.getcwd()}")
     print(f"Orig working directory    : {get_original_cwd()}")
@@ -54,7 +54,7 @@ def main(cfg: DictConfig) -> None:
     engine.setup()
 
     time.sleep(1)  # NOTE: useful for debugging for now
-    engine.start()
+    engine.run_experiment()
 
 
 if __name__ == "__main__":

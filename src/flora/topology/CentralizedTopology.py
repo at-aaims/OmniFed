@@ -12,11 +12,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from dataclasses import asdict, replace
 from typing import Any, Dict, List, Optional, cast
 
 import rich.repr
-from omegaconf import DictConfig, OmegaConf
+from omegaconf import OmegaConf
 
 from ..communicator.configs import (
     BaseCommunicatorConfig,
@@ -98,7 +97,7 @@ class CentralizedTopology(BaseTopology):
             local_comm_cfg.world_size = world_size
 
             node_cfg = NodeConfig(
-                name=f"0.{rank}",
+                name=f"Node0.{rank}",
                 local_comm=local_comm_cfg,
                 global_comm=None,
             )
