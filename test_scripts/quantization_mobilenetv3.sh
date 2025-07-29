@@ -20,6 +20,7 @@ masterport=25783
 #masterport=26290
 interface='eth1'
 worldsize=8
+
 bsz=32
 testbsz=32
 masteraddr='127.0.0.1'
