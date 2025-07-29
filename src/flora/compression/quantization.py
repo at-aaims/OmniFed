@@ -12,91 +12,212 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import List, Dict, Tuple
-
 import torch
+import numpy as np
 
-from src.flora.compression import Compression
 
+class QSGDQuantCompression:
+    def __init__(self, bit_width=8, device='cpu'):
+        """
+        QSGD (Quantized Stochastic Gradient Descent) compression
 
-class QSGDQuantCompression(Compression):
-    def __init__(self, device, bit_width: int = 8):
-        super().__init__()
-        self.device = device
+        Args:
+            bit_width: Number of bits for quantization (default: 8)
+            device: Device to perform computations on
+        """
         self.bit_width = bit_width
-        self.levels = 2 ** bit_width - 1
+        self.device = device
+        self.levels = 2 ** bit_width - 1  # Number of quantization levels
 
-    def quantize_tensor(self, tensor: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    def compress(self, gradients):
         """
-        Quantize a tensor to specified bit width
-        Returns: (quantized_tensor, scale, zero_point)
+        Compress gradients using QSGD quantization
+
+        Args:
+            gradients: List of gradient tensors
+
+        Returns:
+            Dictionary containing quantized tensors, scales, and zero points
         """
-        if tensor.numel() == 0:
-            return tensor, torch.tensor(1.0), torch.tensor(0.0)
-
-        # Calculate min/max for uniform quantization
-        min_val = tensor.min()
-        max_val = tensor.max()
-
-        # Handle edge case where all values are the same
-        if min_val == max_val:
-            return torch.zeros_like(tensor, dtype=torch.uint8), torch.tensor(1.0), min_val
-
-        # Calculate scale and zero point
-        scale = (max_val - min_val) / self.levels
-        zero_point = torch.round(-min_val / scale).clamp(0, self.levels)
-
-        # Quantize
-        quantized = torch.round(tensor / scale + zero_point).clamp(0, self.levels)
-
-        return quantized.to(torch.uint8), scale, zero_point
-
-    def compress(self, gradients: List[torch.Tensor], tensor=None) -> Dict:
-        quantized_data = {
-            'tensors': [],
-            'scales': [],
-            'zero_points': [],
-            'shapes': []
-        }
+        quantized_tensors = []
+        scales = []
+        zero_points = []
 
         for grad in gradients:
-            if grad is not None:
-                q_tensor, scale, zero_point = self.quantize_tensor(grad.flatten())
-                quantized_data['tensors'].append(q_tensor)
-                quantized_data['scales'].append(scale)
-                quantized_data['zero_points'].append(zero_point)
-                quantized_data['shapes'].append(grad.shape)
+            if grad is None:
+                quantized_tensors.append(None)
+                scales.append(None)
+                zero_points.append(None)
+                continue
+
+            # Flatten gradient for easier processing
+            flat_grad = grad.flatten()
+
+            # Calculate quantization parameters
+            grad_min = flat_grad.min()
+            grad_max = flat_grad.max()
+
+            # Handle edge case where all gradients are the same
+            if grad_max == grad_min:
+                scale = 1.0
+                zero_point = 0.0
+                quantized = torch.zeros_like(flat_grad, dtype=torch.int32)
             else:
-                # Handle None gradients
-                quantized_data['tensors'].append(None)
-                quantized_data['scales'].append(None)
-                quantized_data['zero_points'].append(None)
-                quantized_data['shapes'].append(None)
+                # Calculate scale and zero point for symmetric quantization
+                scale = (grad_max - grad_min) / self.levels
+                zero_point = grad_min / scale
 
-        return quantized_data
+                # Quantize: q = round((x - min) / scale)
+                quantized = torch.round((flat_grad - grad_min) / scale)
+                quantized = torch.clamp(quantized, 0, self.levels).int()
 
-    def dequantize_tensor(self, quantized: torch.Tensor, scale: torch.Tensor,
-                          zero_point: torch.Tensor, original_shape: torch.Size) -> torch.Tensor:
-        """Dequantize tensor back to float"""
-        if quantized.numel() == 0:
-            return torch.zeros(original_shape)
+            quantized_tensors.append(quantized)
+            scales.append(scale)
+            zero_points.append(zero_point)
 
-        dequantized = scale * (quantized.float() - zero_point)
-        return dequantized.reshape(original_shape)
+        return {
+            'tensors': quantized_tensors,
+            'scales': scales,
+            'zero_points': zero_points
+        }
 
-    def decompress(self, quantized_data: Dict) -> List[torch.Tensor]:
-        """Dequantize back to gradient tensors"""
+    def decompress(self, quantized_data):
+        """
+        Decompress quantized gradients back to float tensors
+
+        Args:
+            quantized_data: Dictionary from compress() method
+
+        Returns:
+            List of decompressed gradient tensors
+        """
+        decompressed_gradients = []
+
+        for i, (q_tensor, scale, zero_point) in enumerate(zip(
+                quantized_data['tensors'],
+                quantized_data['scales'],
+                quantized_data['zero_points']
+        )):
+            if q_tensor is None:
+                decompressed_gradients.append(None)
+                continue
+
+            # Dequantize: x = scale * q + min_val
+            # Since we used zero_point = min_val / scale, min_val = scale * zero_point
+            min_val = scale * zero_point
+            decompressed = scale * q_tensor.float() + min_val
+
+            decompressed_gradients.append(decompressed)
+
+        return decompressed_gradients
+
+
+class ImprovedQSGDCompressTraining:
+    """
+    Improved QSGD training with better compression and aggregation
+    """
+
+    def __init__(
+            self,
+            model: torch.nn.Module,
+            train_data: torch.utils.data.DataLoader,
+            test_data: torch.utils.data.DataLoader,
+            communicator,
+            client_id: int,
+            total_clients: int,
+            train_params,
+            compression: QSGDQuantCompression,
+    ):
+        self.model = model
+        self.train_data = train_data
+        self.test_data = test_data
+        self.communicator = communicator
+        self.client_id = client_id
+        self.total_clients = total_clients
+        self.train_params = train_params
+        self.compression = compression
+        self.optimizer = self.train_params.get_optimizer()
+        self.comm_freq = self.train_params.get_comm_freq()
+        self.loss = self.train_params.get_loss()
+        self.lr_scheduler = self.train_params.get_lr_scheduler()
+        self.epochs = self.train_params.get_epochs()
+        self.local_step = 0
+        self.training_samples = 0
+
+        dev_id = self.client_id % 4
+        self.device = torch.device(
+            "cuda:" + str(dev_id) if torch.cuda.is_available() else "cpu"
+        )
+        self.model = self.model.to(self.device)
+
+    def broadcast_model(self, model):
+        model = self.communicator.broadcast(msg=model, id=0)
+        return model
+
+    def aggregate_compressed_gradients(self):
+        """
+        Aggregate gradients using QSGD compression
+        """
+        # Extract gradients
         gradients = []
-        for i in range(len(quantized_data['tensors'])):
-            if quantized_data['tensors'][i] is not None:
-                grad = self.dequantize_tensor(
-                    quantized_data['tensors'][i],
-                    quantized_data['scales'][i],
-                    quantized_data['zero_points'][i],
-                    quantized_data['shapes'][i]
-                )
-                gradients.append(grad)
+        for param in self.model.parameters():
+            if param.grad is not None:
+                gradients.append(param.grad.clone())
             else:
                 gradients.append(None)
 
-        return gradients
+        # Compress gradients locally
+        quantized_data = self.compression.compress(gradients)
+
+        # Method 1: Proper QSGD - dequantize locally then aggregate
+        decompressed_grads = self.compression.decompress(quantized_data)
+
+        # Update model gradients with decompressed versions
+        param_idx = 0
+        for param in self.model.parameters():
+            if param.grad is not None:
+                if decompressed_grads[param_idx] is not None:
+                    param.grad.data = decompressed_grads[param_idx].reshape(param.grad.shape)
+                param_idx += 1
+
+        # Now aggregate the decompressed gradients
+        self.communicator.aggregate(self.model, communicate_params=False, compute_mean=True)
+
+    def train_loop(self, epoch):
+        """Main training loop with improved QSGD"""
+        for batch_idx, (inputs, labels) in enumerate(self.train_data):
+            inputs, labels = inputs.to(self.device), labels.to(self.device)
+
+            # Forward pass
+            pred = self.model(inputs)
+            loss = self.loss(pred, labels)
+
+            # Backward pass
+            loss.backward()
+
+            # Aggregate gradients with compression every comm_freq steps
+            if (self.local_step + 1) % self.comm_freq == 0:
+                self.aggregate_compressed_gradients()
+
+            # Update model
+            self.optimizer.step()
+            self.optimizer.zero_grad()
+
+            self.local_step += 1
+
+            if batch_idx % 100 == 0:
+                print(f'Epoch {epoch}, Batch {batch_idx}, Loss: {loss.item():.6f}')
+
+        if self.lr_scheduler is not None:
+            self.lr_scheduler.step()
+
+    def train(self):
+        print("Broadcasting initial model...")
+        self.model = self.broadcast_model(model=self.model)
+
+        for epoch in range(self.epochs):
+            print(f"Starting epoch {epoch + 1}/{self.epochs}")
+            self.train_loop(epoch)
+
+            # Test accuracy
+            self.evaluate(epoch)

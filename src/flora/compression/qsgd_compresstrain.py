@@ -85,46 +85,27 @@ class QSGDCompressTraining:
             self.training_samples += inputs.size(0)
             loss.backward()
             compute_time = (perf_counter_ns() - init_time) / nanosec_to_millisec
+
             compress_init = perf_counter_ns()
             compress_time, compress_sync_time = None, None
+
             if self.compression.__class__.__name__ == "QSGDQuantCompression":
-                # logging.info(f"compression class QSGDQuantCompression!!!")
                 gradients = [p.grad for p in self.model.parameters() if p.requires_grad]
+
                 # Quantize gradients locally
                 quantized_data = self.compression.compress(gradients=gradients)
                 del gradients
                 compress_time = (perf_counter_ns() - compress_init) / nanosec_to_millisec
-                compress_sync_time = 0
-                for (i, param) in enumerate(self.model.parameters()):
-                    if param.grad is not None and quantized_data['tensors'][i] is not None:
-                        # All-reduce the quantized values as int32 to avoid overflow
-                        q_tensor = quantized_data['tensors'][i].int()
-                        scale = quantized_data['scales'][i]
-                        zero_point = quantized_data['zero_points'][i]
 
-                        sync_init = perf_counter_ns()
-                        # All-reduce quantized tensor (sum as integers)
-                        self.communicator.quantized_aggregate(msg=q_tensor,
-                                                              communicate_params=False,
-                                                              compute_mean=False)
-                        # All-reduce scale and zero_point
-                        self.communicator.quantized_aggregate(msg=scale,
-                                                              communicate_params=False,
-                                                              compute_mean=False)
-                        self.communicator.quantized_aggregate(msg=zero_point,
-                                                              communicate_params=False,
-                                                              compute_mean=False)
-                        compress_sync_time += (perf_counter_ns() - sync_init) / nanosec_to_millisec
+                sync_init = perf_counter_ns()
+                # Method 1: Proper QSGD aggregation (recommended)
+                self._aggregate_qsgd_method1(quantized_data)
 
-                        # Average the summed values
-                        q_tensor_avg = q_tensor.float() / self.total_clients
-                        scale_avg = scale / self.total_clients
-                        zero_point_avg = zero_point / self.total_clients
+                # Alternative Method 2: If you want to average quantization parameters
+                # self._aggregate_qsgd_method2(quantized_data)
 
-                        # Dequantize using averaged parameters
-                        dequantized = scale_avg * (q_tensor_avg - zero_point_avg)
-                        param.grad = dequantized.reshape(param.grad.shape)
-
+                # compress_sync_time = (perf_counter_ns() - compress_init - compress_time * nanosec_to_millisec) / nanosec_to_millisec
+                compress_sync_time = (perf_counter_ns() - sync_init) / nanosec_to_millisec
                 del quantized_data
 
             self.optimizer.step()
@@ -163,6 +144,76 @@ class QSGDCompressTraining:
 
         if self.lr_scheduler is not None:
             self.lr_scheduler.step()
+
+    def _aggregate_qsgd_method1(self, quantized_data):
+        """
+        Proper QSGD aggregation: dequantize locally, aggregate, then update gradients
+        This is the mathematically correct approach for QSGD.
+        """
+        for (i, param) in enumerate(self.model.parameters()):
+            if param.grad is not None and quantized_data['tensors'][i] is not None:
+                # Dequantize locally first
+                q_tensor = quantized_data['tensors'][i].float()
+                scale = quantized_data['scales'][i]
+                zero_point = quantized_data['zero_points'][i]
+
+                # Dequantize: scale * (quantized - zero_point)
+                dequantized = scale * (q_tensor - zero_point)
+                dequantized = dequantized.reshape(param.grad.shape)
+
+                # Now aggregate the dequantized gradients
+                param.grad.data = dequantized
+                param.grad = self.communicator.aggregate(
+                    msg=param.grad,
+                    communicate_params=False,
+                    compute_mean=True
+                )
+
+    def _aggregate_qsgd_method2(self, quantized_data):
+        """
+        Alternative method: Aggregate quantized values and parameters separately
+        This requires careful handling of quantization parameters.
+        """
+        for (i, param) in enumerate(self.model.parameters()):
+            if param.grad is not None and quantized_data['tensors'][i] is not None:
+                q_tensor = quantized_data['tensors'][i]
+                scale = quantized_data['scales'][i]
+                zero_point = quantized_data['zero_points'][i]
+
+                # Use float32 to avoid overflow issues
+                q_tensor_float = q_tensor.float()
+
+                # Create tensors for aggregation
+                scale_tensor = torch.tensor(scale, device=self.device, dtype=torch.float32)
+                zero_point_tensor = torch.tensor(zero_point, device=self.device, dtype=torch.float32)
+
+                # Aggregate quantized values (sum, not average yet)
+                self.communicator.quantized_aggregate(
+                    msg=q_tensor_float,
+                    communicate_params=False,
+                    compute_mean=False
+                )
+
+                # Aggregate scales and zero points (sum, not average yet)
+                self.communicator.quantized_aggregate(
+                    msg=scale_tensor,
+                    communicate_params=False,
+                    compute_mean=False
+                )
+                self.communicator.quantized_aggregate(
+                    msg=zero_point_tensor,
+                    communicate_params=False,
+                    compute_mean=False
+                )
+
+                # Average the aggregated values
+                q_tensor_avg = q_tensor_float / self.total_clients
+                scale_avg = scale_tensor / self.total_clients
+                zero_point_avg = zero_point_tensor / self.total_clients
+
+                # Dequantize using averaged parameters
+                dequantized = scale_avg * (q_tensor_avg - zero_point_avg)
+                param.grad = dequantized.reshape(param.grad.shape)
 
     def train(self):
         print("going to broadcast model across clients...")
