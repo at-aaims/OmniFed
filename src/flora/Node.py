@@ -55,62 +55,80 @@ class RayActorConfig:
     Reference: https://docs.ray.io/en/latest/ray-core/api/doc/ray.actor.ActorClass.options.html
     """
 
+    # ---
     # The quantity of CPU cores to reserve for the lifetime of the actor
     num_cpus: Optional[float] = None
 
+    # ---
     # The quantity of GPUs to reserve for the lifetime of the actor
     # None = automatic allocation, 0 = CPU-only, 0.5 = fractional sharing, 1+ = full GPUs
     num_gpus: Optional[float] = None
 
+    # ---
     # The quantity of various custom resources to reserve for the lifetime of the actor.
     # Dictionary mapping strings (resource names) to floats
     resources: Optional[Dict[str, float]] = None
 
+    # ---
     # Requires that the actor run on a node which meets the specified label conditions
     label_selector: Optional[Dict[str, str]] = None
 
+    # ---
     # Requires that the actor run on a node with the specified type of accelerator
     accelerator_type: Optional[str] = None
 
+    # ---
     # The heap memory request in bytes for this actor, rounded down to the nearest integer
     memory: Optional[int] = None
 
+    # ---
     # The object store memory request for actors only
-    object_store_memory: Optional[int] = None
+    # object_store_memory: Optional[int] = None
 
+    # ---
     # Maximum number of times the actor should be restarted when it dies unexpectedly.
     # 0 = no restarts (default), -1 = infinite restarts
     max_restarts: int = 0
 
+    # ---
     # How many times to retry an actor task if the task fails due to a runtime error.
     # 0 = no retries (default), -1 = retry until max_restarts limit, n > 0 = retry up to n times
     max_task_retries: int = 0
 
+    # ---
     # Max number of pending calls allowed on the actor handle. -1 = unlimited
     # max_pending_calls: int = -1
 
+    # ---
     # Max number of concurrent calls to allow for this actor (direct calls only).
     # Defaults to 1 for threaded execution, 1000 for asyncio execution
     # max_concurrency: Optional[int] = None
 
+    # ---
     # The globally unique name for the actor, retrievable via ray.get_actor(name)
     # name: Optional[str] = None
 
+    # ---
     # Override the namespace to use for the actor. Default is anonymous namespace
     namespace: Optional[str] = None
 
+    # ---
     # Actor lifetime: None (fate share with creator) or "detached" (global object)
     # lifetime: Optional[str] = None
 
+    # ---
     # Runtime environment for this actor and its children
     runtime_env: Optional[Dict[str, Any]] = None
 
+    # ---
     # Scheduling strategy: None, "DEFAULT", "SPREAD", or placement group strategies
     scheduling_strategy: Optional[str] = None
 
+    # ---
     # Extended options for Ray libraries (e.g., workflows)
     # _metadata: Optional[Dict[str, Any]] = None
 
+    # ---
     # True if task events from the actor should be reported (tracing)
     # enable_task_events: bool = True
 
