@@ -85,35 +85,35 @@ class PowerSGDCompressTrain:
             loss.backward()
             compute_time = (perf_counter_ns() - init_time) / nanosec_to_millisec
             compress_time, compress_sync_time = 0., 0.
-            for name, param in self.model.named_parameters():
-                compress_init = perf_counter_ns()
-                # Store original gradient for error feedback
-                original_grad = param.grad.clone()
-                param_P, param_Q, param_og_shape = self.compression.compress(tensor=param.grad, param_name=name)
-                compress_time += (perf_counter_ns() - compress_init) / nanosec_to_millisec
+            with torch.no_grad():
+                for name, param in self.model.named_parameters():
+                    compress_init = perf_counter_ns()
+                    # Store original gradient for error feedback
+                    original_grad = param.grad.clone()
+                    param_P, matrix, param_og_shape, was_compressed = self.compression.compress(tensor=param.grad,
+                                                                                                param_name=name)
+                    compress_time += (perf_counter_ns() - compress_init) / nanosec_to_millisec
 
-                sync_init = perf_counter_ns()
-                param_P = self.communicator.aggregate(msg=param_P,
-                                                      communicate_params=False,
-                                                      compute_mean=True)
-                compress_sync_time += (perf_counter_ns() - sync_init) / nanosec_to_millisec
-                if param_Q is not None:
-                    # print(f'no compression here....')
                     sync_init = perf_counter_ns()
-                    param_Q = self.communicator.aggregate(msg=param_Q,
+                    param_P = self.communicator.aggregate(msg=param_P,
                                                           communicate_params=False,
                                                           compute_mean=True)
                     compress_sync_time += (perf_counter_ns() - sync_init) / nanosec_to_millisec
 
-                    self.compression._update_Q(param_Q=param_Q, param_name=name)
+                    if was_compressed:
+                        param_Q = self.compression._update_Q(P=param_P, matrix=matrix)
+                        decompressed_grad = self.compression.decompress(P=param_P,
+                                                                        Q=param_Q,
+                                                                        original_shape=param_og_shape,
+                                                                        was_compressed=was_compressed)
 
-                    decompressed_grad = self.compression.decompress(P=param_P,
-                                                                    Q=param_Q,
-                                                                    original_shape=param_og_shape)
+                    else:
+                        decompressed_grad = param_P
+
                     self.compression.update_error_feedback(original_grad=original_grad,
                                                            compressed_grad=decompressed_grad,
                                                            param_name=name)
-                    param.grad = decompressed_grad
+                    param.grad.copy_(decompressed_grad)
 
             self.optimizer.step()
             self.optimizer.zero_grad()
