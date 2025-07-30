@@ -5,15 +5,15 @@ cd ../
 # kill -s 9 `ps -ef | grep src.flora.test.launch_lora |grep -v grep | awk '{print $2}'`
 # kill -9 $(ps aux | grep src.flora.test.launch_lora | grep -v grep | awk '{print $2}')
 
-dir='/Users/ssq/Desktop/datasets/flora_test/'
-worldsize=2
-interface='lo0'
-masterport=28670
+#dir='/Users/ssq/Desktop/datasets/flora_test/'
+#worldsize=2
+#interface='lo0'
+#masterport=28670
 
-#dir='/ccsopen/home/ssq/datasets/'
-#masterport=28360
-#worldsize=8
-#interface='eth1'
+dir='/ccsopen/home/ssq/datasets/'
+masterport=28360
+worldsize=8
+interface='eth1'
 
 bsz=32
 masteraddr='127.0.0.1'
