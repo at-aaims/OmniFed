@@ -86,9 +86,22 @@ class PowerSGDCompressTrain:
             compute_time = (perf_counter_ns() - init_time) / nanosec_to_millisec
 
             for name, param in self.model.named_parameters():
+                # Store original gradient for error feedback
+                original_grad = param.grad.clone()
                 param_P, param_Q, param_og_shape = self.compression.compress(tensor=param, param_name=name)
 
-                param_P = self.communicator.aggregate(msg=param_P, communicate_params=False, compute_mean=True)
-                param_Q = self.communicator.aggregate(msg=param_Q, communicate_params=False, compute_mean=True)
+                param_P = self.communicator.aggregate(msg=param_P,
+                                                      communicate_params=False,
+                                                      compute_mean=True)
+                param_Q = self.communicator.aggregate(msg=param_Q,
+                                                      communicate_params=False,
+                                                      compute_mean=True)
                 self.compression._update_Q(param_Q=param_Q, param_name=name)
+
+                decompressed_grad = self.compression.decompress(P=param_P,
+                                                                Q=param_Q,
+                                                                original_shape=param_og_shape)
+                self.compression.update_error_feedback(original_grad=original_grad,
+                                                       compressed_grad=decompressed_grad,
+                                                       param_name=name)
 

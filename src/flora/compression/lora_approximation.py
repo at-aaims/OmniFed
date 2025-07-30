@@ -180,5 +180,16 @@ class PowerSGDCompression(Compression):
         """
         return torch.matmul(P, Q.T).view(original_shape)
 
-    def update_error_feedback(self):
+    def update_error_feedback(self, original_grad: torch.Tensor, compressed_grad: torch.Tensor, param_name: str):
+        """Update error feedback buffer.
+        Args:
+            original_grad: Original gradient before compression
+            compressed_grad: Gradient after compression and decompression
+            param_name: Parameter name for tracking
+        """
+        error = original_grad - compressed_grad
 
+        if param_name in self.error_dict:
+            self.error_dict[param_name] = error
+        else:
+            self.error_dict[param_name] = error.clone()
