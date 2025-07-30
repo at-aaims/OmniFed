@@ -26,7 +26,7 @@ gamma=0.1
 weightdecay=5e-4
 momentum=0.9
 compression='QSGD'
-bitwidth=16
+bitwidth=8
 
 for val in $(seq 1 $worldsize)
 do
