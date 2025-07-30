@@ -27,7 +27,7 @@ weightdecay=5e-4
 model='vgg11'
 dataset='cifar100'
 compression='QSGD'
-bitwidth=16
+bitwidth=8
 
 for val in $(seq 1 $worldsize)
 do

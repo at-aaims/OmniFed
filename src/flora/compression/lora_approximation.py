@@ -18,6 +18,7 @@ from time import perf_counter_ns
 import torch
 
 from src.flora.compression import Compression
+from src.flora.communicator import Communicator
 
 nanosec_to_millisec = 1e6
 
@@ -122,7 +123,10 @@ class PowerSGDCompression(Compression):
             reshaped = tensor.view(tensor.shape[0], -1)
             return reshaped, original_shape
 
-    def compress_P(self, tensor: torch.Tensor, param_name: str) -> Tuple[torch.Tensor, torch.Tensor, torch.Size, bool]:
+    def _update_Q(self, param_Q: torch.Tensor, param_name: str):
+        self.q_memory[param_name] = param_Q
+
+    def compress(self, tensor: torch.Tensor, param_name: str) -> Tuple[torch.Tensor, torch.Tensor, torch.Size, bool]:
         """Compress tensor using PowerSGD low-rank approximation.
 
                 Args:
@@ -156,5 +160,25 @@ class PowerSGDCompression(Compression):
         for _ in range(self.power_itr):
             # P = matrix @ Q
             P = torch.matmul(matrix, Q)
+            # Orthonormalize P
+            P, _ = torch.linalg.qr(P)
 
+            # Q = matrix.T @ P
+            Q = torch.matmul(matrix.T, P)
+            # Orthonormalize Q
+            Q, _ = torch.linalg.qr(Q)
+
+        return P, Q, original_shape
+
+    def decompress(self, P: torch.Tensor, Q: torch.Tensor, original_shape: torch.Size):
+        """Decompress P and Q matrices back to original tensor.
+        P: P matrix from compression
+        Q: Q matrix from compression
+        original_shape: Original tensor shape
+        Returns:
+            Decompressed tensor
+        """
+        return torch.matmul(P, Q.T).view(original_shape)
+
+    def update_error_feedback(self):
 
