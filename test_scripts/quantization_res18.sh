@@ -28,7 +28,7 @@ backend='gloo'
 model='resnet18'
 dataset='cifar10'
 compression='QSGD'
-bitwidth=16
+bitwidth=8
 
 for val in $(seq 1 $worldsize)
 do
