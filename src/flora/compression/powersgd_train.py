@@ -89,7 +89,7 @@ class PowerSGDCompressTrain:
                 compress_init = perf_counter_ns()
                 # Store original gradient for error feedback
                 original_grad = param.grad.clone()
-                param_P, param_Q, param_og_shape = self.compression.compress(tensor=param, param_name=name)
+                param_P, param_Q, param_og_shape = self.compression.compress(tensor=param.grad, param_name=name)
                 compress_time += (perf_counter_ns() - compress_init) / nanosec_to_millisec
 
                 sync_init = perf_counter_ns()
