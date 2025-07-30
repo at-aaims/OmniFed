@@ -113,20 +113,23 @@ class PowerSGDCompression(Compression):
 
         if len(tensor.shape) == 1:
             # Vector case - no compression needed
+            # print(f'@@@@@@@@@@@@@@@@@@@@@ no compression {tensor.shape} og_shape {original_shape}')
             return tensor, original_shape
         elif len(tensor.shape) == 2:
             # Already 2D
+            # print(f'^^^^^^^^^^^^^^^^^^^^ shape {tensor.shape} og_shape {original_shape}')
             return tensor, original_shape
         else:
             # Higher dimensional tensor - reshape to 2D
             # Keep first dimension, flatten the rest
             reshaped = tensor.view(tensor.shape[0], -1)
+            # print(f'&&&&&&&&&&&&&&&&&&&&& reshaped higher dimension! {reshaped.shape} og_shape {original_shape}')
             return reshaped, original_shape
 
     def _update_Q(self, param_Q: torch.Tensor, param_name: str):
         self.q_memory[param_name] = param_Q
 
-    def compress(self, tensor: torch.Tensor, param_name: str) -> Tuple[torch.Tensor, torch.Tensor, torch.Size, bool]:
+    def compress(self, tensor: torch.Tensor, param_name: str) -> Tuple[torch.Tensor, torch.Tensor, torch.Size]:
         """Compress tensor using PowerSGD low-rank approximation.
 
                 Args:
@@ -142,7 +145,7 @@ class PowerSGDCompression(Compression):
 
             # Check if we should compress
         if not self._should_compress(tensor):
-            return tensor, None, tensor.shape, False
+            return tensor, None, tensor.shape
 
             # Reshape for compression
         matrix, original_shape = self._reshape_for_compression(tensor)

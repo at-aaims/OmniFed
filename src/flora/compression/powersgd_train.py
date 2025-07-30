@@ -84,24 +84,83 @@ class PowerSGDCompressTrain:
             self.training_samples += inputs.size(0)
             loss.backward()
             compute_time = (perf_counter_ns() - init_time) / nanosec_to_millisec
-
+            compress_time, compress_sync_time = 0., 0.
             for name, param in self.model.named_parameters():
+                compress_init = perf_counter_ns()
                 # Store original gradient for error feedback
                 original_grad = param.grad.clone()
                 param_P, param_Q, param_og_shape = self.compression.compress(tensor=param, param_name=name)
+                compress_time += (perf_counter_ns() - compress_init) / nanosec_to_millisec
 
+                sync_init = perf_counter_ns()
                 param_P = self.communicator.aggregate(msg=param_P,
                                                       communicate_params=False,
                                                       compute_mean=True)
-                param_Q = self.communicator.aggregate(msg=param_Q,
-                                                      communicate_params=False,
-                                                      compute_mean=True)
-                self.compression._update_Q(param_Q=param_Q, param_name=name)
+                compress_sync_time += (perf_counter_ns() - sync_init) / nanosec_to_millisec
+                if param_Q is not None:
+                    # print(f'no compression here....')
+                    sync_init = perf_counter_ns()
+                    param_Q = self.communicator.aggregate(msg=param_Q,
+                                                          communicate_params=False,
+                                                          compute_mean=True)
+                    compress_sync_time += (perf_counter_ns() - sync_init) / nanosec_to_millisec
 
-                decompressed_grad = self.compression.decompress(P=param_P,
-                                                                Q=param_Q,
-                                                                original_shape=param_og_shape)
-                self.compression.update_error_feedback(original_grad=original_grad,
-                                                       compressed_grad=decompressed_grad,
-                                                       param_name=name)
+                    self.compression._update_Q(param_Q=param_Q, param_name=name)
 
+                    decompressed_grad = self.compression.decompress(P=param_P,
+                                                                    Q=param_Q,
+                                                                    original_shape=param_og_shape)
+                    self.compression.update_error_feedback(original_grad=original_grad,
+                                                           compressed_grad=decompressed_grad,
+                                                           param_name=name)
+                    param.grad = decompressed_grad
+
+            self.optimizer.step()
+            self.optimizer.zero_grad()
+            self.local_step += 1
+            itr_time = (perf_counter_ns() - itr_strt) / nanosec_to_millisec
+            logging.info(
+                f"training_metrics local_step: {self.local_step} epoch {epoch} compute_time {compute_time} ms "
+                f"compress_time: {compress_time} ms compress_sync_time: {compress_sync_time} ms "
+                f"itr_time: {itr_time} ms"
+            )
+
+        epoch_time = (perf_counter_ns() - epoch_strt) / nanosec_to_millisec
+        logging.info(f"epoch completion time for epoch {epoch} is {epoch_time} ms")
+
+        train_img_accuracy(
+            epoch=epoch,
+            iteration=self.local_step,
+            input=inputs,
+            label=labels,
+            output=pred,
+            loss=loss,
+            train_loss=self.train_loss,
+            top1acc=self.top1_acc,
+            top5acc=self.top5_acc,
+            top10acc=self.top10_acc,
+        )
+        test_img_accuracy(
+            epoch=epoch,
+            device=self.device,
+            model=self.model,
+            test_loader=self.test_data,
+            loss_fn=self.loss,
+            iteration=self.local_step,
+        )
+
+        if self.lr_scheduler is not None:
+            self.lr_scheduler.step()
+
+    def train(self):
+        print("going to broadcast model across clients...")
+        self.model = self.broadcast_model(model=self.model)
+        if self.epochs is not None and isinstance(self.epochs, int) and self.epochs > 0:
+            for epoch in range(self.epochs):
+                print("going to start epoch {}/{}".format(epoch, self.epochs))
+                self.train_loop(epoch=epoch)
+        else:
+            i = 0
+            while True:
+                self.train_loop(epoch=i)
+                i += 1
