@@ -41,5 +41,5 @@ if __name__ == "__main__":
         client_id=args.client_id,
         log_dir=args.log_dir,
     )
-    stream.create_topic(args.kafka_topic)
+    # stream.create_topic(args.kafka_topic)
     stream.stream_data()
