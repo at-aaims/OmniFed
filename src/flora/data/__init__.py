@@ -14,3 +14,4 @@
 
 from .DummyDataset import DummyDataset
 from .DataModule import DataModule
+from .configs import DataModuleConfig

@@ -19,7 +19,7 @@ import rich.repr
 import torch
 import torch.nn as nn
 
-from ..communicator import AggregationOp
+from ..communicator import AggregationOp, BaseCommunicator
 from . import utils
 from .BaseAlgorithm import BaseAlgorithm
 
@@ -65,14 +65,14 @@ class FedNova(BaseAlgorithm):
             self.local_model.parameters(), lr=local_lr, weight_decay=self.weight_decay
         )
 
-    def _compute_loss(self, batch: Any) -> tuple[torch.Tensor, int]:
+    def _compute_loss(self, batch: Any) -> torch.Tensor:
         """
         Perform a forward pass and compute cross-entropy loss for a batch.
         """
         inputs, targets = batch
         outputs = self.local_model(inputs)
         loss = torch.nn.functional.cross_entropy(outputs, targets)
-        return loss, inputs.size(0)
+        return loss
 
     def _optimizer_step(self) -> None:
         """
@@ -94,7 +94,9 @@ class FedNova(BaseAlgorithm):
         alpha *= lr
         return alpha
 
-    def _aggregate(self) -> nn.Module:
+    def _aggregate_within_group(
+        self, comm: BaseCommunicator, weight: float
+    ) -> nn.Module:
         """
         FedNova aggregation: normalized averaging based on local training steps.
         """
@@ -112,22 +114,13 @@ class FedNova(BaseAlgorithm):
                     local_param.data - global_param.data
                 ) / alpha
 
-        # Aggregate local sample counts to compute federation total
-        global_samples = self.local_comm.aggregate(
-            torch.tensor([self.metrics.num_samples_trained], dtype=torch.float32),
-            reduction=AggregationOp.SUM,
-        ).item()
-
-        # Calculate this client's data proportion for weighted aggregation
-        data_proportion = self.metrics.num_samples_trained / max(global_samples, 1)
-
         # Scale normalized deltas by the data proportion for weighted aggregation
         with torch.no_grad():
             for param_name, delta in normalized_deltas.items():
-                delta.mul_(data_proportion)
+                delta.mul_(weight)
 
         # Aggregate normalized deltas
-        aggregated_deltas = self.local_comm.aggregate(
+        aggregated_deltas = comm.aggregate(
             msg=normalized_deltas,
             reduction=AggregationOp.SUM,
         )

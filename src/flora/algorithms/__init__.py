@@ -15,7 +15,6 @@
 from .BaseAlgorithm import BaseAlgorithm
 from .diloco import DiLoCo
 from .ditto import Ditto
-from .ExecutionMetrics import AccumulationMode, ExecutionMetrics
 from .ExecutionSchedules import (
     AggregationTriggers,
     EvaluationTriggers,

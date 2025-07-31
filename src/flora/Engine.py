@@ -12,9 +12,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import os
 import time
 from dataclasses import asdict
-from typing import List
+from typing import Any, Dict, List
 
 import ray
 import rich.repr
@@ -25,7 +26,7 @@ from omegaconf import DictConfig
 from rich.pretty import pprint
 
 from . import utils
-from .mixins import SetupMixin
+from .mixins import RequiredSetup
 from .Node import Node
 from .topology.BaseTopology import BaseTopology
 from .utils import print
@@ -36,7 +37,7 @@ LOG_FLUSH_DELAY = 2.0
 
 
 @rich.repr.auto
-class Engine(SetupMixin):
+class Engine(RequiredSetup):
     """
     Central orchestrator for distributed federated learning experiments.
 

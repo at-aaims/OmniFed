@@ -20,7 +20,7 @@ import torch
 import torch.nn as nn
 
 
-from ..communicator import AggregationOp
+from ..communicator import AggregationOp, BaseCommunicator
 from . import utils
 from .BaseAlgorithm import BaseAlgorithm
 
@@ -64,7 +64,7 @@ class Ditto(BaseAlgorithm):
         """
         return torch.optim.SGD(self.local_model.parameters(), lr=local_lr)
 
-    def _compute_loss(self, batch: Any) -> tuple[torch.Tensor, int]:
+    def _compute_loss(self, batch: Any) -> torch.Tensor:
         """
         Perform dual training: update both global model and personal model.
         """
@@ -94,26 +94,19 @@ class Ditto(BaseAlgorithm):
 
         total_loss = personal_loss + 0.5 * self.ditto_lambda * proximal_reg
 
-        return total_loss, batch_size
+        return total_loss
 
-    def _aggregate(self) -> nn.Module:
+    def _aggregate_within_group(
+        self, comm: BaseCommunicator, weight: float
+    ) -> nn.Module:
         """
         Ditto aggregation: aggregate global models while keeping personal models local.
         """
-        # Aggregate local sample counts to compute federation total
-        global_samples = self.local_comm.aggregate(
-            torch.tensor([self.metrics.num_samples_trained], dtype=torch.float32),
-            reduction=AggregationOp.SUM,
-        ).item()
-
-        # Calculate this client's data proportion for weighted aggregation
-        data_proportion = self.metrics.num_samples_trained / max(global_samples, 1)
-
         # All nodes participate regardless of sample count
-        utils.scale_params(self.global_model, data_proportion)
+        utils.scale_params(self.global_model, weight)
 
         # Aggregate global models (personal models remain local)
-        self.global_model = self.local_comm.aggregate(
+        self.global_model = comm.aggregate(
             self.global_model,
             reduction=AggregationOp.SUM,
         )

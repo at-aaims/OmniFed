@@ -19,7 +19,7 @@ import rich.repr
 import torch
 from torch import nn
 
-from ..communicator import AggregationOp
+from ..communicator import AggregationOp, BaseCommunicator
 from .BaseAlgorithm import BaseAlgorithm
 
 # ======================================================================================
@@ -72,16 +72,18 @@ class DiLoCo(BaseAlgorithm):
         """
         return torch.optim.SGD(self.local_model.parameters(), lr=local_lr)
 
-    def _compute_loss(self, batch: Any) -> tuple[torch.Tensor, int]:
+    def _compute_loss(self, batch: Any) -> torch.Tensor:
         """
         Forward pass and compute cross-entropy loss for a batch.
         """
         inputs, targets = batch
         outputs = self.local_model(inputs)
         loss = torch.nn.functional.cross_entropy(outputs, targets)
-        return loss, inputs.size(0)
+        return loss
 
-    def _aggregate(self) -> nn.Module:
+    def _aggregate_within_group(
+        self, comm: BaseCommunicator, weight: float
+    ) -> nn.Module:
         """
         DiLoCo aggregation: distributed low-communication with server-side momentum.
         """
@@ -95,7 +97,7 @@ class DiLoCo(BaseAlgorithm):
                 local_deltas[param_name] = local_param.data - global_param.data
 
         # DiLoCo uses mean aggregation rather than weighted aggregation
-        aggregated_deltas = self.local_comm.aggregate(
+        aggregated_deltas = comm.aggregate(
             msg=local_deltas,
             reduction=AggregationOp.MEAN,
         )

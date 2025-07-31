@@ -19,7 +19,7 @@ from typing import Dict, TypeVar
 import torch
 import torch.nn as nn
 
-from ..mixins import SetupMixin
+from ..mixins import RequiredSetup
 
 # ======================================================================================
 
@@ -32,7 +32,7 @@ class AggregationOp(str, Enum):
     MAX = "MAX"  # Element-wise maximum across ranks
 
 
-class BaseCommunicator(SetupMixin, ABC):
+class BaseCommunicator(RequiredSetup, ABC):
     """
     Abstract interface for federated learning communication backends.
 

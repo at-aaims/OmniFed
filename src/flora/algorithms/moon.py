@@ -19,7 +19,7 @@ import rich.repr
 import torch
 import torch.nn as nn
 
-from ..communicator import AggregationOp
+from ..communicator import AggregationOp, BaseCommunicator
 from . import utils
 from .BaseAlgorithm import BaseAlgorithm
 
@@ -104,7 +104,7 @@ class MOON(BaseAlgorithm):
         """
         return torch.optim.SGD(self.local_model.parameters(), lr=local_lr)
 
-    def _compute_loss(self, batch: Any) -> tuple[torch.Tensor, int]:
+    def _compute_loss(self, batch: Any) -> torch.Tensor:
         """
         Forward pass and compute the MOON loss for a single batch, including contrastive loss.
         """
@@ -159,27 +159,19 @@ class MOON(BaseAlgorithm):
         # Combined loss
         total_loss = base_loss + self.mu * contrastive_loss
 
-        return total_loss, inputs.size(0)
+        return total_loss
 
-    def _aggregate(self) -> nn.Module:
+    def _aggregate_within_group(
+        self, comm: BaseCommunicator, weight: float
+    ) -> nn.Module:
         """
         MOON aggregation: weighted averaging with model history for contrastive learning.
         """
-        # Aggregate local sample counts to compute federation total
-
-        global_samples = self.local_comm.aggregate(
-            torch.tensor([self.metrics.num_samples_trained], dtype=torch.float32),
-            reduction=AggregationOp.SUM,
-        ).item()
-
-        # Calculate this client's data proportion for weighted aggregation
-        data_proportion = self.metrics.num_samples_trained / max(global_samples, 1)
-
         # All nodes participate regardless of sample count
-        utils.scale_params(self.local_model, data_proportion)
+        utils.scale_params(self.local_model, weight)
 
         # Aggregate scaled models
-        aggregated_model = self.local_comm.aggregate(
+        aggregated_model = comm.aggregate(
             self.local_model,
             reduction=AggregationOp.SUM,
         )

@@ -18,9 +18,6 @@ import rich.repr
 import torch
 from torch import nn
 
-
-from ..communicator import AggregationOp
-from . import utils
 from .BaseAlgorithm import BaseAlgorithm
 
 # ======================================================================================
@@ -43,37 +40,11 @@ class FedAvg(BaseAlgorithm):
         """
         return torch.optim.SGD(self.local_model.parameters(), lr=local_lr)
 
-    def _compute_loss(self, batch: Any) -> Tuple[torch.Tensor, int]:
+    def _compute_loss(self, batch: Any) -> torch.Tensor:
         """
         Forward pass and compute the cross-entropy loss for a batch.
         """
         inputs, targets = batch
         outputs = self.local_model(inputs)
         loss = nn.functional.cross_entropy(outputs, targets)
-        batch_size = inputs.size(0)
-        return loss, batch_size
-
-    def _aggregate(self) -> nn.Module:
-        """
-        Aggregate model parameters across clients and update the local model with the weighted average.
-        """
-
-        # Aggregate local sample counts to compute federation total
-        global_samples = self.local_comm.aggregate(
-            torch.tensor([self.metrics.num_samples_trained], dtype=torch.float32),
-            reduction=AggregationOp.SUM,
-        ).item()
-
-        # Calculate this client's data proportion for weighted aggregation
-        data_proportion = self.metrics.num_samples_trained / max(global_samples, 1)
-
-        # All nodes participate regardless of sample count
-        utils.scale_params(self.local_model, data_proportion)
-
-        # Aggregate models across all clients
-        aggregated_model = self.local_comm.aggregate(
-            self.local_model,
-            reduction=AggregationOp.SUM,
-        )
-
-        return aggregated_model
+        return loss

@@ -16,7 +16,7 @@ from abc import ABC, abstractmethod
 from typing import Any
 
 
-class SetupMixin(ABC):
+class RequiredSetup(ABC):
     """
     Template Method pattern for deferred component initialization.
 

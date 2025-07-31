@@ -18,8 +18,7 @@ import rich.repr
 import torch
 from torch import nn
 
-
-from ..communicator import AggregationOp
+from ..communicator import AggregationOp, BaseCommunicator
 from . import utils
 from .BaseAlgorithm import BaseAlgorithm
 
@@ -60,7 +59,7 @@ class FedDyn(BaseAlgorithm):
         """
         return torch.optim.SGD(self.local_model.parameters(), lr=local_lr)
 
-    def _compute_loss(self, batch: Any) -> tuple[torch.Tensor, int]:
+    def _compute_loss(self, batch: Any) -> torch.Tensor:
         """
         Perform a forward pass and compute the FedDyn loss for a single batch.
         """
@@ -93,9 +92,11 @@ class FedDyn(BaseAlgorithm):
         regularization_loss = quadratic_term + linear_term
 
         total_loss = base_loss + regularization_loss
-        return total_loss, inputs.size(0)
+        return total_loss
 
-    def _aggregate(self) -> nn.Module:
+    def _aggregate_within_group(
+        self, comm: BaseCommunicator, weight: float
+    ) -> nn.Module:
         """
         FedDyn aggregation: weighted averaging with dynamic regularization momentum.
         """
@@ -106,20 +107,11 @@ class FedDyn(BaseAlgorithm):
             if local_param.requires_grad:
                 local_model_params[param_name] = local_param.data.clone()
 
-        # Aggregate local sample counts to compute federation total
-        global_samples = self.local_comm.aggregate(
-            torch.tensor([self.metrics.num_samples_trained], dtype=torch.float32),
-            reduction=AggregationOp.SUM,
-        ).item()
-
-        # Calculate this client's data proportion for weighted aggregation
-        data_proportion = self.metrics.num_samples_trained / max(global_samples, 1)
-
         # All nodes participate regardless of sample count
-        utils.scale_params(self.local_model, data_proportion)
+        utils.scale_params(self.local_model, weight)
 
         # Aggregate weighted model parameters
-        aggregated_model = self.local_comm.aggregate(
+        aggregated_model = comm.aggregate(
             self.local_model,
             reduction=AggregationOp.SUM,
         )

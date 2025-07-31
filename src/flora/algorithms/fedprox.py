@@ -19,7 +19,7 @@ import rich.repr
 import torch
 from torch import nn
 
-from ..communicator import AggregationOp
+from ..communicator import AggregationOp, BaseCommunicator
 from . import utils
 from .BaseAlgorithm import BaseAlgorithm
 
@@ -61,7 +61,7 @@ class FedProx(BaseAlgorithm):
         """
         return torch.optim.SGD(self.local_model.parameters(), lr=local_lr)
 
-    def _compute_loss(self, batch: Any) -> tuple[torch.Tensor, int]:
+    def _compute_loss(self, batch: Any) -> torch.Tensor:
         """
         Forward pass and compute the FedProx loss for a single batch.
         """
@@ -79,26 +79,19 @@ class FedProx(BaseAlgorithm):
                 # power is generally more expensive than multiplication
                 prox_term += torch.sum(diff * diff)
         loss += (self.mu / 2) * prox_term
-        return loss, inputs.size(0)
+        return loss
 
-    def _aggregate(self) -> nn.Module:
+    def _aggregate_within_group(
+        self, comm: BaseCommunicator, weight: float
+    ) -> nn.Module:
         """
         FedProx aggregation: weighted averaging of model parameters.
         """
-        # Aggregate local sample counts to compute federation total
-        global_samples = self.local_comm.aggregate(
-            torch.tensor([self.metrics.num_samples_trained], dtype=torch.float32),
-            reduction=AggregationOp.SUM,
-        ).item()
-
-        # Calculate this client's data proportion for weighted aggregation
-        data_proportion = self.metrics.num_samples_trained / max(global_samples, 1)
-
         # All nodes participate regardless of sample count
-        utils.scale_params(self.local_model, data_proportion)
+        utils.scale_params(self.local_model, weight)
 
         # Aggregate weighted model parameters from all clients
-        aggregated_model = self.local_comm.aggregate(
+        aggregated_model = comm.aggregate(
             self.local_model,
             reduction=AggregationOp.SUM,
         )

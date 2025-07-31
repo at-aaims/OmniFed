@@ -21,7 +21,7 @@ import numpy as np
 from .matchers import contains, any_of
 
 
-class EpochAggregation(str, Enum):
+class EpochToRoundAggregation(str, Enum):
     """
     How to combine epoch-level metrics into round-level summaries.
 
@@ -89,8 +89,8 @@ class MetricRule:
     emoji: str = ":bar_chart:"  # Display icon
     group: str = MetricGroup.OTHER  # Category for grouping
     description: str = ""  # Human-readable description
-    aggregation_strategy: EpochAggregation = (
-        EpochAggregation.LAST
+    epoch_agg: EpochToRoundAggregation = (
+        EpochToRoundAggregation.LAST
     )  # Epoch→round aggregation
 
 
@@ -151,7 +151,7 @@ DEFAULT_FORMAT_RULES = [
         emoji=":repeat:",
         group=MetricGroup.ROUND_TIMING,
         description="Federated round timing",
-        aggregation_strategy=EpochAggregation.SUM,
+        epoch_agg=EpochToRoundAggregation.SUM,
     ),
     # Epoch-level timing metrics
     MetricRule(
@@ -162,7 +162,7 @@ DEFAULT_FORMAT_RULES = [
         emoji=":hourglass:",
         group=MetricGroup.EPOCH_TIMING,
         description="Training epoch timing",
-        aggregation_strategy=EpochAggregation.SUM,
+        epoch_agg=EpochToRoundAggregation.SUM,
     ),
     # Batch-level timing metrics
     MetricRule(
@@ -173,7 +173,7 @@ DEFAULT_FORMAT_RULES = [
         emoji=":timer_clock:",
         group=MetricGroup.BATCH_TIMING,
         description="Batch processing timing",
-        aggregation_strategy=EpochAggregation.MEAN,
+        epoch_agg=EpochToRoundAggregation.MEAN,
     ),
     # Synchronization timing metrics (time/sync_*)
     MetricRule(
@@ -184,7 +184,7 @@ DEFAULT_FORMAT_RULES = [
         emoji=":arrows_counterclockwise:",
         group=MetricGroup.SYNC_TIMING,
         description="Synchronization timing",
-        aggregation_strategy=EpochAggregation.SUM,
+        epoch_agg=EpochToRoundAggregation.SUM,
     ),
     # Generic timing fallback for any other time/ metrics
     MetricRule(
@@ -195,7 +195,7 @@ DEFAULT_FORMAT_RULES = [
         emoji=":stopwatch:",
         group=MetricGroup.OTHER,
         description="Generic timing",
-        aggregation_strategy=EpochAggregation.SUM,
+        epoch_agg=EpochToRoundAggregation.SUM,
     ),
     # Loss metrics (lower is better)
     MetricRule(
@@ -206,7 +206,7 @@ DEFAULT_FORMAT_RULES = [
         emoji=":chart_decreasing:",
         group=MetricGroup.TRAINING,
         description="Loss metrics",
-        aggregation_strategy=EpochAggregation.LAST,
+        epoch_agg=EpochToRoundAggregation.LAST,
     ),
     # Error metrics (lower is better)
     MetricRule(
@@ -217,7 +217,7 @@ DEFAULT_FORMAT_RULES = [
         emoji=":x:",
         group=MetricGroup.TRAINING,
         description="Error metrics",
-        aggregation_strategy=EpochAggregation.LAST,
+        epoch_agg=EpochToRoundAggregation.LAST,
     ),
     # Accuracy and performance metrics (higher is better)
     MetricRule(
@@ -228,7 +228,7 @@ DEFAULT_FORMAT_RULES = [
         emoji=":dart:",
         group=MetricGroup.PERFORMANCE,
         description="Performance metrics",
-        aggregation_strategy=EpochAggregation.LAST,
+        epoch_agg=EpochToRoundAggregation.LAST,
     ),
     # Count metrics (samples, batches, etc.) - neutral (higher neither good nor bad)
     MetricRule(
@@ -240,7 +240,7 @@ DEFAULT_FORMAT_RULES = [
         emoji=":package:",
         group=MetricGroup.DATASET,
         description="Count metrics",
-        aggregation_strategy=EpochAggregation.SUM,
+        epoch_agg=EpochToRoundAggregation.SUM,
     ),
     # Gradient-related metrics (context dependent, but generally lower is better)
     MetricRule(
@@ -251,7 +251,7 @@ DEFAULT_FORMAT_RULES = [
         emoji=":chart_increasing:",
         group=MetricGroup.TRAINING,
         description="Gradient metrics",
-        aggregation_strategy=EpochAggregation.LAST,
+        epoch_agg=EpochToRoundAggregation.LAST,
     ),
 ]
 
@@ -266,12 +266,12 @@ class MetricFormatter:
     """
 
     _AGGREGATION_FUNCTIONS = {
-        EpochAggregation.SUM: sum,
-        EpochAggregation.MEAN: lambda values: sum(values) / len(values),
-        EpochAggregation.LAST: lambda values: values[-1],
-        EpochAggregation.FIRST: lambda values: values[0],
-        EpochAggregation.MAX: max,
-        EpochAggregation.MIN: min,
+        EpochToRoundAggregation.SUM: sum,
+        EpochToRoundAggregation.MEAN: lambda values: sum(values) / len(values),
+        EpochToRoundAggregation.LAST: lambda values: values[-1],
+        EpochToRoundAggregation.FIRST: lambda values: values[0],
+        EpochToRoundAggregation.MAX: max,
+        EpochToRoundAggregation.MIN: min,
     }
 
     def __init__(self, rules: Optional[List[MetricRule]] = None):
@@ -322,9 +322,9 @@ class MetricFormatter:
         """Get category group for the given metric based on formatting rules."""
         return self._find_rule(metric_name).group
 
-    def get_aggregation_strategy(self, metric_name: str) -> EpochAggregation:
+    def get_aggregation_strategy(self, metric_name: str) -> EpochToRoundAggregation:
         """Get aggregation strategy for converting epoch-level to round-level metrics."""
-        return self._find_rule(metric_name).aggregation_strategy
+        return self._find_rule(metric_name).epoch_agg
 
     def optimization_goal(self, metric_name: str) -> MetricDirection:
         """Get optimization goal for metric (MAXIMIZE, MINIMIZE, or NEUTRAL)."""

@@ -13,22 +13,13 @@
 # limitations under the License.
 
 from collections import defaultdict
-from datetime import datetime
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List
 
 import numpy as np
 from rich import box, print
 from rich.table import Table
 
 from .MetricFormatter import MetricFormatter
-
-# Emoji mapping for statistics
-STAT_EMOJIS = {
-    "Mean": ":bar_chart:",
-    "Std Dev": ":straight_ruler:",
-    "Min": ":arrow_down:",
-    "Max": ":arrow_up:",
-}
 
 
 class ExperimentDisplay:
@@ -42,10 +33,54 @@ class ExperimentDisplay:
     def __init__(self):
         """Initialize display with consistent metric formatter."""
         self._formatter: MetricFormatter = MetricFormatter()
+        self._metadata_keys = {"global_step", "round_idx", "epoch_idx", "batch_idx"}
+
+    def _extract_metrics_from_row(self, row: Dict[str, Any]) -> Dict[str, Any]:
+        """Extract metrics from a data row, excluding metadata fields."""
+        return {
+            k: v
+            for k, v in row.items()
+            if k not in self._metadata_keys and v is not None
+        }
+
+    def _find_max_round(self, results: List[Dict[str, Any]]) -> int:
+        """Find the maximum round across all nodes and contexts."""
+        max_round = 0
+        for node_data in results:
+            for context, rows in node_data.items():
+                for row in rows:
+                    max_round = max(max_round, int(row.get("round_idx", 0)))
+        return max_round
+
+    def _validate_results_format(self, results: List[Dict[str, Any]]) -> None:
+        """Validate that results follow the expected MetricLogger format."""
+        if not isinstance(results, list):
+            raise ValueError(f"Results must be a list, got {type(results)}")
+
+        for i, node_data in enumerate(results):
+            if not isinstance(node_data, dict):
+                raise ValueError(f"Node {i} data must be a dict, got {type(node_data)}")
+
+            for context, rows in node_data.items():
+                if not isinstance(rows, list):
+                    raise ValueError(
+                        f"Node {i} context '{context}' must be a list, got {type(rows)}"
+                    )
+
+                for j, row in enumerate(rows):
+                    if not isinstance(row, dict):
+                        raise ValueError(
+                            f"Node {i} context '{context}' row {j} must be a dict, got {type(row)}"
+                        )
+
+                    if "round_idx" not in row:
+                        raise ValueError(
+                            f"Node {i} context '{context}' row {j} missing 'round_idx' field"
+                        )
 
     def show_experiment_results(
         self,
-        results: List[List[List[Dict[str, Any]]]],
+        results: List[Dict[str, Any]],
         duration: float,
         global_rounds: int,
         total_nodes: int,
@@ -54,25 +89,30 @@ class ExperimentDisplay:
         Display complete experiment results including summary and metrics.
 
         Args:
-            results: Experiment results (nodes -> rounds -> epochs -> metrics)
+            results: List of node experiment data (from MetricLogger.get_experiment_data())
+                    Format: [{context: [list of rows with metadata + metrics]}, ...]
             duration: Total experiment duration in seconds
             global_rounds: Number of FL rounds configured
             total_nodes: Total number of nodes in topology
         """
+        # Validate input format to prevent silent failures
+        self._validate_results_format(results)
+
         self._display_summary_table(results, duration, global_rounds, total_nodes)
 
         if not results:
             return
 
-        self._display_final_metrics(results)
+        # New improved display structure
+        self._display_epoch_progression(results)
 
-        # Show progression tables only for multi-round experiments (assumes results is non-empty)
-        if len(results[0]) > 1:
-            self._display_round_progression(results)
+        # Show round summaries for multi-round experiments
+        if global_rounds > 1:
+            self._display_round_summaries(results)
 
     def _display_summary_table(
         self,
-        results: List[List[List[Dict[str, Any]]]],
+        results: List[Dict[str, Any]],
         duration: float,
         global_rounds: int,
         total_nodes: int,
@@ -95,282 +135,244 @@ class ExperimentDisplay:
         print(summary_table)
         print("\n")
 
-    def _display_final_metrics(self, results: List[List[List[Dict[str, Any]]]]) -> None:
-        """Display final round metrics in a formatted table."""
-        # Extract final round metrics (last element) from each node's results
-        final_round_epoch_lists = [node_rounds[-1] for node_rounds in results]
-
-        final_round_results = []
-        for epoch_metrics_list in final_round_epoch_lists:
-            round_metrics = self._formatter.aggregate_epochs_to_round(
-                epoch_metrics_list
-            )
-            final_round_results.append(round_metrics)
-
-        metric_stats_list = self._formatter.format_stats(final_round_results)
-        metric_groups = self._formatter.group_metric_stats(metric_stats_list)
-        metrics_table = self._create_final_metrics_table(
-            results, metric_stats_list, metric_groups
-        )
-        self._populate_final_metrics_table(metrics_table, metric_groups)
-
-        print(metrics_table)
-        print("\n")
-
-    def _create_final_metrics_table(
-        self,
-        results: List[List[List[Dict[str, Any]]]],
-        metric_stats_list: List[Any],
-        metric_groups: Dict[str, List[Any]],
-    ) -> Table:
-        """Create the final metrics table with proper styling and columns."""
-        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-        # Use different title based on whether metrics are aggregated across multiple nodes
-        metrics_table = Table(
-            title=f":dart: Final Round Aggregated Metrics ({len(results)} nodes)"
-            if len(results) > 1
-            else ":dart: Final Round Metrics",
-            box=box.HEAVY_HEAD,
-            show_header=True,
-            header_style="bold magenta",
-            caption=f":bar_chart: {len(results)} nodes • {len(metric_stats_list)} metrics in {len(metric_groups)} groups • {timestamp}",
-            caption_justify="right",
-        )
-
-        metrics_table.add_column(
-            ":bar_chart: Metric",
-            justify="left",
-            style="bold cyan",
-            no_wrap=True,
-        )
-        metrics_table.add_column(
-            ":bar_chart: Mean",
-            justify="right",
-            style="green",
-            header_style="bold green",
-        )
-        metrics_table.add_column(
-            ":straight_ruler: Std Dev",
-            justify="right",
-            style="yellow",
-            header_style="bold yellow",
-        )
-        metrics_table.add_column(
-            ":arrow_down: Min",
-            justify="right",
-            style="blue",
-            header_style="bold blue",
-        )
-        metrics_table.add_column(
-            ":arrow_up: Max",
-            justify="right",
-            style="blue",
-            header_style="bold blue",
-        )
-
-        return metrics_table
-
-    def _populate_final_metrics_table(
-        self, metrics_table: Table, metric_groups: Dict[str, List[Any]]
-    ) -> None:
-        """Populate the final metrics table with data."""
-        first_group = True
-        for group_name, metric_stats in metric_groups.items():
-            if metric_stats:
-                if not first_group:
-                    metrics_table.add_section()
-                first_group = False
-
-                for stats in metric_stats:
-                    metrics_table.add_row(
-                        stats.display_name,
-                        stats.mean,
-                        stats.std,
-                        stats.min,
-                        stats.max,
-                    )
-
-    def _display_round_progression(
-        self, results: List[List[List[Dict[str, Any]]]]
-    ) -> None:
-        """
-        Display round-by-round progression tables for multi-round experiments.
-
-        Creates statistical tables (mean, std, min, max) showing how metrics
-        evolve across training rounds.
-        """
-        all_metrics, num_rounds = self._discover_metrics_across_rounds(results)
-
-        if not all_metrics:
+    def _display_epoch_progression(self, results: List[Dict[str, Any]]) -> None:
+        """Display epoch-by-epoch progression within rounds, showing training dynamics."""
+        if not results:
             return
 
-        metric_groups = self._formatter.group_metric_names(all_metrics)
+        # Group metrics by round and epoch
+        epoch_data = self._organize_metrics_by_epoch(results)
 
-        stats = ["Mean", "Std Dev", "Min", "Max"]
-        stat_functions = [np.mean, np.std, np.min, np.max]
+        if not epoch_data:
+            return
 
-        for stat_name, stat_func in zip(stats, stat_functions):
-            self._create_and_display_progression_table(
-                stat_name, stat_func, results, all_metrics, num_rounds, metric_groups
-            )
+        # Automatically discover and organize metrics using MetricFormatter groups
+        all_metrics = self._discover_all_metrics(results)
+        grouped_metrics = self._formatter.group_metric_names(all_metrics)
 
-    def _discover_metrics_across_rounds(
-        self, results: List[List[List[Dict[str, Any]]]]
-    ) -> Tuple[List[str], int]:
-        """Discover all available metrics across all rounds."""
-        all_metrics = set()
-        for node_rounds in results:
-            for epoch_metrics_list in node_rounds:
-                round_metrics = self._formatter.aggregate_epochs_to_round(
-                    epoch_metrics_list
+        for round_idx in sorted(epoch_data.keys()):
+            round_epochs = epoch_data[round_idx]
+            if len(round_epochs) > 1:  # Only show if multiple epochs
+                self._display_round_epoch_table(
+                    round_idx, round_epochs, grouped_metrics
                 )
-                all_metrics.update(round_metrics.keys())
 
-        # Return metrics list and round count (0 if no results to avoid index error)
-        return sorted(all_metrics), len(results[0]) if results else 0
+    def _organize_metrics_by_epoch(
+        self, results: List[Dict[str, Any]]
+    ) -> Dict[int, Dict[int, Dict[str, List[float]]]]:
+        """Organize metrics by round and epoch for progression analysis."""
+        epoch_data = defaultdict(lambda: defaultdict(lambda: defaultdict(list)))
 
-    def _create_and_display_progression_table(
-        self,
-        stat_name: str,
-        stat_func: Any,
-        results: List[List[List[Dict[str, Any]]]],
-        all_metrics: List[str],
-        num_rounds: int,
-        metric_groups: Dict[str, List[str]],
+        for node_data in results:
+            for context, rows in node_data.items():
+                for row in rows:
+                    round_idx = int(row.get("round_idx", 0))
+                    epoch_idx = int(row.get("epoch_idx", 0))
+
+                    metrics = self._extract_metrics_from_row(row)
+                    for metric_name, value in metrics.items():
+                        if value is not None:
+                            epoch_data[round_idx][epoch_idx][metric_name].append(
+                                float(value)
+                            )
+
+        return epoch_data
+
+    def _discover_all_metrics(self, results: List[Dict[str, Any]]) -> List[str]:
+        """Discover all unique metrics across all nodes, contexts, and rounds."""
+        all_metrics = set()
+        for node_data in results:
+            for context, rows in node_data.items():
+                for row in rows:
+                    metrics = self._extract_metrics_from_row(row)
+                    all_metrics.update(metrics.keys())
+        return sorted(all_metrics)
+
+    def _display_round_epoch_table(
+        self, round_idx: int, round_epochs: Dict, grouped_metrics: Dict[str, List[str]]
     ) -> None:
-        """Create and display a single progression table for a given statistic."""
-        progression_table = self._create_progression_table_structure(
-            stat_name, all_metrics, num_rounds
-        )
-
-        metric_stats = self._calculate_progression_statistics(
-            all_metrics, num_rounds, results, stat_func
-        )
-        self._populate_progression_table(
-            progression_table, metric_groups, metric_stats, num_rounds
-        )
-
-        print(progression_table)
-        print("\n")
-
-    def _create_progression_table_structure(
-        self, stat_name: str, all_metrics: List[str], num_rounds: int
-    ) -> Table:
-        """Create the basic structure of a progression table."""
-        progression_table = Table(
-            title=f"{STAT_EMOJIS[stat_name]} Round-by-Round Progression - {stat_name}",
-            box=box.HEAVY_HEAD,
+        """Display epoch progression table for a single round."""
+        table = Table(
+            title=f"📈 Round {round_idx + 1} - Epoch Progression",
+            box=box.ROUNDED,
             show_header=True,
             header_style="bold blue",
-            caption=f":clipboard: {stat_name} • {len(all_metrics)} metrics • {num_rounds} rounds",
-            caption_justify="right",
         )
 
-        progression_table.add_column(
-            ":bar_chart: Metric", justify="left", style="bold cyan", no_wrap=True
+        table.add_column("📊 Metric", justify="left", style="cyan")
+
+        # Add epoch columns
+        epoch_indices = sorted(round_epochs.keys())
+        for epoch_idx in epoch_indices:
+            table.add_column(f"Epoch {epoch_idx + 1}", justify="right", style="green")
+
+        # Add trend column
+        if len(epoch_indices) > 1:
+            table.add_column("📈 Trend", justify="center", style="yellow")
+
+        # Add all metrics organized by group
+        for group_name, group_metrics in grouped_metrics.items():
+            for metric in group_metrics:
+                if any(
+                    metric in round_epochs[epoch_idx] for epoch_idx in epoch_indices
+                ):
+                    self._add_metric_row(table, metric, round_epochs, epoch_indices)
+
+        print(table)
+        print("\n")
+
+    def _add_metric_row(
+        self, table: Table, metric: str, round_epochs: Dict, epoch_indices: List[int]
+    ) -> None:
+        """Add a metric row to the epoch progression table."""
+        row_data = [self._formatter.format_display_name(metric)]
+        values = []
+
+        for epoch_idx in epoch_indices:
+            if metric in round_epochs[epoch_idx] and round_epochs[epoch_idx][metric]:
+                value = np.mean(round_epochs[epoch_idx][metric])  # Average across nodes
+                formatted_value = self._formatter.format_value(metric, value)
+                row_data.append(formatted_value)
+                values.append(value)
+            else:
+                row_data.append("-")
+                values.append(None)
+
+        # Add trend indicator if we have multiple epochs
+        if len(epoch_indices) > 1 and len([v for v in values if v is not None]) > 1:
+            valid_values = [v for v in values if v is not None]
+            if len(valid_values) >= 2:
+                trend = self._get_trend_indicator(
+                    valid_values[0], valid_values[-1], metric
+                )
+                row_data.append(trend)
+
+        table.add_row(*row_data)
+
+    def _get_trend_indicator(
+        self, first_value: float, last_value: float, metric: str
+    ) -> str:
+        """Get trend indicator using MetricFormatter's trend analysis."""
+        return self._formatter.get_trend_symbol(metric, first_value, last_value)
+
+    def _display_round_summaries(self, results: List[Dict[str, Any]]) -> None:
+        """Display round boundary summaries organized by MetricFormatter groups."""
+        if not results:
+            return
+
+        round_summaries = self._create_round_summaries(results)
+
+        # Get all metrics and organize by groups
+        all_metrics = self._discover_all_metrics(results)
+        grouped_metrics = self._formatter.group_metric_names(all_metrics)
+
+        # Display one summary table per group (only groups that have metrics)
+        for group_name, group_metrics in grouped_metrics.items():
+            if group_metrics:
+                self._display_group_summary(group_name, group_metrics, round_summaries)
+
+    def _create_round_summaries(
+        self, results: List[Dict[str, Any]]
+    ) -> Dict[int, Dict[str, Any]]:
+        """Create round-level summaries with metric-specific aggregations."""
+        round_summaries = defaultdict(lambda: defaultdict(list))
+
+        for node_data in results:
+            for context, rows in node_data.items():
+                for row in rows:
+                    round_idx = int(row.get("round_idx", 0))
+                    epoch_idx = int(row.get("epoch_idx", 0))
+
+                    metrics = self._extract_metrics_from_row(row)
+                    for metric_name, value in metrics.items():
+                        if value is not None:
+                            round_summaries[round_idx][metric_name].append(
+                                {
+                                    "value": float(value),
+                                    "epoch_idx": epoch_idx,
+                                    "context": context,
+                                }
+                            )
+
+        return round_summaries
+
+    def _display_group_summary(
+        self, group_name: str, group_metrics: List[str], round_summaries: Dict
+    ) -> None:
+        """Display summary table for a specific metric group."""
+        # Map group names to display info
+        group_icons = {
+            "Training": "🎯",
+            "Performance": "📊",
+            "Round Timing": "🔄",
+            "Epoch Timing": "⏱",
+            "Batch Timing": "⏲",
+            "Sync Timing": "🔄",
+            "Dataset": "📦",
+            "Other": "📊",
+        }
+
+        icon = group_icons.get(group_name, "📊")
+
+        table = Table(
+            title=f"{icon} {group_name} Summary",
+            box=box.ROUNDED,
+            show_header=True,
+            header_style="bold blue",
         )
 
-        for round_idx in range(num_rounds):
-            progression_table.add_column(
-                f":repeat: Round {round_idx + 1}",
-                justify="right",
-                style="green",
-                header_style="bold green",
-            )
-            if round_idx < num_rounds - 1:
-                progression_table.add_column(
-                    "→", justify="center", style="dim white", width=3
+        table.add_column("📊 Metric", justify="left", style="cyan")
+
+        # Add round columns
+        round_indices = sorted(round_summaries.keys())
+        for round_idx in round_indices:
+            table.add_column(f"Round {round_idx + 1}", justify="right", style="green")
+
+        # Add trend column if multiple rounds
+        if len(round_indices) > 1:
+            table.add_column("📈 Trend", justify="center", style="yellow")
+
+        # Add metrics for this group
+        for metric in group_metrics:
+            if any(metric in round_summaries[r] for r in round_indices):
+                self._add_group_metric_row(
+                    table, metric, round_summaries, round_indices
                 )
 
-        return progression_table
+        print(table)
+        print("\n")
 
-    def _calculate_progression_statistics(
-        self,
-        all_metrics: List[str],
-        num_rounds: int,
-        results: List[List[List[Dict[str, Any]]]],
-        stat_func: Any,
-    ) -> Dict[str, List[Any]]:
-        """Calculate statistics for each metric across all rounds."""
-        metric_stats = defaultdict(list)
-        for metric in all_metrics:
-            for round_idx in range(num_rounds):
-                round_data = []
-                for node_rounds in results:
-                    epoch_metrics_list = node_rounds[round_idx]
-                    round_metrics = self._formatter.aggregate_epochs_to_round(
-                        epoch_metrics_list
-                    )
-                    round_data.append(round_metrics)
-
-                values = [
-                    r.get(metric) for r in round_data if r.get(metric) is not None
-                ]
-
-                if not values:
-                    metric_stats[metric].append(None)
-                    continue
-
-                # Handle numpy.std edge case: avoid numpy warning when computing std of single value
-                if stat_func == np.std and len(values) == 1:
-                    stat_value = (
-                        0.0  # Standard deviation of single value is mathematically 0
-                    )
-                else:
-                    stat_value = stat_func(values)
-
-                metric_stats[metric].append(stat_value)
-
-        return dict(metric_stats)
-
-    def _populate_progression_table(
-        self,
-        progression_table: Table,
-        metric_groups: Dict[str, List[str]],
-        metric_stats: Dict[str, List[Any]],
-        num_rounds: int,
+    def _add_group_metric_row(
+        self, table: Table, metric: str, round_summaries: Dict, round_indices: List[int]
     ) -> None:
-        """Populate the progression table with metric data and trend indicators."""
-        first_group = True
-        for group_name, metrics in metric_groups.items():
-            if metrics:
-                if not first_group:
-                    progression_table.add_section()
-                first_group = False
+        """Add metric row using MetricFormatter aggregation strategies."""
+        row_data = [self._formatter.format_display_name(metric)]
+        values = []
 
-                for metric in metrics:
-                    row_values = self._build_progression_row(
-                        metric, metric_stats, num_rounds
-                    )
-                    progression_table.add_row(*row_values)
+        for round_idx in round_indices:
+            if metric in round_summaries[round_idx]:
+                round_data = round_summaries[round_idx][metric]
 
-    def _build_progression_row(
-        self, metric: str, metric_stats: Dict[str, List[Any]], num_rounds: int
-    ) -> List[str]:
-        """Build a single row for the progression table."""
-        row_values = []
-        emoji = self._formatter.get_emoji(metric)
-        row_values.append(f"{emoji} {metric}")
-        stats = metric_stats[metric]
+                # Use MetricFormatter's aggregation strategy for this metric
+                epoch_values = [d["value"] for d in round_data]
+                aggregated_value = self._formatter.aggregate_epochs_to_round(
+                    metric, epoch_values
+                )
 
-        for round_idx in range(num_rounds):
-            stat_value = stats[round_idx]
-            if stat_value is not None:
-                formatted_value = self._formatter.format(metric, stat_value)
-                row_values.append(formatted_value)
+                formatted_value = self._formatter.format_value(metric, aggregated_value)
+                row_data.append(formatted_value)
+                values.append(aggregated_value)
             else:
-                row_values.append("-")
+                row_data.append("-")
+                values.append(None)
 
-            if round_idx < num_rounds - 1:
-                current_val = stats[round_idx]
-                next_val = stats[round_idx + 1]
-                if current_val is not None and next_val is not None:
-                    trend_symbol = self._formatter.get_trend_symbol(
-                        metric, next_val, current_val
-                    )
-                else:
-                    trend_symbol = ""
-                row_values.append(trend_symbol)
+        # Add trend indicator using MetricFormatter
+        if len(round_indices) > 1:
+            valid_values = [v for v in values if v is not None]
+            if len(valid_values) >= 2:
+                trend = self._get_trend_indicator(
+                    valid_values[0], valid_values[-1], metric
+                )
+                row_data.append(trend)
 
-        return row_values
+        table.add_row(*row_data)

@@ -12,7 +12,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from .SetupMixin import SetupMixin
-from .LifecycleHooksMixin import LifecycleHooksMixin
+from .RequiredSetup import RequiredSetup
+from .LifecycleHooks import LifecycleHooks
+from .MetricLogger import MetricLogger, MetricAggType
 
-__all__ = ["SetupMixin", "LifecycleHooksMixin"]
+__all__ = [
+    "RequiredSetup",
+    "LifecycleHooks",
+    "MetricLogger",
+    "MetricAggType",
+]

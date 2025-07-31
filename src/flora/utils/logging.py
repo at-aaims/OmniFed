@@ -12,16 +12,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import logging
-from typing import Any, Optional
-
-from rich.color import ANSI_COLOR_NAMES
-from rich.console import Console
-from rich.logging import RichHandler
-from rich.rule import Rule
 import inspect
-from rich import print as rich_print
+from typing import Optional
 
+from rich import print as rich_print
+from rich.color import ANSI_COLOR_NAMES
+from rich.rule import Rule
 
 # def setup_rich_logging(level=logging.INFO) -> None:
 #     """

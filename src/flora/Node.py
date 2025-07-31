@@ -15,22 +15,20 @@
 import os
 import time
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional
 
 import ray
 import torch
 from hydra.utils import instantiate
 from omegaconf import MISSING
 from torch import nn
-from typeguard import typechecked
 
-from .algorithms.BaseAlgorithm import BaseAlgorithm
+from .algorithms import BaseAlgorithm
 from .algorithms.configs import AlgorithmConfig
-from .communicator.BaseCommunicator import BaseCommunicator
+from .communicator import AggregationOp, BaseCommunicator
 from .communicator.configs import BaseCommunicatorConfig
-from .data.configs import DataModuleConfig
-from .data.DataModule import DataModule
-from .mixins import SetupMixin
+from .data import DataModule, DataModuleConfig
+from .mixins import RequiredSetup
 from .models.configs import ModelConfig
 
 
@@ -179,7 +177,7 @@ class NodeConfig:
 
 
 @ray.remote
-class Node(SetupMixin):
+class Node(RequiredSetup):
     """
     Distributed federated learning participant (server or client).
 
@@ -233,10 +231,7 @@ class Node(SetupMixin):
         self.datamodule: DataModule = instantiate(datamodule)
 
         # Deferred instantiation
-        self.__model: Optional[nn.Module] = None  # Setup-time instantiation
-        self.__device: Optional[torch.device] = (
-            None  # Runtime-dependent lazy initialization
-        )
+        self.__device: Optional[torch.device] = None
 
     def _setup(self) -> None:
         """
@@ -246,8 +241,8 @@ class Node(SetupMixin):
         Instantiates model, establishes communicator connections,
         and passes dependencies to algorithm.
         """
-        self.__model = instantiate(self.model_cfg)
-        if self.__model is None:
+        model = instantiate(self.model_cfg)
+        if model is None:
             raise RuntimeError(
                 f"Failed to instantiate model from config: {self.model_cfg}"
             )
@@ -259,24 +254,82 @@ class Node(SetupMixin):
         if self.global_comm:
             self.global_comm.setup()
 
-        # Initialize algorithm with dependencies
-        self.algorithm.setup(
-            self.local_comm, self.global_comm, self.model, self.datamodule
+        # Standard federated learning setup: broadcast initial model from server
+        # In hierarchical topologies: global comm first, then local comm
+        _t_init_total_start = time.time()
+
+        _t_bcast_total_start = time.time()
+        _t_bcast_global_start = time.time()
+        if self.global_comm:
+            model = self.global_comm.broadcast(model)
+        _t_bcast_global_end = time.time()
+
+        _t_bcast_local_start = time.time()
+        model = self.local_comm.broadcast(model)
+        _t_bcast_local_end = time.time()
+        _t_bcast_total_end = time.time()
+
+        # Discover distributed training parameters for synchronized execution
+        _t_agg_start = time.time()
+        local_iters_per_epoch = (
+            len(self.datamodule.train) if self.datamodule.train is not None else 0
         )
 
-    def run_experiment(self, total_rounds: int) -> List[List[dict[str, float]]]:
+        # Find global maximum iterations and epochs (batched for efficiency)
+        group_max_epochs_and_iters = self.local_comm.aggregate(
+            dict(
+                iters_per_epoch=torch.tensor(
+                    local_iters_per_epoch,
+                    dtype=torch.int,
+                ),
+                epochs_per_round=torch.tensor(
+                    self.algorithm.max_epochs_per_round,
+                    dtype=torch.int,
+                ),
+            ),
+            AggregationOp.MAX,
+        )
+        _t_agg_end = time.time()
+
+        self.algorithm.setup(
+            self.local_comm,
+            self.global_comm,
+            model,
+            self.datamodule,
+            int(group_max_epochs_and_iters["iters_per_epoch"].item()),
+            int(group_max_epochs_and_iters["epochs_per_round"].item()),
+        )
+
+        _t_init_total_end = time.time()
+
+        # Log initialization timing metrics individually (uses current context)
+        self.algorithm.log_metric(
+            "comm_time/bcast_global", _t_bcast_global_end - _t_bcast_global_start
+        )
+        self.algorithm.log_metric(
+            "comm_time/bcast_local", _t_bcast_local_end - _t_bcast_local_start
+        )
+        self.algorithm.log_metric(
+            "comm_time/bcast_total", _t_bcast_total_end - _t_bcast_total_start
+        )
+        self.algorithm.log_metric("comm_time/agg", _t_agg_end - _t_agg_start)
+        self.algorithm.log_metric(
+            "comm_time/total", _t_init_total_end - _t_init_total_start
+        )
+
+    def run_experiment(self, total_rounds: int) -> List[Dict[str, Any]]:
         """
         Execute federated learning experiment autonomously.
 
         Runs the complete experiment lifecycle.
         Moves model to compute device, executes all FL rounds via the algorithm.
-        Collects metrics and restores model to original device afterward.
+        Collects timeline data and restores model to original device afterward.
 
         Args:
             total_rounds: Number of federated learning rounds to execute
 
         Returns:
-            List of rounds, each containing epoch-level metrics dictionaries
+            Timeline data containing metrics with FL coordinates
         """
         if not self.is_ready:
             raise RuntimeError("Node not ready - call setup() first")
@@ -287,15 +340,12 @@ class Node(SetupMixin):
         )
 
         # Device management for experiment execution
-        original_device = next(self.model.parameters()).device
-        self.model = self.model.to(self.device)
-
-        all_round_metrics = []
+        original_device = next(self.algorithm.local_model.parameters()).device
+        self.algorithm.local_model = self.algorithm.local_model.to(self.device)
 
         try:
             for round_idx in range(total_rounds):
-                epoch_metrics_list = self.algorithm.round_exec(round_idx, total_rounds)
-                all_round_metrics.append(epoch_metrics_list)
+                self.algorithm.round_exec(round_idx, total_rounds)
 
             print(
                 f"[EXPERIMENT-END] Node completed {total_rounds} round experiment",
@@ -304,13 +354,15 @@ class Node(SetupMixin):
 
         finally:
             # Restore original device placement
-            self.model = self.model.to(original_device)
+            self.algorithm.local_model = self.algorithm.local_model.to(original_device)
             print(
                 f"[EXPERIMENT-CLEANUP] Model restored to original device: {original_device}",
                 flush=True,
             )
 
-        return all_round_metrics
+        # Timeline data is now logged directly to CSV/TensorBoard files instead of being returned
+        # Return empty list to maintain API compatibility
+        return []
 
     def __repr__(self) -> str:
         """Node string representation with name and timestamp."""
@@ -325,18 +377,6 @@ class Node(SetupMixin):
                 self.device_hint, rank=self.local_comm.rank
             )
         return self.__device
-
-    @property
-    def model(self) -> nn.Module:
-        """Neural network model, instantiated during setup."""
-        if self.__model is None:
-            raise RuntimeError("Model accessed before setup() - call setup() first")
-        return self.__model
-
-    @model.setter
-    def model(self, value: nn.Module) -> None:
-        """Update model (used during FL training)."""
-        self.__model = value
 
     @staticmethod
     def __resolve_device(device_hint: str, rank: Optional[int] = None) -> torch.device:
