@@ -145,9 +145,9 @@ class DataStreamSubscriber:
                 img_tensor, label_tensor = self.deserialize_sample(message.value)
                 msg_count += 1
                 if msg_count % log_interval == 0:
-                    logging.info(
-                        f"received sample label {label_tensor.item()} image tensor shape {img_tensor.shape}"
-                    )
+                    # logging.info(
+                    #     f"received sample label {label_tensor.item()} image tensor shape {img_tensor.shape}"
+                    # )
                     elapsed_time = (perf_counter_ns() - strt_time) * nanoTosec
                     stream_rate = msg_count / elapsed_time
                     logging.info(
