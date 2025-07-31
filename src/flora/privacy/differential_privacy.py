@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import logging
 from time import perf_counter_ns
 
 import torch
@@ -23,6 +24,8 @@ from src.flora.helper.training_stats import (
     train_img_accuracy,
     test_img_accuracy,
 )
+
+from PETINA.package.Opacus_budget_accountant.accountants.gdp import GaussianAccountant
 
 nanosec_to_millisec = 1e6
 
@@ -37,6 +40,11 @@ class DifferentialPrivacyTrain:
         communicator: TorchMPICommunicator,
         total_clients: int,
         train_params: FedAvgTrainingParameters,
+        total_epochs: int,
+        sample_rate: float,
+        dp_epsilon: float = 1.0,
+        dp_delta: float = 1e-5,
+        dp_gamma: float = 0.01
     ):
         self.model = model
         self.train_data = train_data
@@ -65,6 +73,12 @@ class DifferentialPrivacyTrain:
             AverageMeter(),
             AverageMeter(),
         )
+        # DP related metrics
+        self.sample_rate = sample_rate
+        self.total_epochs = total_epochs
+        self.accountantOPC = GaussianAccountant()
+        self.mechanism_map = {'gaussian': "gaussian"}
+        dp_params = {'delta': dp_delta, 'epsilon': dp_epsilon, 'gamma': dp_gamma}
 
     def broadcast_model(self, model):
         # broadcast model from central server with id 0
@@ -82,6 +96,48 @@ class DifferentialPrivacyTrain:
             self.training_samples += inputs.size(0)
             loss.backward()
             compute_time = (perf_counter_ns() - init_time) / nanosec_to_millisec
+
+            # differential privacy
+            for name, param in self.model.named_parameters():
+                if param.grad is None:
+                    continue
+                param.grad = apply_gaussian_with_budget(param.grad,
+                                                        delta=dp_params.get('delta', 1e-5),
+                                                        epsilon=dp_params.get('epsilon', 1.0),
+                                                        gamma=dp_params.get('gamma', 1.0)
+                                                        )
+
+            self.optimizer.step()
+            self.optimizer.zero_grad()
+            self.local_step += 1
+            itr_time = (perf_counter_ns() - itr_strt) / nanosec_to_millisec
+
+        epoch_time = (perf_counter_ns() - epoch_strt) / nanosec_to_millisec
+        logging.info(f"epoch completion time for epoch {epoch} is {epoch_time} ms")
+
+        train_img_accuracy(
+            epoch=epoch,
+            iteration=self.local_step,
+            input=inputs,
+            label=labels,
+            output=pred,
+            loss=loss,
+            train_loss=self.train_loss,
+            top1acc=self.top1_acc,
+            top5acc=self.top5_acc,
+            top10acc=self.top10_acc,
+        )
+        test_img_accuracy(
+            epoch=epoch,
+            device=self.device,
+            model=self.model,
+            test_loader=self.test_data,
+            loss_fn=self.loss,
+            iteration=self.local_step,
+        )
+
+        if self.lr_scheduler is not None:
+            self.lr_scheduler.step()
 
     def train(self):
         print("going to broadcast model across clients...")
