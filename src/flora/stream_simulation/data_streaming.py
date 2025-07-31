@@ -92,7 +92,7 @@ class DataStreamPublisher:
     def publish_data_to_clients(self):
         for ix in range(self.total_clients):
             client_id = "client-{}".format(ix)
-            print("going to publish data to client {}".format(client_id))
+            # print("going to publish data to client {}".format(client_id))
             thread = threading.Thread(target=self.stream_data, args=(client_id,))
             thread.start()
 
