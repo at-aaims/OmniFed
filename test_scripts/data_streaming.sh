@@ -12,7 +12,7 @@ kafkahost='127.0.0.1'
 kafkaport=9092
 dataset='cifar10'
 totalclients=1
-streamrate=128
+streamrate=64
 
 # run subscriber here
 for val in $(seq 1 $totalclients)

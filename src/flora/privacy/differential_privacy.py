@@ -25,7 +25,11 @@ from src.flora.helper.training_stats import (
     test_img_accuracy,
 )
 
+# === Opacus Libraries ===
 from PETINA.package.Opacus_budget_accountant.accountants.gdp import GaussianAccountant
+from PETINA.package.Opacus_budget_accountant.accountants.utils import get_noise_multiplier
+# === PETINA Modules ===
+from PETINA import  DP_Mechanisms
 
 nanosec_to_millisec = 1e6
 
@@ -78,12 +82,19 @@ class DifferentialPrivacyTrain:
         self.total_epochs = total_epochs
         self.accountantOPC = GaussianAccountant()
         self.mechanism_map = {'gaussian': "gaussian"}
-        dp_params = {'delta': dp_delta, 'epsilon': dp_epsilon, 'gamma': dp_gamma}
+        self.dp_params = {'delta': dp_delta, 'epsilon': dp_epsilon, 'gamma': dp_gamma}
 
     def broadcast_model(self, model):
         # broadcast model from central server with id 0
         model = self.communicator.broadcast(msg=model, id=0)
         return model
+
+    def apply_gaussian_with_budget(self, grad: torch.Tensor, delta: float, epsilon: float, gamma: float) -> torch.Tensor:
+        # Convert PyTorch Tensor to NumPy array
+        grad_np = grad.cpu().numpy()
+        noisy_np = DP_Mechanisms.applyDPGaussian(grad_np, delta=delta, epsilon=epsilon, gamma=gamma)
+        # Convert NumPy array back to PyTorch Tensor
+        return torch.tensor(noisy_np, dtype=torch.float32).to(self.device)
 
     def train_loop(self, epoch):
         epoch_strt = perf_counter_ns()
@@ -102,15 +113,28 @@ class DifferentialPrivacyTrain:
                 if param.grad is None:
                     continue
                 param.grad = apply_gaussian_with_budget(param.grad,
-                                                        delta=dp_params.get('delta', 1e-5),
-                                                        epsilon=dp_params.get('epsilon', 1.0),
-                                                        gamma=dp_params.get('gamma', 1.0)
+                                                        delta=self.dp_params.get('delta', 1e-5),
+                                                        epsilon=self.dp_params.get('epsilon', 1.0),
+                                                        gamma=self.dp_params.get('gamma', 1.0)
                                                         )
+
+            sigma = get_noise_multiplier(target_epsilon=self.dp_params['epsilon'],
+                                         target_delta=self.dp_params['delta'],
+                                         sample_rate=self.sample_rate,
+                                         epochs=self.total_epochs,
+                                         accountant="gdp"
+                                         )
+            self.accountantOPC.step(noise_multiplier=sigma, sample_rate=self.sample_rate)
+            torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
 
             self.optimizer.step()
             self.optimizer.zero_grad()
             self.local_step += 1
             itr_time = (perf_counter_ns() - itr_strt) / nanosec_to_millisec
+            logging.info(
+                f"training_metrics local_step: {self.local_step} epoch {epoch} compute_time {compute_time} ms "
+                f"itr_time: {itr_time} ms"
+            )
 
         epoch_time = (perf_counter_ns() - epoch_strt) / nanosec_to_millisec
         logging.info(f"epoch completion time for epoch {epoch} is {epoch_time} ms")
