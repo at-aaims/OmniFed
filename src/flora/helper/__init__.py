@@ -27,6 +27,7 @@ def set_seed(seed, determinism=True):
     rng.seed(seed)
     torch.use_deterministic_algorithms(determinism)
 
+
 def compute_gradient_norm(model: torch.nn.Module) -> float:
     grad_norm = 0
     for param in model.parameters():

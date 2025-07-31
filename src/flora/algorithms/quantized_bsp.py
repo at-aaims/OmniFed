@@ -154,14 +154,23 @@ class QuantizedBSPTraining:
                             init_time = perf_counter_ns()
 
                             # Get min/max for THIS specific parameter tensor
-                            quant_min, quant_max = self.compression.get_compress_minmax(param.grad)
+                            quant_min, quant_max = self.compression.get_compress_minmax(
+                                param.grad
+                            )
 
-                            compression_time += (perf_counter_ns() - init_time) / nanosec_to_millisec
+                            compression_time += (
+                                perf_counter_ns() - init_time
+                            ) / nanosec_to_millisec
 
                             # OPTION 1: Per-parameter quantization (recommended)
                             # Compress with parameter-specific min/max
-                            quantized_grads[name], param_contexts[name] = self.compression.compress(
-                                tensor=param.grad, name=name, min_val=quant_min, max_val=quant_max
+                            quantized_grads[name], param_contexts[name] = (
+                                self.compression.compress(
+                                    tensor=param.grad,
+                                    name=name,
+                                    min_val=quant_min,
+                                    max_val=quant_max,
+                                )
                             )
 
                             # OPTION 2: If you must use global min/max, collect all first:
@@ -173,9 +182,13 @@ class QuantizedBSPTraining:
                     sync_init = perf_counter_ns()
 
                     # For per-parameter approach
-                    quantized_grads = self.communicator.quantized_aggregate(quantized_dict=quantized_grads)
+                    quantized_grads = self.communicator.quantized_aggregate(
+                        quantized_dict=quantized_grads
+                    )
 
-                    compress_sync_time += (perf_counter_ns() - sync_init) / nanosec_to_millisec
+                    compress_sync_time += (
+                        perf_counter_ns() - sync_init
+                    ) / nanosec_to_millisec
 
                     # Decompress gradients
                     init_time = perf_counter_ns()
@@ -183,26 +196,30 @@ class QuantizedBSPTraining:
                         if param.grad is not None and name in quantized_grads:
                             # Use the stored context for this parameter
                             param.grad = self.compression.decompress(
-                                tensor=quantized_grads[name],
-                                ctx=param_contexts[name]
+                                tensor=quantized_grads[name], ctx=param_contexts[name]
                             )
                             param.grad /= self.total_clients
 
-                    compression_time += (perf_counter_ns() - init_time) / nanosec_to_millisec
+                    compression_time += (
+                        perf_counter_ns() - init_time
+                    ) / nanosec_to_millisec
 
             elif self.compression.__class__.__name__ == "AMPCompression":
                 with torch.no_grad():
                     init_time = perf_counter_ns()
                     for name, param in self.model.named_parameters():
                         quantized_grads[name], _ = self.compression.compress(
-                            tensor=param.grad, name=name)
+                            tensor=param.grad, name=name
+                        )
 
                     compression_time += (
                         perf_counter_ns() - init_time
                     ) / nanosec_to_millisec
 
                 init_time = perf_counter_ns()
-                quantized_grads = self.communicator.quantized_aggregate(quantized_dict=quantized_grads)
+                quantized_grads = self.communicator.quantized_aggregate(
+                    quantized_dict=quantized_grads
+                )
                 compress_sync_time += (
                     perf_counter_ns() - init_time
                 ) / nanosec_to_millisec
@@ -212,7 +229,9 @@ class QuantizedBSPTraining:
                     self.model.named_parameters(), quantized_grads.items()
                 ):
                     assert name == q_name, f"Parameter mismatch: {name} vs {q_name}"
-                    param.grad = self.compression.decompress(tensor=quantized_grad, ctx=quantized_grad.shape)
+                    param.grad = self.compression.decompress(
+                        tensor=quantized_grad, ctx=quantized_grad.shape
+                    )
 
                 compression_time += (
                     perf_counter_ns() - init_time

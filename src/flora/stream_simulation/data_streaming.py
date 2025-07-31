@@ -15,6 +15,7 @@
 import os
 import time
 import pickle
+import logging
 import threading
 import subprocess
 from time import perf_counter_ns
@@ -103,11 +104,18 @@ class DataStreamSubscriber:
         kafka_port=9092,
         kafka_dir="~/",
         client_id=0,
+        log_dir="~/",
     ):
         self.kafka_host = kafka_host
         self.kafka_port = kafka_port
         self.kafka_dir = kafka_dir
         self.topic = "client-{}".format(client_id)
+        self.log_dir = log_dir
+
+        logging.basicConfig(
+            filename=self.log_dir + "/g" + str(client_id) + "/" + self.topic + ".log",
+            level=logging.INFO,
+        )
 
         self.consumer = KafkaConsumer(
             self.topic,
@@ -137,12 +145,12 @@ class DataStreamSubscriber:
                 img_tensor, label_tensor = self.deserialize_sample(message.value)
                 msg_count += 1
                 if msg_count % log_interval == 0:
-                    print(
+                    logging.info(
                         f"received sample label {label_tensor.item()} image tensor shape {img_tensor.shape}"
                     )
                     elapsed_time = (perf_counter_ns() - strt_time) * nanoTosec
                     stream_rate = msg_count / elapsed_time
-                    print(
+                    logging.info(
                         f"measured stream_rate {stream_rate} samples/sec on topic {self.topic}"
                     )
 
@@ -171,21 +179,27 @@ class DataStreamSubscriber:
                         "--replication-factor",
                         "1",
                     ]
-                    print(f"command is {command}")
+                    logging.info(f"command is {command}")
                     result = subprocess.run(
                         command, check=True, text=True, capture_output=True
                     )
+                    logging.info(f"topic {topic} created successfully.")
                     print(f"topic {topic} created successfully.")
+                    logging.info(result.stdout)
                     print(result.stdout)
 
                 else:
+                    logging.info(
+                        f"!!!!!!!!!!!!!!!topic {topic} already exists!!!!!!!!!!!!!!!"
+                    )
                     print(f"!!!!!!!!!!!!!!!topic {topic} already exists!!!!!!!!!!!!!!!")
 
             except subprocess.CalledProcessError as e:
+                logging.info(f"Error creating topic {e.stderr}")
                 print(f"Error creating topic {e.stderr}")
 
         except KafkaError as e:
-            print(f"Error while checking topic existence: {e}")
+            logging.info(f"Error while checking topic existence: {e}")
         finally:
-            print("consumer closing...")
+            logging.info("consumer closing...")
             self.consumer.close()

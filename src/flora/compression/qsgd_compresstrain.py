@@ -30,15 +30,15 @@ nanosec_to_millisec = 1e6
 
 class QSGDCompressTraining:
     def __init__(
-            self,
-            model: torch.nn.Module,
-            train_data: torch.utils.data.DataLoader,
-            test_data: torch.utils.data.DataLoader,
-            communicator: TorchMPICommunicator,
-            client_id: int,
-            total_clients: int,
-            train_params: FedAvgTrainingParameters,
-            compression: QSGDQuantCompression,
+        self,
+        model: torch.nn.Module,
+        train_data: torch.utils.data.DataLoader,
+        test_data: torch.utils.data.DataLoader,
+        communicator: TorchMPICommunicator,
+        client_id: int,
+        total_clients: int,
+        train_params: FedAvgTrainingParameters,
+        compression: QSGDQuantCompression,
     ):
         self.model = model
         self.train_data = train_data
@@ -107,9 +107,7 @@ class QSGDCompressTraining:
             # Standard aggregation of quantized gradients
             # The key insight: QSGD quantizes locally, then aggregates normally
             self.communicator.aggregate(
-                msg=self.model,
-                communicate_params=False,
-                compute_mean=True
+                msg=self.model, communicate_params=False, compute_mean=True
             )
 
             compress_sync_time = (perf_counter_ns() - sync_init) / nanosec_to_millisec

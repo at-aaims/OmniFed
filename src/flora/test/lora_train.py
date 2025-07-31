@@ -45,20 +45,22 @@ class LoRACompressionTrain:
         self.compress_rank = args.compress_rank
         self.min_compression_rate = args.min_compression_rate
         if self.compression_type == "PowerSGD":
-            self.compression = PowerSGDCompression(device=self.device,
-                                                   power_itr=self.power_itr,
-                                                   compress_rank=self.compress_rank,
-                                                   min_compression_rate=self.min_compression_rate)
+            self.compression = PowerSGDCompression(
+                device=self.device,
+                power_itr=self.power_itr,
+                compress_rank=self.compress_rank,
+                min_compression_rate=self.min_compression_rate,
+            )
 
         logging.basicConfig(
             filename=self.logdir
-                     + "/g"
-                     + str(self.rank)
-                     + "/"
-                     + self.model_name
-                     + "-"
-                     + str(self.rank)
-                     + ".log",
+            + "/g"
+            + str(self.rank)
+            + "/"
+            + self.model_name
+            + "-"
+            + str(self.rank)
+            + ".log",
             level=logging.INFO,
         )
         self.dataset_name = args.dataset

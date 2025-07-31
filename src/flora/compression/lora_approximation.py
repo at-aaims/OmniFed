@@ -197,6 +197,7 @@ nanosec_to_millisec = 1e6
 #         else:
 #             self.error_dict[param_name] = error.clone()
 
+
 class PowerSGDCompression(Compression):
     def __init__(self, device, compress_rank=1, power_itr=2, min_compression_rate=2):
         """Implementation of PowerSGD with error feedback.
@@ -234,7 +235,9 @@ class PowerSGDCompression(Compression):
 
         return compression_rate >= self.min_compression_rate
 
-    def _reshape_for_compression(self, tensor: torch.Tensor) -> Tuple[torch.Tensor, torch.Size]:
+    def _reshape_for_compression(
+        self, tensor: torch.Tensor
+    ) -> Tuple[torch.Tensor, torch.Size]:
         """Reshape tensor to 2D for compression, return reshaped tensor and original shape."""
         original_shape = tensor.shape
 
@@ -250,17 +253,21 @@ class PowerSGDCompression(Compression):
             reshaped = tensor.view(tensor.shape[0], -1)
             return reshaped, original_shape
 
-    def _restore_shape(self, tensor: torch.Tensor, original_shape: torch.Size) -> torch.Tensor:
+    def _restore_shape(
+        self, tensor: torch.Tensor, original_shape: torch.Size
+    ) -> torch.Tensor:
         """Restore tensor to original shape."""
         return tensor.view(original_shape)
 
-    def compress(self, tensor: torch.Tensor, param_name: str) -> Tuple[torch.Tensor, Optional[torch.Tensor], torch.Size, bool]:
+    def compress(
+        self, tensor: torch.Tensor, param_name: str
+    ) -> Tuple[torch.Tensor, Optional[torch.Tensor], torch.Size, bool]:
         """Compress tensor using PowerSGD low-rank approximation.
-            Args:
-                tensor: Input tensor (gradient)
-                param_name: Parameter name for error feedback tracking
-            Returns:
-                P matrix (or original tensor if not compressed), Q matrix, original shape, whether compression was applied
+        Args:
+            tensor: Input tensor (gradient)
+            param_name: Parameter name for error feedback tracking
+        Returns:
+            P matrix (or original tensor if not compressed), Q matrix, original shape, whether compression was applied
         """
         # Add error feedback
         if param_name in self.error_dict:
@@ -303,8 +310,13 @@ class PowerSGDCompression(Compression):
         Q, _ = torch.linalg.qr(Q)
         return Q
 
-    def decompress(self, P: torch.Tensor, Q: Optional[torch.Tensor], original_shape: torch.Size,
-                   was_compressed: bool) -> torch.Tensor:
+    def decompress(
+        self,
+        P: torch.Tensor,
+        Q: Optional[torch.Tensor],
+        original_shape: torch.Size,
+        was_compressed: bool,
+    ) -> torch.Tensor:
         """Decompress P and Q matrices back to original tensor.
 
         Args:
@@ -326,8 +338,12 @@ class PowerSGDCompression(Compression):
         # Restore original shape
         return self._restore_shape(reconstructed, original_shape)
 
-    def update_error_feedback(self, original_grad: torch.Tensor, compressed_grad: torch.Tensor,
-                              param_name: str):
+    def update_error_feedback(
+        self,
+        original_grad: torch.Tensor,
+        compressed_grad: torch.Tensor,
+        param_name: str,
+    ):
         """Update error feedback buffer.
 
         Args:

@@ -31,15 +31,15 @@ nanosec_to_millisec = 1e6
 
 class QSGDCompressTraining:
     def __init__(
-            self,
-            model: torch.nn.Module,
-            train_data: torch.utils.data.DataLoader,
-            test_data: torch.utils.data.DataLoader,
-            communicator: TorchMPICommunicator,
-            client_id: int,
-            total_clients: int,
-            train_params: FedAvgTrainingParameters,
-            compression: QSGDQuantCompression,
+        self,
+        model: torch.nn.Module,
+        train_data: torch.utils.data.DataLoader,
+        test_data: torch.utils.data.DataLoader,
+        communicator: TorchMPICommunicator,
+        client_id: int,
+        total_clients: int,
+        train_params: FedAvgTrainingParameters,
+        compression: QSGDQuantCompression,
     ):
         self.model = model
         self.train_data = train_data
@@ -95,7 +95,9 @@ class QSGDCompressTraining:
                 # Quantize gradients locally
                 quantized_data = self.compression.compress(gradients=gradients)
                 del gradients
-                compress_time = (perf_counter_ns() - compress_init) / nanosec_to_millisec
+                compress_time = (
+                    perf_counter_ns() - compress_init
+                ) / nanosec_to_millisec
 
                 sync_init = perf_counter_ns()
                 # Method 1: Proper QSGD aggregation (recommended)
@@ -105,7 +107,9 @@ class QSGDCompressTraining:
                 # self._aggregate_qsgd_method2(quantized_data)
 
                 # compress_sync_time = (perf_counter_ns() - compress_init - compress_time * nanosec_to_millisec) / nanosec_to_millisec
-                compress_sync_time = (perf_counter_ns() - sync_init) / nanosec_to_millisec
+                compress_sync_time = (
+                    perf_counter_ns() - sync_init
+                ) / nanosec_to_millisec
                 del quantized_data
 
             self.optimizer.step()
@@ -150,12 +154,12 @@ class QSGDCompressTraining:
         Proper QSGD aggregation: dequantize locally, aggregate, then update gradients
         This is the mathematically correct approach for QSGD.
         """
-        for (i, param) in enumerate(self.model.parameters()):
-            if param.grad is not None and quantized_data['tensors'][i] is not None:
+        for i, param in enumerate(self.model.parameters()):
+            if param.grad is not None and quantized_data["tensors"][i] is not None:
                 # Dequantize locally first
-                q_tensor = quantized_data['tensors'][i].float()
-                scale = quantized_data['scales'][i]
-                zero_point = quantized_data['zero_points'][i]
+                q_tensor = quantized_data["tensors"][i].float()
+                scale = quantized_data["scales"][i]
+                zero_point = quantized_data["zero_points"][i]
 
                 # Dequantize: scale * (quantized - zero_point)
                 dequantized = scale * (q_tensor - zero_point)
@@ -164,9 +168,7 @@ class QSGDCompressTraining:
                 # Now aggregate the dequantized gradients
                 param.grad.data = dequantized
                 param.grad = self.communicator.aggregate(
-                    msg=param.grad,
-                    communicate_params=False,
-                    compute_mean=True
+                    msg=param.grad, communicate_params=False, compute_mean=True
                 )
 
     def _aggregate_qsgd_method2(self, quantized_data):
@@ -174,36 +176,34 @@ class QSGDCompressTraining:
         Alternative method: Aggregate quantized values and parameters separately
         This requires careful handling of quantization parameters.
         """
-        for (i, param) in enumerate(self.model.parameters()):
-            if param.grad is not None and quantized_data['tensors'][i] is not None:
-                q_tensor = quantized_data['tensors'][i]
-                scale = quantized_data['scales'][i]
-                zero_point = quantized_data['zero_points'][i]
+        for i, param in enumerate(self.model.parameters()):
+            if param.grad is not None and quantized_data["tensors"][i] is not None:
+                q_tensor = quantized_data["tensors"][i]
+                scale = quantized_data["scales"][i]
+                zero_point = quantized_data["zero_points"][i]
 
                 # Use float32 to avoid overflow issues
                 q_tensor_float = q_tensor.float()
 
                 # Create tensors for aggregation
-                scale_tensor = torch.tensor(scale, device=self.device, dtype=torch.float32)
-                zero_point_tensor = torch.tensor(zero_point, device=self.device, dtype=torch.float32)
+                scale_tensor = torch.tensor(
+                    scale, device=self.device, dtype=torch.float32
+                )
+                zero_point_tensor = torch.tensor(
+                    zero_point, device=self.device, dtype=torch.float32
+                )
 
                 # Aggregate quantized values (sum, not average yet)
                 self.communicator.quantized_aggregate(
-                    msg=q_tensor_float,
-                    communicate_params=False,
-                    compute_mean=False
+                    msg=q_tensor_float, communicate_params=False, compute_mean=False
                 )
 
                 # Aggregate scales and zero points (sum, not average yet)
                 self.communicator.quantized_aggregate(
-                    msg=scale_tensor,
-                    communicate_params=False,
-                    compute_mean=False
+                    msg=scale_tensor, communicate_params=False, compute_mean=False
                 )
                 self.communicator.quantized_aggregate(
-                    msg=zero_point_tensor,
-                    communicate_params=False,
-                    compute_mean=False
+                    msg=zero_point_tensor, communicate_params=False, compute_mean=False
                 )
 
                 # Average the aggregated values

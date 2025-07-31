@@ -22,7 +22,7 @@ class QSGDQuantCompression:
     "QSGD: Communication-Efficient SGD via Gradient Quantization and Encoding"
     """
 
-    def __init__(self, bit_width=8, device='cpu'):
+    def __init__(self, bit_width=8, device="cpu"):
         self.s = bit_width  # Number of quantization levels = 2^s
         self.device = device
 
@@ -54,7 +54,7 @@ class QSGDQuantCompression:
         abs_v = torch.abs(v_normalized)
 
         # Quantization levels from 0 to s
-        levels = 2 ** self.s
+        levels = 2**self.s
 
         # Stochastic quantization
         # ξ_i = l/s where l is chosen such that l/s ≤ |v_i| ≤ (l+1)/s
@@ -106,7 +106,7 @@ class AMPQSGDQuantCompression:
     Handles both FP16 gradients and quantization
     """
 
-    def __init__(self, bit_width=8, device='cpu'):
+    def __init__(self, bit_width=8, device="cpu"):
         self.s = bit_width
         self.device = device
 
@@ -135,7 +135,7 @@ class AMPQSGDQuantCompression:
         abs_v = torch.abs(v_normalized)
 
         # Quantization levels
-        levels = 2 ** self.s
+        levels = 2**self.s
 
         # Stochastic quantization with improved precision
         scaled_abs = abs_v * levels
@@ -184,7 +184,7 @@ class AMPLossScaler:
     Enhanced loss scaler that works with QSGD distributed training
     """
 
-    def __init__(self, init_scale=2. ** 16, scale_factor=2.0, scale_window=2000):
+    def __init__(self, init_scale=2.0**16, scale_factor=2.0, scale_window=2000):
         self.scale = init_scale
         self.scale_factor = scale_factor
         self.scale_window = scale_window
@@ -220,6 +220,6 @@ def update_scale(self, iteration, overflow_detected=False):
     else:
         self.unskipped_steps += 1
         if self.unskipped_steps >= self.scale_window:
-            self.scale = min(self.scale * self.scale_factor, 2. ** 24)
+            self.scale = min(self.scale * self.scale_factor, 2.0**24)
             self.unskipped_steps = 0
             logging.info(f"Increasing loss scale to {self.scale}")

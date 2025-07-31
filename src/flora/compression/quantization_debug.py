@@ -25,7 +25,7 @@ class QSGDCompressionDebug(Compression):
         super().__init__()
         self.device = device
         self.bit_width = bit_width
-        self.scale = (2 ** self.bit_width) - 1
+        self.scale = (2**self.bit_width) - 1
         self.residual = ResidualUpdates()
         self.step_count = 0
 
@@ -48,7 +48,9 @@ class QSGDCompressionDebug(Compression):
 
         # Debug logging every 50 steps
         if self.step_count % 50 == 0:
-            logging.info(f"DEBUG {name}: original_norm={original_norm:.6f}, compensated_norm={compensated_norm:.6f}")
+            logging.info(
+                f"DEBUG {name}: original_norm={original_norm:.6f}, compensated_norm={compensated_norm:.6f}"
+            )
             if name in self.residual.residuals:
                 residual_norm = self.residual.residuals[name].norm().item()
                 logging.info(f"DEBUG {name}: residual_norm={residual_norm:.6f}")
@@ -61,7 +63,9 @@ class QSGDCompressionDebug(Compression):
 
         # Debug logging for problematic ranges
         if range_val < 1e-6 or range_val > 1000:
-            logging.info(f"WARNING {name}: range={range_val:.8f}, min={min_val:.6f}, max={max_val:.6f}")
+            logging.info(
+                f"WARNING {name}: range={range_val:.8f}, min={min_val:.6f}, max={max_val:.6f}"
+            )
 
         # Quantize the compensated tensor
         if torch.abs(max_val - min_val) < 1e-8:
@@ -69,7 +73,9 @@ class QSGDCompressionDebug(Compression):
             logging.info(f"WARNING {name}: Zero range, setting to zeros")
         else:
             # Scale tensor to [0, scale]
-            scaled_tensor = (compensated_tensor - min_val) / (max_val - min_val) * self.scale
+            scaled_tensor = (
+                (compensated_tensor - min_val) / (max_val - min_val) * self.scale
+            )
             quantized_tensor = torch.round(scaled_tensor).clamp(0, self.scale)
 
         # Create context
@@ -84,7 +90,9 @@ class QSGDCompressionDebug(Compression):
         min_val, max_val, shape = ctx
 
         if torch.abs(max_val - min_val) < 1e-8:
-            return torch.full(shape, min_val.item(), dtype=torch.float32, device=self.device)
+            return torch.full(
+                shape, min_val.item(), dtype=torch.float32, device=self.device
+            )
 
         # Decompress back to original range
         decompressed = min_val + (tensor.float() / self.scale) * (max_val - min_val)
@@ -92,8 +100,12 @@ class QSGDCompressionDebug(Compression):
         # Debug logging
         if self.step_count % 50 == 0:
             decompressed_norm = decompressed.norm().item()
-            quantization_error = (decompressed.view(-1) - tensor.float().view(-1)).norm().item()
-            logging.info(f"DEBUG decompress: norm={decompressed_norm:.6f}, quant_error={quantization_error:.6f}")
+            quantization_error = (
+                (decompressed.view(-1) - tensor.float().view(-1)).norm().item()
+            )
+            logging.info(
+                f"DEBUG decompress: norm={decompressed_norm:.6f}, quant_error={quantization_error:.6f}"
+            )
 
         return decompressed.view(shape)
 
@@ -105,7 +117,7 @@ class QSGDCompression(Compression):
         super().__init__()
         self.device = device
         self.bit_width = bit_width
-        self.scale = (2 ** self.bit_width) - 1
+        self.scale = (2**self.bit_width) - 1
         self.residual = ResidualUpdates()
 
     def get_compress_minmax(self, tensor):
@@ -131,7 +143,9 @@ class QSGDCompression(Compression):
             quantized_tensor = torch.zeros_like(compensated_tensor)
         else:
             # Scale tensor to [0, scale]
-            scaled_tensor = (compensated_tensor - min_val) / (max_val - min_val) * self.scale
+            scaled_tensor = (
+                (compensated_tensor - min_val) / (max_val - min_val) * self.scale
+            )
             quantized_tensor = torch.round(scaled_tensor).clamp(0, self.scale)
 
         # Create context with per-tensor min/max
@@ -146,7 +160,9 @@ class QSGDCompression(Compression):
         min_val, max_val, shape = ctx
 
         if torch.abs(max_val - min_val) < 1e-8:
-            return torch.full(shape, min_val.item(), dtype=torch.float32, device=self.device)
+            return torch.full(
+                shape, min_val.item(), dtype=torch.float32, device=self.device
+            )
 
         # Decompress back to original range
         decompressed = min_val + (tensor.float() / self.scale) * (max_val - min_val)
@@ -160,7 +176,7 @@ class AMPCompression(Compression):
         super().__init__()
         self.device = device
         self.use_loss_scaling = use_loss_scaling
-        self.loss_scale_factor = (2 ** 16) - 1 if use_loss_scaling else 1.0
+        self.loss_scale_factor = (2**16) - 1 if use_loss_scaling else 1.0
         self.residual = ResidualUpdates()  # Add error feedback
 
     def compress(self, tensor, name):
@@ -197,7 +213,9 @@ class AMPCompression(Compression):
     def gradient_unscaling(self, model):
         """Unscale gradients after backward pass, integrating with residual updates"""
         if not isinstance(model, torch.nn.Module):
-            raise TypeError("gradient_unscaling fn needs torch.nn.Module type for model argument")
+            raise TypeError(
+                "gradient_unscaling fn needs torch.nn.Module type for model argument"
+            )
 
         if self.use_loss_scaling:
             # Unscale gradients and handle residuals properly

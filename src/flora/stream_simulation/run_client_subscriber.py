@@ -12,13 +12,34 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import argparse
+
 from src.flora.stream_simulation.data_streaming import DataStreamSubscriber
 
 
 if __name__ == "__main__":
-    kafka_dir = "/Users/ssq/Desktop/datasets/kafka_2.12-3.2.0/"
-    stream = DataStreamSubscriber(
-        kafka_host="127.0.0.1", kafka_port=9092, kafka_dir=kafka_dir, client_id=0
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--kafka-dir", type=str, default="/Users/ssq/Desktop/datasets/kafka_2.12-3.2.0/"
     )
-    # stream.create_topic("client-0")
+    parser.add_argument(
+        "--data-dir", type=str, default="/Users/ssq/Desktop/datasets/flora_test/"
+    )
+    parser.add_argument(
+        "--log-dir", type=str, default="/Users/ssq/Desktop/datasets/flora_test/"
+    )
+    parser.add_argument("--kafka-host", type=str, default="127.0.0.1")
+    parser.add_argument("--kafka-port", type=int, default=9092)
+    parser.add_argument("--kafka-topic", type=str, default="client-0")
+    parser.add_argument("--client-id", type=int, default=0)
+    args = parser.parse_args()
+
+    stream = DataStreamSubscriber(
+        kafka_host=args.kafka_host,
+        kafka_port=args.kafka_port,
+        kafka_dir=args.kafka_dir,
+        client_id=args.client_id,
+        log_dir=args.log_dirx,
+    )
+    stream.create_topic(args.kafka_topic)
     stream.stream_data()

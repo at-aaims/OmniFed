@@ -247,10 +247,17 @@ class SecureAggregation:
                     condition = scaled_grad < 0
                     condition = condition.to(self.device)
                     # Calculate the modulus for negative and non-negative values separately
-                    negative_mod = (torch.remainder(scaled_grad, self.modulus_q).to(self.device) + self.modulus_q) % self.modulus_q
-                    positive_mod = torch.remainder(scaled_grad, self.modulus_q).to(self.device)
+                    negative_mod = (
+                        torch.remainder(scaled_grad, self.modulus_q).to(self.device)
+                        + self.modulus_q
+                    ) % self.modulus_q
+                    positive_mod = torch.remainder(scaled_grad, self.modulus_q).to(
+                        self.device
+                    )
                     # Use torch.where to choose between the two results based on the condition
-                    scaled_grad = torch.where(condition, negative_mod, positive_mod).to(self.device)
+                    scaled_grad = torch.where(condition, negative_mod, positive_mod).to(
+                        self.device
+                    )
                     masked_grad[name] = scaled_grad
 
                     # currently computed at every iteration, move later to run ONLY ONCE!
@@ -276,7 +283,9 @@ class SecureAggregation:
                     self.model.named_parameters(), aggregated_masks.items()
                 ):
                     assert name1 == name2
-                    param.grad.copy_(self.finite_field_to_float(ff_value_tensor=agg_mask_grad))
+                    param.grad.copy_(
+                        self.finite_field_to_float(ff_value_tensor=agg_mask_grad)
+                    )
 
             # compute unmasked, aggregated gradients' norm
             # with torch.no_grad():

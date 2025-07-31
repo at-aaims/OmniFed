@@ -30,15 +30,15 @@ nanosec_to_millisec = 1e6
 
 class PowerSGDCompressTrain:
     def __init__(
-            self,
-            model: torch.nn.Module,
-            train_data: torch.utils.data.DataLoader,
-            test_data: torch.utils.data.DataLoader,
-            communicator: TorchMPICommunicator,
-            client_id: int,
-            total_clients: int,
-            train_params: FedAvgTrainingParameters,
-            compression: PowerSGDCompression,
+        self,
+        model: torch.nn.Module,
+        train_data: torch.utils.data.DataLoader,
+        test_data: torch.utils.data.DataLoader,
+        communicator: TorchMPICommunicator,
+        client_id: int,
+        total_clients: int,
+        train_params: FedAvgTrainingParameters,
+        compression: PowerSGDCompression,
     ):
         self.model = model
         self.train_data = train_data
@@ -84,35 +84,44 @@ class PowerSGDCompressTrain:
             self.training_samples += inputs.size(0)
             loss.backward()
             compute_time = (perf_counter_ns() - init_time) / nanosec_to_millisec
-            compress_time, compress_sync_time = 0., 0.
+            compress_time, compress_sync_time = 0.0, 0.0
             with torch.no_grad():
                 for name, param in self.model.named_parameters():
                     compress_init = perf_counter_ns()
                     # Store original gradient for error feedback
                     original_grad = param.grad.clone()
-                    param_P, matrix, param_og_shape, was_compressed = self.compression.compress(tensor=param.grad,
-                                                                                                param_name=name)
-                    compress_time += (perf_counter_ns() - compress_init) / nanosec_to_millisec
+                    param_P, matrix, param_og_shape, was_compressed = (
+                        self.compression.compress(tensor=param.grad, param_name=name)
+                    )
+                    compress_time += (
+                        perf_counter_ns() - compress_init
+                    ) / nanosec_to_millisec
 
                     sync_init = perf_counter_ns()
-                    param_P = self.communicator.aggregate(msg=param_P,
-                                                          communicate_params=False,
-                                                          compute_mean=True)
-                    compress_sync_time += (perf_counter_ns() - sync_init) / nanosec_to_millisec
+                    param_P = self.communicator.aggregate(
+                        msg=param_P, communicate_params=False, compute_mean=True
+                    )
+                    compress_sync_time += (
+                        perf_counter_ns() - sync_init
+                    ) / nanosec_to_millisec
 
                     if was_compressed:
                         param_Q = self.compression._update_Q(P=param_P, matrix=matrix)
-                        decompressed_grad = self.compression.decompress(P=param_P,
-                                                                        Q=param_Q,
-                                                                        original_shape=param_og_shape,
-                                                                        was_compressed=was_compressed)
+                        decompressed_grad = self.compression.decompress(
+                            P=param_P,
+                            Q=param_Q,
+                            original_shape=param_og_shape,
+                            was_compressed=was_compressed,
+                        )
 
                     else:
                         decompressed_grad = param_P
 
-                    self.compression.update_error_feedback(original_grad=original_grad,
-                                                           compressed_grad=decompressed_grad,
-                                                           param_name=name)
+                    self.compression.update_error_feedback(
+                        original_grad=original_grad,
+                        compressed_grad=decompressed_grad,
+                        param_name=name,
+                    )
                     param.grad.copy_(decompressed_grad)
 
             self.optimizer.step()

@@ -129,13 +129,15 @@ class SecAggTrainer:
             lr_scheduler=self.lr_scheduler,
         )
 
-        self.trainer = SecureAggregation(client_id=self.rank,
-                                         model=self.model,
-                                         train_data=self.train_dataloader,
-                                         test_data=self.test_dataloader,
-                                         communicator=self.communicator,
-                                         total_clients=self.world_size,
-                                         train_params=self.fedavg_params)
+        self.trainer = SecureAggregation(
+            client_id=self.rank,
+            model=self.model,
+            train_data=self.train_dataloader,
+            test_data=self.test_dataloader,
+            communicator=self.communicator,
+            total_clients=self.world_size,
+            train_params=self.fedavg_params,
+        )
 
         args.hostname = socket.gethostname()
         args.optimizer = self.optimizer.__class__.__name__

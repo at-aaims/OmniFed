@@ -17,7 +17,7 @@ import numpy as np
 
 
 class QSGDQuantCompression:
-    def __init__(self, bit_width=8, device='cpu'):
+    def __init__(self, bit_width=8, device="cpu"):
         """
         QSGD (Quantized Stochastic Gradient Descent) compression
 
@@ -27,7 +27,7 @@ class QSGDQuantCompression:
         """
         self.bit_width = bit_width
         self.device = device
-        self.levels = 2 ** bit_width - 1  # Number of quantization levels
+        self.levels = 2**bit_width - 1  # Number of quantization levels
 
     def compress(self, gradients):
         """
@@ -76,9 +76,9 @@ class QSGDQuantCompression:
             zero_points.append(zero_point)
 
         return {
-            'tensors': quantized_tensors,
-            'scales': scales,
-            'zero_points': zero_points
+            "tensors": quantized_tensors,
+            "scales": scales,
+            "zero_points": zero_points,
         }
 
     def decompress(self, quantized_data):
@@ -93,11 +93,13 @@ class QSGDQuantCompression:
         """
         decompressed_gradients = []
 
-        for i, (q_tensor, scale, zero_point) in enumerate(zip(
-                quantized_data['tensors'],
-                quantized_data['scales'],
-                quantized_data['zero_points']
-        )):
+        for i, (q_tensor, scale, zero_point) in enumerate(
+            zip(
+                quantized_data["tensors"],
+                quantized_data["scales"],
+                quantized_data["zero_points"],
+            )
+        ):
             if q_tensor is None:
                 decompressed_gradients.append(None)
                 continue
@@ -118,15 +120,15 @@ class ImprovedQSGDCompressTraining:
     """
 
     def __init__(
-            self,
-            model: torch.nn.Module,
-            train_data: torch.utils.data.DataLoader,
-            test_data: torch.utils.data.DataLoader,
-            communicator,
-            client_id: int,
-            total_clients: int,
-            train_params,
-            compression: QSGDQuantCompression,
+        self,
+        model: torch.nn.Module,
+        train_data: torch.utils.data.DataLoader,
+        test_data: torch.utils.data.DataLoader,
+        communicator,
+        client_id: int,
+        total_clients: int,
+        train_params,
+        compression: QSGDQuantCompression,
     ):
         self.model = model
         self.train_data = train_data
@@ -177,11 +179,15 @@ class ImprovedQSGDCompressTraining:
         for param in self.model.parameters():
             if param.grad is not None:
                 if decompressed_grads[param_idx] is not None:
-                    param.grad.data = decompressed_grads[param_idx].reshape(param.grad.shape)
+                    param.grad.data = decompressed_grads[param_idx].reshape(
+                        param.grad.shape
+                    )
                 param_idx += 1
 
         # Now aggregate the decompressed gradients
-        self.communicator.aggregate(self.model, communicate_params=False, compute_mean=True)
+        self.communicator.aggregate(
+            self.model, communicate_params=False, compute_mean=True
+        )
 
     def train_loop(self, epoch):
         """Main training loop with improved QSGD"""
@@ -206,7 +212,7 @@ class ImprovedQSGDCompressTraining:
             self.local_step += 1
 
             if batch_idx % 100 == 0:
-                print(f'Epoch {epoch}, Batch {batch_idx}, Loss: {loss.item():.6f}')
+                print(f"Epoch {epoch}, Batch {batch_idx}, Loss: {loss.item():.6f}")
 
         if self.lr_scheduler is not None:
             self.lr_scheduler.step()

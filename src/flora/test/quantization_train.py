@@ -19,8 +19,10 @@ from src.flora.test import get_model
 from src.flora.communicator import torch_mpi
 from src.flora.helper import training_params
 from src.flora.datasets.image_classification import cifar, caltech
+
 # from src.flora.compression.quantization_OLD import QSGDQuantCompression
 from src.flora.compression.quantization import QSGDQuantCompression
+
 # from src.flora.compression.qsgd_compresstrain_OLD import QSGDCompressTraining
 from src.flora.compression.qsgd_compresstrain import QSGDCompressTraining
 
@@ -45,17 +47,19 @@ class QuantizedCompressionTraining:
         self.compression_type = args.compression_type
         self.quantized_bitwidth = args.quantized_bitwidth
         if self.compression_type == "QSGD":
-            self.compression = QSGDQuantCompression(bit_width=args.quantized_bitwidth, device=self.device)
+            self.compression = QSGDQuantCompression(
+                bit_width=args.quantized_bitwidth, device=self.device
+            )
 
         logging.basicConfig(
             filename=self.logdir
-                     + "/g"
-                     + str(self.rank)
-                     + "/"
-                     + self.model_name
-                     + "-"
-                     + str(self.rank)
-                     + ".log",
+            + "/g"
+            + str(self.rank)
+            + "/"
+            + self.model_name
+            + "-"
+            + str(self.rank)
+            + ".log",
             level=logging.INFO,
         )
         self.dataset_name = args.dataset

@@ -17,6 +17,7 @@ import torch
 
 from src.flora.communicator import torch_mpi
 from src.flora.helper.node_config import NodeConfig
+
 # from src.flora.compression import quantization_noEF
 from src.flora.compression import quantization_debug
 from src.flora.test import get_model

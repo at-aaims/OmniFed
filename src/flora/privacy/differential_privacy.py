@@ -29,14 +29,14 @@ nanosec_to_millisec = 1e6
 
 class DifferentialPrivacyTrain:
     def __init__(
-            self,
-            client_id: int,
-            model: torch.nn.Module,
-            train_data: torch.utils.data.DataLoader,
-            test_data: torch.utils.data.DataLoader,
-            communicator: TorchMPICommunicator,
-            total_clients: int,
-            train_params: FedAvgTrainingParameters
+        self,
+        client_id: int,
+        model: torch.nn.Module,
+        train_data: torch.utils.data.DataLoader,
+        test_data: torch.utils.data.DataLoader,
+        communicator: TorchMPICommunicator,
+        total_clients: int,
+        train_params: FedAvgTrainingParameters,
     ):
         self.model = model
         self.train_data = train_data
@@ -82,7 +82,6 @@ class DifferentialPrivacyTrain:
             self.training_samples += inputs.size(0)
             loss.backward()
             compute_time = (perf_counter_ns() - init_time) / nanosec_to_millisec
-
 
     def train(self):
         print("going to broadcast model across clients...")
