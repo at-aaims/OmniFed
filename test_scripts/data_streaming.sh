@@ -14,7 +14,7 @@ streamrate=32
 # run subscriber here
 for val in $(seq 1 $totalclients)
 do
-  rank=$(($val-1))--kafka-dir
+  rank=$(($val-1))
   topic='client-'$rank
   python3 -m src.flora.stream_simulation.run_client_subscriber --kafka-dir=$kafkadir --data-dir=$datadir \
   --log-dir=$logdir --kafka-host=$kafkahost --kafka-port=$kafkaport --kafka-topic=$topic --client-id=$rank &
@@ -25,4 +25,5 @@ done
 # run publisher here
 echo "going to launch Publisher server..."
 python3 -m src.flora.stream_simulation.run_server_publisher --kafka-dir=$kafkadir --dataset=$dataset \
---kafka-host=$kafkahost --kafka-port=$kafkaport --total-clients=$totalclients --stream-rate=$streamrate &
+--kafka-host=$kafkahost --data-dir=$datadir --kafka-port=$kafkaport --total-clients=$totalclients \
+--stream-rate=$streamrate &
