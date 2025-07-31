@@ -11,7 +11,7 @@ logdir='/ccsopen/home/ssq/datasets/'
 kafkahost='127.0.0.1'
 kafkaport=9092
 dataset='cifar10'
-totalclients=8
+totalclients=1
 streamrate=128
 
 # run subscriber here
