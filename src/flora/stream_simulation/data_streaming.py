@@ -200,6 +200,6 @@ class DataStreamSubscriber:
 
         except KafkaError as e:
             logging.info(f"Error while checking topic existence: {e}")
-        finally:
-            logging.info("consumer closing...")
-            self.consumer.close()
+        # finally:
+        #     logging.info("consumer closing...")
+        #     self.consumer.close()
