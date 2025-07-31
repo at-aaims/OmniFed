@@ -39,7 +39,7 @@ if __name__ == "__main__":
         kafka_port=args.kafka_port,
         kafka_dir=args.kafka_dir,
         client_id=args.client_id,
-        log_dir=args.log_dirx,
+        log_dir=args.log_dir,
     )
     stream.create_topic(args.kafka_topic)
     stream.stream_data()

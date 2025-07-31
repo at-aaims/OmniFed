@@ -2,6 +2,9 @@
 
 cd ../
 
+# kill -s 9 `ps -ef | grep src.flora.stream_simulation.run_client_subscriber |grep -v grep | awk '{print $2}'`
+# kill -s 9 `ps -ef | grep src.flora.stream_simulation.run_server_publisher |grep -v grep | awk '{print $2}'`
+
 kafkadir='/ccsopen/home/ssq/kafka_2.12-3.2.0'
 datadir='/ccsopen/home/ssq/datasets/'
 logdir='/ccsopen/home/ssq/datasets/'
