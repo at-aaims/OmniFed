@@ -2,8 +2,8 @@
 
 cd ../
 
-# kill -s 9 `ps -ef | grep src.flora.test.launch_quantization |grep -v grep | awk '{print $2}'`
-# kill -9 $(ps aux | grep src.flora.test.launch_quantization | grep -v grep | awk '{print $2}')
+# kill -s 9 `ps -ef | grep src.flora.test.launch_lora |grep -v grep | awk '{print $2}'`
+# kill -9 $(ps aux | grep src.flora.test.launch_lora | grep -v grep | awk '{print $2}')
 
 #dir='/Users/ssq/Desktop/datasets/flora_test/'
 #masterport=28670
@@ -29,8 +29,10 @@ lrstepsize=40
 numclasses=257
 compression='PowerSGD'
 poweritr=5
-compressrank=64
-mincompressrate=20
+#compressrank=64
+#mincompressrate=20
+compressrank=16
+mincompressrate=10
 
 for val in $(seq 1 $worldsize)
 do

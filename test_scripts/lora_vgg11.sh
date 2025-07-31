@@ -28,8 +28,10 @@ model='vgg11'
 dataset='cifar100'
 compression='PowerSGD'
 poweritr=5
-compressrank=64
-mincompressrate=20
+#compressrank=64
+#mincompressrate=20
+compressrank=16
+mincompressrate=10
 
 for val in $(seq 1 $worldsize)
 do
