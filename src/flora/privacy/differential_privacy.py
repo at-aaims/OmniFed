@@ -84,7 +84,6 @@ class DifferentialPrivacyTrain:
             compute_time = (perf_counter_ns() - init_time) / nanosec_to_millisec
 
 
-
     def train(self):
         print("going to broadcast model across clients...")
         self.model = self.broadcast_model(model=self.model)
