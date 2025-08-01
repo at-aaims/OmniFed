@@ -25,21 +25,21 @@ from typeguard import typechecked
 class MetricDirection(str, Enum):
     """Optimization direction for metrics (higher/lower is better)."""
 
-    MAXIMIZE = "maximize"  # Higher is better (accuracy, F1 score)
-    MINIMIZE = "minimize"  # Lower is better (loss, error, time)
-    NEUTRAL = "neutral"  # Neither higher nor lower is better (counts)
+    MAXIMIZE = "maximize"
+    MINIMIZE = "minimize"
+    NEUTRAL = "neutral"
 
 
 class MetricGroup(str, Enum):
     """Metric categories for table organization."""
 
-    LOSS_METRICS = "Loss & Error"  # Loss, error metrics (minimize)
-    PERFORMANCE_METRICS = "Performance"  # Accuracy, precision, recall, F1 (maximize)
-    GRADIENT_METRICS = "Gradients"  # Gradient norms, magnitudes
-    TIMING_METRICS = "Timing"  # All timing metrics
-    DATASET_METRICS = "Dataset"  # Sample counts, data statistics
-    REPORTING_METADATA = "Reporting Metadata"  # Training coordinates and indices
-    OTHER = "Other"  # Unclassified metrics
+    LOSS_METRICS = "Loss & Error"
+    PERFORMANCE_METRICS = "Performance"
+    GRADIENT_METRICS = "Gradients"
+    TIMING_METRICS = "Timing"
+    DATASET_METRICS = "Dataset"
+    REPORTING_METADATA = "Reporting Metadata"
+    OTHER = "Other"
 
 
 @dataclass
@@ -49,30 +49,26 @@ class MetricFormatRule:
     Rules are matched by regex pattern in order.
     """
 
-    regex: str  # Regex pattern to match metric names
-    precision: int = 3  # Decimal places for display
-    units: str = ""  # Unit suffix (s, %, etc.)
-    optimization_goal: MetricDirection = (
-        MetricDirection.NEUTRAL
-    )  # Higher/lower is better
-    format_as_integer: bool = False  # Show as integer instead of float
-    emoji: str = ""  # Display icon (empty for unknown metrics)
-    group: str = MetricGroup.OTHER  # Category for grouping
-    group_order: int = 50  # Display order (lower numbers first, higher numbers last)
-    description: str = "Default formatting"  # Human-readable description
+    regex: str
+    precision: int = 3
+    units: str = ""
+    optimization_goal: MetricDirection = MetricDirection.NEUTRAL
+    format_as_integer: bool = False
+    emoji: str = ""
+    group: str = MetricGroup.OTHER
+    group_order: int = 50
+    description: str = "Default formatting"
 
-    # Which statistics to show for this metric type
-    show_sum: bool = False  # Total across nodes
-    show_mean: bool = True  # Average
-    show_std: bool = True  # Standard deviation
-    show_min: bool = True  # Minimum
-    show_max: bool = True  # Maximum
-    show_median: bool = True  # Median
-    show_cv: bool = True  # Coefficient of variation
+    show_sum: bool = False
+    show_mean: bool = True
+    show_std: bool = True
+    show_min: bool = True
+    show_max: bool = True
+    show_median: bool = True
+    show_cv: bool = True
 
 
 DEFAULT_FORMAT_RULES = [
-    # All timing metrics - matches any metric containing 'time'
     MetricFormatRule(
         regex=r"time",
         precision=3,
@@ -84,7 +80,6 @@ DEFAULT_FORMAT_RULES = [
         description="Timing metrics",
         show_sum=False,
     ),
-    # Loss and error metrics (lower is better)
     MetricFormatRule(
         regex=r"(loss|error|mse|mae|rmse)",
         precision=4,
@@ -96,7 +91,6 @@ DEFAULT_FORMAT_RULES = [
         description="Loss and error metrics",
         show_sum=False,
     ),
-    # Accuracy and performance metrics (higher is better)
     MetricFormatRule(
         regex=r"(accuracy|precision|recall|f1)",
         precision=4,
@@ -108,7 +102,6 @@ DEFAULT_FORMAT_RULES = [
         description="Performance metrics",
         show_sum=False,
     ),
-    # Count metrics
     MetricFormatRule(
         regex=r"(count|num_)",
         precision=0,
@@ -121,7 +114,6 @@ DEFAULT_FORMAT_RULES = [
         description="Count metrics",
         show_sum=True,  # Sum makes sense for counts
     ),
-    # Gradient metrics (gradient norms, magnitudes, etc.)
     MetricFormatRule(
         regex=r"grad",
         precision=4,
@@ -133,7 +125,6 @@ DEFAULT_FORMAT_RULES = [
         description="Gradient metrics",
         show_sum=False,
     ),
-    # Training coordinate indices (batch_idx, epoch_idx, global_step, round_idx)
     MetricFormatRule(
         regex=r"(batch_idx|epoch_idx|global_step|round_idx)",
         precision=0,
@@ -155,54 +146,39 @@ DEFAULT_FORMAT_RULES = [
 ]
 
 
+@typechecked
 class MetricFormatter:
     """FL metrics formatter with validation and caching."""
 
-    def __init__(self, rules: List[MetricFormatRule] = None):
+    def __init__(self, rules: List[MetricFormatRule] = DEFAULT_FORMAT_RULES):
         """Initialize formatter.
 
         Args:
             rules: Custom formatting rules. Uses defaults if None.
         """
-        # Set and validate rules
-        if rules is None:
-            rules = DEFAULT_FORMAT_RULES
-
-        if not isinstance(rules, list):
-            raise ValueError(f"Rules must be a list, got {type(rules)}")
-
         if not rules:
             raise ValueError("Rules list cannot be empty")
 
-        # Check each rule is valid
-        validated_rules = []
         for i, rule in enumerate(rules):
-            if not isinstance(rule, MetricFormatRule):
-                raise ValueError(f"Rule {i} is not a MetricFormatRule: {type(rule)}")
-            if not isinstance(rule.regex, str) or not rule.regex.strip():
+            if not rule.regex.strip():
                 raise ValueError(f"Rule {i} has invalid regex: {rule.regex}")
-            validated_rules.append(rule)
 
-        self.rules = validated_rules
-        self._rule_cache = {}  # Cache for metric name -> rule lookups
+        self.rules = rules
+        self._rule_cache = {}
         self._validation_stats = {"cache_hits": 0, "cache_misses": 0, "fallbacks": 0}
 
-    @typechecked
     def find_rule(self, metric_name: str) -> MetricFormatRule:
         """Find matching formatting rule for metric."""
-        # Handle empty metric names
         if not metric_name.strip():
             metric_name = "empty_metric"
             self._validation_stats["fallbacks"] += 1
 
-        # Check cache first
         if metric_name in self._rule_cache:
             self._validation_stats["cache_hits"] += 1
             return self._rule_cache[metric_name]
 
         self._validation_stats["cache_misses"] += 1
 
-        # Find first matching rule
         try:
             for rule in self.rules:
                 try:
@@ -215,7 +191,6 @@ class MetricFormatter:
         except Exception as e:
             warnings.warn(f"Error searching rules for metric '{metric_name}': {e}")
 
-        # Default rule for unmatched metrics
         default_rule = MetricFormatRule(
             regex=r".*",
             group_order=80,
@@ -225,10 +200,8 @@ class MetricFormatter:
         self._validation_stats["fallbacks"] += 1
         return default_rule
 
-    @typechecked
     def format(self, metric_name: str, value: float) -> str:
         """Format metric value according to rules."""
-        # Handle special numeric values
         if np.isnan(value):
             return "NaN"
         if np.isinf(value):
@@ -237,7 +210,6 @@ class MetricFormatter:
         try:
             rule = self.find_rule(metric_name)
 
-            # Apply formatting rule
             if rule.format_as_integer:
                 try:
                     formatted_value = f"{int(round(value)):,}{rule.units}"
@@ -254,14 +226,11 @@ class MetricFormatter:
                 f"Failed to format metric '{metric_name}' with value {value}: {e}"
             ) from e
 
-    @typechecked
     def group_metric_names(self, metric_names: List[str]) -> Dict[str, List[str]]:
         """Group metrics by category."""
-        # Handle empty input
         if not metric_names:
             return {}
 
-        # Clean up metric names
         validated_names = []
         for i, name in enumerate(metric_names):
             if not name.strip():
@@ -275,18 +244,14 @@ class MetricFormatter:
 
             for metric_name in validated_names:
                 rule = self.find_rule(metric_name)
-                # Use enum string value
                 group = rule.group.value
                 groups[group].append(metric_name)
-                # Track group display order
                 if group not in group_orders:
                     group_orders[group] = rule.group_order
 
-            # Sort metrics within each group
             for group in groups:
                 groups[group].sort()
 
-            # Sort by display order
             sorted_groups = dict(
                 sorted(groups.items(), key=lambda x: group_orders[x[0]])
             )
@@ -295,7 +260,6 @@ class MetricFormatter:
         except Exception as e:
             raise RuntimeError(f"Failed to group metrics: {e}") from e
 
-    @typechecked
     def get_applicable_stats(self, metric_name: str) -> Dict[str, bool]:
         """Get which statistics to show for a metric.
 
@@ -305,7 +269,6 @@ class MetricFormatter:
         Returns:
             Dict of stat name -> show flag
         """
-        # Handle empty metric name
         if not metric_name.strip():
             metric_name = "empty_metric"
             self._validation_stats["fallbacks"] += 1
@@ -326,7 +289,6 @@ class MetricFormatter:
                 f"Failed to get applicable stats for metric '{metric_name}': {e}"
             ) from e
 
-    @typechecked
     def get_delta_color(
         self, metric_name: str, delta: float, threshold: float = 1e-4
     ) -> str:
@@ -340,7 +302,6 @@ class MetricFormatter:
         Returns:
             Rich color string
         """
-        # Handle invalid values
         if np.isnan(delta) or np.isinf(delta):
             return "dim white"
 
@@ -348,11 +309,9 @@ class MetricFormatter:
             threshold = 1e-4
 
         try:
-            # No significant change
             if abs(delta) < threshold:
                 return "dim white"
 
-            # Color based on whether change is good/bad
             rule = self.find_rule(metric_name)
             goal = rule.optimization_goal
 

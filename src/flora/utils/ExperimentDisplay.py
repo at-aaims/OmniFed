@@ -44,10 +44,10 @@ from .DisplayStyling import (
 class ProgressionLevel(Enum):
     """Training progression levels (coarse to fine)."""
 
-    ROUND = "round_idx"  # FL rounds (coarsest)
-    EPOCH = "epoch_idx"  # Training epochs within rounds
-    BATCH = "batch_idx"  # Batches within epochs
-    GLOBAL_STEP = "global_step"  # Global training steps (finest)
+    ROUND = "round_idx"
+    EPOCH = "epoch_idx"
+    BATCH = "batch_idx"
+    GLOBAL_STEP = "global_step"
 
     @classmethod
     def get_progression_order(cls) -> List["ProgressionLevel"]:
@@ -84,7 +84,6 @@ class TrainingPosition:
 
     def get_value_for_level(self, level: ProgressionLevel) -> Optional[int]:
         """Get value for progression level."""
-        # Direct attribute access
         if level == ProgressionLevel.ROUND:
             return self.round_idx
         elif level == ProgressionLevel.EPOCH:
@@ -138,24 +137,22 @@ def group_by_training_position(
     return dict(grouped)
 
 
-
-
 @dataclass
 class MetricStats:
     """Statistical summary of a metric across FL nodes."""
 
-    name: str  # Metric name (e.g., "train/accuracy")
-    emoji: str  # Display icon for this metric type
-    group: str  # Category for table grouping
-    node_count: int  # How many nodes reported this metric
-    total_nodes: int  # Total nodes in experiment
-    sum: str  # Formatted sum value (total across nodes)
-    mean: str  # Formatted mean value
-    std: str  # Formatted standard deviation
-    min: str  # Formatted minimum value
-    max: str  # Formatted maximum value
-    median: str  # Formatted median value
-    cv: str  # Formatted coefficient of variation (std/mean)
+    name: str
+    emoji: str
+    group: str
+    node_count: int
+    total_nodes: int
+    sum: str
+    mean: str
+    std: str
+    min: str
+    max: str
+    median: str
+    cv: str
 
     @property
     def coverage_display(self) -> str:
@@ -166,22 +163,26 @@ class MetricStats:
         else:
             return f"{self.node_count}/{self.total_nodes}"
 
-    @property
-    def display_name(self) -> str:
-        """Full display name with emoji and coverage."""
-        return f"{self.emoji} {self.name} {self.coverage_display}"
-
-    @property
-    def is_complete_coverage(self) -> bool:
-        """True if all nodes reported this metric."""
-        return self.node_count == self.total_nodes
-
 
 class ExperimentDataProcessor:
     """Data processing for experiment results."""
 
     def __init__(self, metadata_keys: set[str]):
         self._metadata_keys = metadata_keys
+
+    def _is_valid_metric_key(self, key: str, value: Any) -> bool:
+        """Check if key represents a valid metric.
+        
+        Args:
+            key: Dictionary key to validate
+            value: Associated value
+            
+        Returns:
+            True if key represents a valid metric for display
+        """
+        return (key not in self._metadata_keys and 
+                not key.startswith("_") and 
+                value is not None)
 
     def _create_coordinate_key(self, row: Dict[str, Any]) -> Tuple[int, int, int, int]:
         """Create coordinate key from data row.
@@ -209,7 +210,6 @@ class ExperimentDataProcessor:
         context_data = []
         for node_idx, node_data in enumerate(results):
             if context in node_data:
-                # Add node_id to preserve identity
                 for measurement in node_data[context]:
                     measurement_with_node = measurement.copy()
                     measurement_with_node["_node_id"] = node_idx
@@ -221,74 +221,14 @@ class ExperimentDataProcessor:
         metrics = set()
         for row in context_data:
             for key, value in row.items():
-                if (
-                    key not in self._metadata_keys
-                    and not key.startswith("_")
-                    and value is not None
-                ):
+                if self._is_valid_metric_key(key, value):
                     metrics.add(key)
         return list(metrics)
-
-    def get_final_values_per_coordinate(
-        self, context_data: List[Dict[str, Any]], preserve_coordinates: bool = False
-    ) -> List[Dict[str, Any]]:
-        """Get final metric values for each unique coordinate combination.
-
-        Args:
-            context_data: Raw experiment data for a specific context
-            preserve_coordinates: If True, include coordinate fields in output
-        """
-        # Group by coordinate combination using centralized key creation
-        coordinate_groups = defaultdict(list)
-
-        for row in context_data:
-            coord_key = self._create_coordinate_key(row)
-            coordinate_groups[coord_key].append(row)
-
-        # For each coordinate, take the final (aggregated) values
-        final_data = []
-        for coord_key, coord_rows in coordinate_groups.items():
-            if coord_rows:
-                # Use the last row for this coordinate (typically the aggregated result)
-                final_row = coord_rows[-1]
-
-                # Extract metric values and optionally coordinates
-                metric_row = {}
-                for key, value in final_row.items():
-                    # Include coordinates if requested
-                    if preserve_coordinates and key in {
-                        "round_idx",
-                        "epoch_idx",
-                        "batch_idx",
-                        "global_step",
-                    }:
-                        metric_row[key] = value
-                    # Include non-metadata, non-private fields
-                    elif (
-                        key not in self._metadata_keys
-                        and not key.startswith("_")
-                        and value is not None
-                        and key
-                        not in {
-                            "round_idx",
-                            "epoch_idx",
-                            "batch_idx",
-                            "global_step",
-                        }  # Avoid duplication
-                    ):
-                        metric_row[key] = value
-
-                if metric_row:  # Only add if there are actual metrics
-                    final_data.append(metric_row)
-
-        return final_data
 
 
 class ExperimentResultsDisplay:
     """FL experiment results display system."""
 
-    # Display configuration constants
-    SIGNIFICANCE_THRESHOLD = 15.0  # Percentage change threshold for bold formatting
     SMALL_CHANGE_THRESHOLD = 0.1  # Threshold for ~0.0% display
     DIVISION_EPSILON = 1e-10  # Minimum value to avoid division by zero
 
@@ -314,6 +254,76 @@ class ExperimentResultsDisplay:
             return False
         return True
 
+    def _compute_basic_stats(self, values: List[float]) -> Dict[str, float]:
+        """Compute standard statistical measures.
+        
+        Args:
+            values: List of numeric values
+            
+        Returns:
+            Dictionary with computed statistics
+        """
+        if not values:
+            return {
+                'sum': 0.0, 'mean': 0.0, 'std': 0.0,
+                'min': 0.0, 'max': 0.0, 'median': 0.0
+            }
+        
+        return {
+            'sum': float(np.sum(values)),
+            'mean': float(np.mean(values)),
+            'std': float(np.std(values)),
+            'min': float(np.min(values)),
+            'max': float(np.max(values)),
+            'median': float(np.median(values))
+        }
+
+    def _build_table_template(
+        self,
+        metadata_builder,
+        columns_builder, 
+        rows_builder,
+        analysis_data: Dict[str, Any],
+        title_emoji: str,
+        *builder_args
+    ) -> Table:
+        """Template method for building tables with consistent pattern.
+        
+        Eliminates duplication across summary, progression, and statistics tables.
+        Follows template method pattern: defines skeleton, subclasses fill details.
+        
+        Args:
+            metadata_builder: Function that builds (title, caption) tuple
+            columns_builder: Function that adds columns to table  
+            rows_builder: Function that adds rows to table
+            analysis_data: Data dict for the specific table type
+            title_emoji: Emoji for table title
+            *builder_args: Additional args passed to metadata_builder
+            
+        Returns:
+            Fully constructed styled table
+        """
+        # Step 1: Build metadata (title and caption)
+        if builder_args:
+            title, caption = metadata_builder(*builder_args, analysis_data)
+        else:
+            title, caption = metadata_builder(analysis_data)
+            
+        # Step 2: Create styled table foundation
+        table = self._create_styled_table(
+            title=title,
+            caption=caption, 
+            title_emoji=title_emoji
+        )
+        
+        # Step 3: Add columns using specific builder
+        columns_builder(table, analysis_data)
+        
+        # Step 4: Add rows using specific builder
+        rows_builder(table, analysis_data)
+        
+        return table
+
     @typechecked
     def show_experiment_results(
         self,
@@ -323,7 +333,6 @@ class ExperimentResultsDisplay:
         total_nodes: int,
     ) -> None:
         """Display FL experiment results."""
-        # Validate inputs
         if not self._validate_inputs(results, "experiment results"):
             return
         if total_nodes <= 0:
@@ -336,10 +345,8 @@ class ExperimentResultsDisplay:
             print("❌ Invalid experiment configuration: global_rounds must be positive")
             return
 
-        # Display experiment summary
         self._show_experiment_summary(results, duration, global_rounds, total_nodes)
 
-        # Process each context
         contexts = self._data_processor.get_all_contexts(results)
         if not contexts:
             print("⚠️  No experiment contexts found")
@@ -355,9 +362,8 @@ class ExperimentResultsDisplay:
                 else:
                     print(f"⚠️  No data available for context: {context}")
             except Exception as e:
-                # Context processing should not fail silently - this indicates a bug
+                # Context processing should not fail silently - indicates bug
                 print(f"❌ Failed to process context '{context}': {e}")
-                # Continue with other contexts - don't crash entire display
                 continue
 
     def _show_experiment_summary(
@@ -376,42 +382,17 @@ class ExperimentResultsDisplay:
             print("❌ ERROR: Invalid total_nodes count for experiment summary")
             return
 
-        # Analyze experiment completion
         completion_analysis = self._analyze_experiment_completion(
             results, total_nodes, global_rounds
         )
 
-        # Create table with completion status
-        table_title, table_caption = self._build_summary_table_metadata(
-            completion_analysis
+        table = self._build_table_template(
+            self._build_summary_table_metadata,
+            self._add_summary_columns,
+            lambda tbl, data: self._add_summary_rows(tbl, data, duration),
+            completion_analysis,
+            completion_analysis["title_emoji"]
         )
-
-        emojis = get_emojis()
-        table = self._create_styled_table(
-            title=table_title,
-            caption=table_caption,
-            title_emoji=completion_analysis["title_emoji"],
-        )
-
-        # Add columns using centralized styling
-        metric_config = get_column_config("metric")
-        value_config = get_column_config("value")
-
-        table.add_column(
-            metric_config["header"],
-            justify=metric_config["justify"],
-            style=metric_config["style"],
-            vertical=metric_config["vertical"],
-        )
-        table.add_column(
-            value_config["header"],
-            justify=value_config["justify"],
-            style=value_config["style"],
-            vertical=value_config["vertical"],
-        )
-
-        # Add summary rows
-        self._add_summary_rows(table, completion_analysis, duration)
 
         print(table)
         print()
@@ -422,32 +403,28 @@ class ExperimentResultsDisplay:
         """Analyze experiment completion and data quality."""
         emojis = get_emojis()
 
-        # Basic completion metrics
         completed_nodes = len(results)
         completion_rate = (completed_nodes / total_nodes) if total_nodes > 0 else 0
 
-        # Analyze data completeness across contexts
         contexts_analysis = {}
         if results:
             all_contexts = set()
             for node_result in results:
                 all_contexts.update(node_result.keys())
 
-            # Check context completeness
-            for context in all_contexts:
-                nodes_with_context = sum(
-                    1
-                    for node_result in results
-                    if context in node_result and node_result[context]
-                )
-                contexts_analysis[context] = {
-                    "nodes_with_data": nodes_with_context,
-                    "completeness_rate": nodes_with_context / completed_nodes
-                    if completed_nodes > 0
-                    else 0,
-                }
+                for context in all_contexts:
+                    nodes_with_context = sum(
+                        1
+                        for node_result in results
+                        if context in node_result and node_result[context]
+                    )
+                    contexts_analysis[context] = {
+                        "nodes_with_data": nodes_with_context,
+                        "completeness_rate": nodes_with_context / completed_nodes
+                        if completed_nodes > 0
+                        else 0,
+                    }
 
-        # Determine overall experiment quality
         is_complete = completion_rate == 1.0 and all(
             ctx["completeness_rate"] == 1.0 for ctx in contexts_analysis.values()
         )
@@ -456,7 +433,6 @@ class ExperimentResultsDisplay:
             ctx["completeness_rate"] < 0.5 for ctx in contexts_analysis.values()
         )
 
-        # Choose appropriate emoji and status
         if is_complete:
             title_emoji = emojis.success
             status = "complete"
@@ -487,7 +463,6 @@ class ExperimentResultsDisplay:
         total = analysis["total_nodes"]
         rate = analysis["completion_rate"]
 
-        # Build title based on completion quality
         if analysis["is_complete"]:
             title = f"Experiment Summary - Complete"
         elif analysis["has_significant_missing_data"]:
@@ -497,7 +472,6 @@ class ExperimentResultsDisplay:
                 f"Experiment Summary - Partial ({completed}/{total} nodes, {rate:.0%})"
             )
 
-        # Build caption with context details
         if analysis["contexts_analysis"]:
             context_issues = []
             for context, ctx_analysis in analysis["contexts_analysis"].items():
@@ -514,16 +488,32 @@ class ExperimentResultsDisplay:
 
         return title, caption
 
+    def _add_summary_columns(self, table: Table, analysis: Dict[str, Any]) -> None:
+        """Add columns for summary table."""
+        metric_config = get_column_config("metric")
+        value_config = get_column_config("value")
+
+        table.add_column(
+            metric_config["header"],
+            justify=metric_config["justify"],
+            style=metric_config["style"],
+            vertical=metric_config["vertical"],
+        )
+        table.add_column(
+            value_config["header"],
+            justify=value_config["justify"],
+            style=value_config["style"],
+            vertical=value_config["vertical"],
+        )
+
     def _add_summary_rows(
         self, table: Table, analysis: Dict[str, Any], duration: float
     ) -> None:
         """Add summary rows with quality indicators."""
         emojis = get_emojis()
 
-        # Rounds completed
         table.add_row(f"{emojis.rounds} Total Rounds", str(analysis["global_rounds"]))
 
-        # Node completion with quality indicator
         completed = analysis["completed_nodes"]
         total = analysis["total_nodes"]
         rate = analysis["completion_rate"]
@@ -534,10 +524,8 @@ class ExperimentResultsDisplay:
         ]  # Use same emoji as title for consistency
         table.add_row(f"{completion_emoji} Nodes Completed", completion_display)
 
-        # Duration
         table.add_row(f"{emojis.duration} Experiment Duration", f"{duration:.2f}s")
 
-        # Add context completeness if there are issues
         if not analysis["is_complete"] and analysis["contexts_analysis"]:
             for context, ctx_analysis in analysis["contexts_analysis"].items():
                 if ctx_analysis["completeness_rate"] < 1.0:
@@ -567,6 +555,24 @@ class ExperimentResultsDisplay:
         for level_idx in range(len(levels)):
             header_matrix.append([""] * len(position_matrix))
 
+        # Pre-compute boundary positions for each level
+        level_boundaries = {}
+        for level_idx, level in enumerate(levels):
+            level_values = []
+            for position_tuple in position_matrix:
+                if (
+                    level_idx < len(position_tuple)
+                    and position_tuple[level_idx] is not None
+                ):
+                    level_values.append(position_tuple[level_idx])
+
+            if level_values:
+                unique_values = sorted(set(level_values))
+                level_boundaries[level_idx] = {
+                    "first": unique_values[0],
+                    "last": unique_values[-1],
+                }
+
         # Fill the matrix
         for col_idx, position_tuple in enumerate(position_matrix):
             prev_position = position_matrix[col_idx - 1] if col_idx > 0 else None
@@ -583,6 +589,14 @@ class ExperimentResultsDisplay:
                         )
 
                         if value_changed:
+                            # Determine if this is a boundary (start or end)
+                            is_boundary = False
+                            if level_idx in level_boundaries:
+                                bounds = level_boundaries[level_idx]
+                                is_boundary = (
+                                    value == bounds["first"] or value == bounds["last"]
+                                )
+
                             # Show the actual value with color
                             level_name = (
                                 level.value.replace("_idx", "")
@@ -592,7 +606,7 @@ class ExperimentResultsDisplay:
                             if level_name == "global step":
                                 level_name = "step"
                             formatted_label = format_coordinate_label(
-                                level_name, value, False
+                                level_name, value, is_boundary
                             )
                             header_matrix[level_idx][col_idx] = formatted_label
                         else:
@@ -617,6 +631,46 @@ class ExperimentResultsDisplay:
                                 f"[{color}]...[/{color}]"
                             )
 
+        # Apply visual row spanning using special continuation characters
+        for level_idx in range(len(levels)):
+            for col_idx in range(1, len(position_matrix)):  # Start from column 1
+                current_cell = header_matrix[level_idx][col_idx]
+                prev_cell = header_matrix[level_idx][col_idx - 1]
+
+                # If current cell has the same coordinate value as previous AND
+                # it's a continuation symbol, use visual continuation
+                if current_cell and prev_cell:
+                    if "..." in current_cell:  # This is a continuation symbol
+                        # Check if the position tuple values are the same for this level
+                        current_pos = position_matrix[col_idx]
+                        prev_pos = position_matrix[col_idx - 1]
+
+                        if (
+                            level_idx < len(current_pos)
+                            and level_idx < len(prev_pos)
+                            and current_pos[level_idx] == prev_pos[level_idx]
+                        ):
+                            # Use visual continuation character instead of empty string
+                            colors = get_colors()
+                            level_name = (
+                                levels[level_idx]
+                                .value.replace("_idx", "")
+                                .replace("_", " ")
+                                .lower()
+                            )
+                            if level_name == "global step":
+                                level_name = "step"
+                            color_map = {
+                                "round": colors.round_color,
+                                "epoch": colors.epoch_color,
+                                "batch": colors.batch_color,
+                                "step": colors.step_color,
+                            }
+                            color = color_map.get(level_name, colors.info)
+                            header_matrix[level_idx][col_idx] = (
+                                f"[{color}]━━━[/{color}]"
+                            )
+
         # Convert matrix to column headers by joining rows vertically
         headers = []
         for col_idx in range(len(position_matrix)):
@@ -630,6 +684,46 @@ class ExperimentResultsDisplay:
             headers.append("\n".join(column_parts) if column_parts else "Unknown")
 
         return headers
+
+    def _apply_intelligent_column_limits(
+        self, sorted_positions: List[Tuple[Optional[int], ...]]
+    ) -> Tuple[List[Tuple[Optional[int], ...]], bool]:
+        """Apply simple limits: unlimited rounds, max 10 epochs/round, max 6 batches/epoch."""
+        MAX_EPOCHS_PER_ROUND = 10
+        MAX_BATCHES_PER_EPOCH = 6
+
+        # Group by (round, epoch) pairs
+        round_epoch_groups = defaultdict(list)
+        for pos in sorted_positions:
+            round_idx = pos[0] if pos[0] is not None else 0
+            epoch_idx = pos[1] if pos[1] is not None else 0
+            round_epoch_groups[(round_idx, epoch_idx)].append(pos)
+
+        limited_positions = []
+        was_limited = False
+
+        # Group by rounds to apply epoch limits
+        rounds_data = defaultdict(list)
+        for (round_idx, epoch_idx), positions in round_epoch_groups.items():
+            rounds_data[round_idx].append((epoch_idx, positions))
+
+        for round_idx in sorted(rounds_data.keys()):
+            epoch_data = sorted(rounds_data[round_idx])  # Sort by epoch_idx
+
+            # Limit epochs per round
+            if len(epoch_data) > MAX_EPOCHS_PER_ROUND:
+                epoch_data = epoch_data[:MAX_EPOCHS_PER_ROUND]
+                was_limited = True
+
+            for epoch_idx, positions in epoch_data:
+                # Limit batches per epoch
+                if len(positions) > MAX_BATCHES_PER_EPOCH:
+                    positions = positions[:MAX_BATCHES_PER_EPOCH]
+                    was_limited = True
+
+                limited_positions.extend(positions)
+
+        return limited_positions, was_limited
 
     def _create_styled_table(
         self,
@@ -673,10 +767,8 @@ class ExperimentResultsDisplay:
         print_rule()
         print()
 
-        # Show node statistics table first
         self._show_node_statistics(context, context_data, total_nodes)
 
-        # Show progression table second
         self._show_progression_table(context, context_data)
 
     def _show_progression_table(
@@ -687,7 +779,6 @@ class ExperimentResultsDisplay:
             print(f"⚠️  No data available for {context} progression")
             return
 
-        # Analyze progression data
         progression_analysis = self._analyze_progression_data(context, context_data)
 
         if progression_analysis["error"]:
@@ -698,21 +789,15 @@ class ExperimentResultsDisplay:
             print(f"ℹ️  {context} - No progression data (single checkpoint)")
             return
 
-        # Build table with data quality metadata
-        table_title, table_caption = self._build_progression_table_metadata(
-            context, progression_analysis
-        )
-
-        table = self._create_styled_table(
-            title=table_title,
-            caption=table_caption,
-            title_emoji=get_emojis().progression,
-        )
-
-        # Add columns
         try:
-            self._add_progression_columns(table, progression_analysis)
-            self._add_progression_rows(table, progression_analysis)
+            table = self._build_table_template(
+                self._build_progression_table_metadata,
+                self._add_progression_columns,
+                self._add_progression_rows,
+                progression_analysis,
+                get_emojis().progression,
+                context
+            )
         except Exception as e:
             # Table building failure indicates programming error - don't hide it
             print(f"❌ Failed to build {context} progression table: {e}")
@@ -728,13 +813,9 @@ class ExperimentResultsDisplay:
     ) -> Dict[str, Any]:
         """Analyze progression data with data quality and sampling transparency."""
         try:
-            # Use simple functions
-
-            # Validate basic data structure
             if not context_data:
                 return {"error": "No context data", "has_progression": False}
 
-            # Check for progression (multiple training positions)
             active_levels = get_varying_progression_levels(context_data)
             if not active_levels:
                 return {
@@ -743,7 +824,6 @@ class ExperimentResultsDisplay:
                     "reason": "Single checkpoint",
                 }
 
-            # Group data by training position and validate
             coordinate_groups = group_by_training_position(context_data)
             metrics = self._data_processor.get_metrics_from_data(context_data)
 
@@ -756,31 +836,25 @@ class ExperimentResultsDisplay:
                     "has_progression": False,
                 }
 
-            # Generate progression matrix with sampling
             sorted_positions = sorted(
                 coordinate_groups.keys(),
                 key=lambda x: tuple(-1 if v is None else v for v in x),
             )
-            coordinate_matrix = sorted_positions[
-                :5
-            ]  # Limit to 5 columns for readability
-            was_sampled = len(sorted_positions) > 5
+            coordinate_matrix, was_sampled = self._apply_intelligent_column_limits(
+                sorted_positions
+            )
 
-            # Create headers only for the sampled positions
             column_headers = self._create_headers_for_positions(coordinate_matrix)
 
-            # Analyze data completeness
             total_possible_points = len(coordinate_groups)
             displayed_points = len(coordinate_matrix)
 
-            # Check for data quality issues
             data_quality_issues = []
             if was_sampled:
                 data_quality_issues.append(
                     f"Showing {displayed_points}/{total_possible_points} checkpoints for readability"
                 )
 
-            # Analyze metric availability across checkpoints
             metrics_coverage = {}
             for metric in metrics:
                 available_checkpoints = 0
@@ -795,7 +869,6 @@ class ExperimentResultsDisplay:
                     coordinate_matrix
                 )
 
-            # Check for incomplete metrics
             incomplete_metrics = [
                 m for m, coverage in metrics_coverage.items() if coverage < 1.0
             ]
@@ -833,27 +906,27 @@ class ExperimentResultsDisplay:
         """Build table title and caption for progression data."""
         context_name = context.replace("_", " ").title()
 
-        # Build title with data display indicator
         if analysis["data_quality_good"]:
             title = f"{context_name} - Progression"
         else:
             title = f"{context_name} - Progression ℹ️"
 
-        # Build detailed caption
-        base_caption = "Metric progression across training checkpoints"
+        base_caption = "How metrics changed during training"
 
         if analysis["data_quality_issues"]:
             issues_text = "; ".join(analysis["data_quality_issues"])
-            caption = f"{base_caption}.\nDisplay: {issues_text}"
+            caption = f"{base_caption}.\nNote: {issues_text}"
         else:
             total_points = analysis["displayed_points"]
-            caption = f"{base_caption}\n({total_points} checkpoints analyzed)"
+            if total_points <= 3:
+                caption = f"{base_caption}\nShowing all {total_points} logged steps"
+            else:
+                caption = f"{base_caption}\nShowing {total_points} key logged steps"
 
         return title, caption
 
     def _add_progression_columns(self, table: Table, analysis: Dict[str, Any]) -> None:
         """Add progression columns."""
-        # Add metric name column
         metric_config = get_column_config("metric")
         table.add_column(
             metric_config["header"],
@@ -862,7 +935,6 @@ class ExperimentResultsDisplay:
             vertical=metric_config["vertical"],
         )
 
-        # Add checkpoint columns
         column_headers = analysis["column_headers"]
 
         for header in column_headers:
@@ -874,25 +946,21 @@ class ExperimentResultsDisplay:
         coordinate_groups = analysis["coordinate_groups"]
         coordinate_matrix = analysis["coordinate_matrix"]
 
-        # Group metrics for display
         grouped_metrics = self._formatter.group_metric_names(metrics)
         group_names = list(grouped_metrics.keys())
 
         for i, group_name in enumerate(group_names):
             metric_list = grouped_metrics[group_name]
 
-            # Add section line before each group (except the first)
             if i > 0:
                 table.add_section()
 
-            # Add group header if multiple groups
             if len(grouped_metrics) > 1:
                 empty_cols = [""] * len(coordinate_matrix)
                 metric_count = len(metric_list)
                 group_header_text = format_group_header(group_name, metric_count)
                 table.add_row(group_header_text, *empty_cols)
 
-            # Add each metric row
             for metric in metric_list:
                 try:
                     self._add_progression_metric_row(
@@ -943,7 +1011,8 @@ class ExperimentResultsDisplay:
 
                 if metric_values:
                     # Use mean of values at this coordinate
-                    avg_value = float(np.mean(metric_values))
+                    stats = self._compute_basic_stats(metric_values)
+                    avg_value = stats['mean']
                     values.append(avg_value)
                     formatted_value = self._formatter.format(metric, avg_value)
                     row_data.append(formatted_value)
@@ -964,9 +1033,7 @@ class ExperimentResultsDisplay:
 
         # Add percentage change row if we have progression data
         if len(coordinate_matrix) >= 2:
-            self._add_percentage_change_row(
-                table, metric, values, coordinate_matrix
-            )
+            self._add_percentage_change_row(table, metric, values, coordinate_matrix)
 
     def _add_percentage_change_row(
         self,
@@ -1053,7 +1120,6 @@ class ExperimentResultsDisplay:
             print(f"❌ Percentage change calculation failed for metric '{metric}': {e}")
             # Don't add confusing error row - let the metric row stand alone
 
-
     def _show_node_statistics(
         self, context: str, context_data: List[Dict[str, Any]], total_nodes: int
     ) -> None:
@@ -1061,33 +1127,29 @@ class ExperimentResultsDisplay:
         if not context_data:
             return
 
-        # Get majority final step data
         final_data, data_quality = self._get_majority_final_step_data(context_data)
         if not final_data:
             print(f"⚠️  No final step data available for {context}")
             return
 
-        # Calculate statistics from final data
         metric_stats = self._calculate_final_state_stats(final_data, data_quality)
         if not metric_stats:
             return
 
-        # Create table with data quality indicators
-        table_title = self._build_table_title(context, data_quality)
-        table_caption = self._build_table_caption(data_quality)
-
-        table = self._create_styled_table(
-            title=table_title,
-            caption=table_caption,
-            title_emoji=get_emojis().node_statistics,
+        # Package data for template method
+        analysis_data = {
+            "data_quality": data_quality,
+            "metric_stats": metric_stats
+        }
+        
+        table = self._build_table_template(
+            self._build_statistics_table_metadata,
+            self._add_statistics_columns,
+            self._add_statistics_rows,
+            analysis_data,
+            get_emojis().node_statistics,
+            context
         )
-
-        # Add statistics columns
-        self._add_statistics_columns(table)
-
-        # Add metric rows grouped by category
-        grouped_stats = self._group_metric_stats(metric_stats)
-        self._add_metric_rows(table, grouped_stats)
 
         print(table)
         print()
@@ -1106,7 +1168,6 @@ class ExperimentResultsDisplay:
                 "total_nodes": 0,
             }
 
-        # Find each node's final global step
         node_final_steps = {}
         for measurement in context_data:
             node_id = measurement.get("_node_id")
@@ -1133,7 +1194,6 @@ class ExperimentResultsDisplay:
         step_counts = Counter(node_final_steps.values())
         majority_step, majority_count = step_counts.most_common(1)[0]
 
-        # Identify participating vs excluded nodes
         participating_nodes = {
             node_id
             for node_id, step in node_final_steps.items()
@@ -1145,7 +1205,6 @@ class ExperimentResultsDisplay:
             if step != majority_step
         }
 
-        # Extract final measurements from participating nodes only
         final_measurements = []
         for measurement in context_data:
             node_id = measurement.get("_node_id")
@@ -1154,7 +1213,6 @@ class ExperimentResultsDisplay:
             if node_id in participating_nodes and global_step == majority_step:
                 final_measurements.append(measurement)
 
-        # Build quality metadata
         quality_metadata = {
             "majority_step": majority_step,
             "participating_nodes": len(participating_nodes),
@@ -1169,9 +1227,7 @@ class ExperimentResultsDisplay:
 
         return final_measurements, quality_metadata
 
-    def _build_table_title(
-        self, context: str, data_quality: Dict[str, Any]
-    ) -> str:
+    def _build_table_title(self, context: str, data_quality: Dict[str, Any]) -> str:
         """Build table title with data quality status."""
         context_name = context.replace("_", " ").title()
 
@@ -1184,12 +1240,12 @@ class ExperimentResultsDisplay:
 
         if data_quality["data_clean"]:
             # Perfect data - all nodes at same final checkpoint
-            return f"📊 {context_name} - Final State (Checkpoint {step}) - All {total} nodes"
+            return f"📊 {context_name} - Final Results (Step {step}) - All {total} nodes completed"
         else:
             # Imperfect data - show exactly what's excluded
             excluded = data_quality["excluded_nodes"]
             pct = (participating / total * 100) if total > 0 else 0
-            return f"⚠️  {context_name} - Final State (Checkpoint {step}) - {participating}/{total} nodes ({pct:.0f}%)"
+            return f"⚠️  {context_name} - Final Results (Step {step}) - {participating}/{total} nodes completed ({pct:.0f}%)"
 
     def _build_table_caption(self, data_quality: Dict[str, Any]) -> str:
         """Build caption showing data inclusion/exclusion details."""
@@ -1197,19 +1253,28 @@ class ExperimentResultsDisplay:
             return f"Unable to process data: {data_quality['error']}"
 
         if data_quality["data_clean"]:
-            return f"Statistics from final training state.\nAll nodes reached checkpoint {data_quality['majority_step']}."
+            step = data_quality["majority_step"]
+            return f"Final metrics from all nodes after completing the experiment.\nAll nodes finished at global step {step}."
         else:
             excluded = data_quality["excluded_nodes"]
             excluded_steps = data_quality["excluded_node_steps"]
             step_info = ", ".join(
-                f"node {node_id} at checkpoint {step}"
+                f"node {node_id} stopped at step {step}"
                 for node_id, step in excluded_steps.items()
             )
-            return f"Statistics from most complete training state.\n{excluded} nodes at different checkpoints: {step_info}"
+            return f"Final metrics from nodes that completed training normally.\n{excluded} nodes stopped early: {step_info}"
 
-    def _add_statistics_columns(self, table: Table) -> None:
+    def _build_statistics_table_metadata(
+        self, context: str, analysis_data: Dict[str, Any]
+    ) -> Tuple[str, str]:
+        """Build title and caption for statistics table."""
+        data_quality = analysis_data["data_quality"]
+        title = self._build_table_title(context, data_quality)
+        caption = self._build_table_caption(data_quality)
+        return title, caption
+
+    def _add_statistics_columns(self, table: Table, analysis_data: Dict[str, Any]) -> None:
         """Add statistics columns."""
-        # Metric name column
         metric_config = get_column_config("metric")
         table.add_column(
             metric_config["header"],
@@ -1218,7 +1283,6 @@ class ExperimentResultsDisplay:
             vertical=metric_config["vertical"],
         )
 
-        # Statistics columns in logical order
         for col_type in ["nodes", "sum", "mean", "std", "min", "max", "median", "cv"]:
             config = get_column_config(col_type)
             table.add_column(
@@ -1227,6 +1291,12 @@ class ExperimentResultsDisplay:
                 style=config["style"],
                 vertical=config["vertical"],
             )
+
+    def _add_statistics_rows(self, table: Table, analysis_data: Dict[str, Any]) -> None:
+        """Add statistics rows using grouped metrics."""
+        metric_stats = analysis_data["metric_stats"]
+        grouped_stats = self._group_metric_stats(metric_stats)
+        self._add_metric_rows(table, grouped_stats)
 
     def _add_metric_rows(
         self, table: Table, grouped_stats: Dict[str, List[MetricStats]]
@@ -1237,18 +1307,15 @@ class ExperimentResultsDisplay:
         for i, group_name in enumerate(group_names):
             stats_list = grouped_stats[group_name]
 
-            # Add section line before each group (except the first)
             if i > 0:
                 table.add_section()
 
-            # Add group header if multiple groups
             if len(grouped_stats) > 1:
                 stats_count = len(stats_list)
                 group_header_text = format_group_header(group_name, stats_count)
                 empty_cols = [""] * 8  # 8 statistics columns
                 table.add_row(group_header_text, *empty_cols)
 
-            # Add each metric row
             for stats in stats_list:
                 table.add_row(
                     format_metric_name(stats.name, stats.emoji),
@@ -1269,15 +1336,10 @@ class ExperimentResultsDisplay:
         if not final_data:
             return []
 
-        # Get all metrics from final data
         all_metrics = set()
         for measurement in final_data:
             for key, value in measurement.items():
-                if (
-                    not key.startswith("_")
-                    and key not in self._metadata_keys
-                    and value is not None
-                ):
+                if self._data_processor._is_valid_metric_key(key, value):
                     all_metrics.add(key)
 
         metric_stats_list = []
@@ -1285,7 +1347,6 @@ class ExperimentResultsDisplay:
         total_nodes = data_quality["total_nodes"]
 
         for metric in sorted(all_metrics):
-            # Extract values for this metric
             values = []
             for measurement in final_data:
                 if metric in measurement and isinstance(
@@ -1293,11 +1354,9 @@ class ExperimentResultsDisplay:
                 ):
                     values.append(float(measurement[metric]))
 
-            # Get formatting info
             rule = self._formatter.find_rule(metric)
 
             if values:
-                # Calculate statistics using formatter rules
                 stats = self._calculate_metric_statistics(final_data, metric, values)
 
                 metric_stats = MetricStats(
@@ -1315,87 +1374,6 @@ class ExperimentResultsDisplay:
                     cv=stats["cv"],
                 )
                 metric_stats_list.append(metric_stats)
-
-        return metric_stats_list
-
-
-    def _calculate_experiment_stats(
-        self,
-        results: List[Dict[str, Any]],
-        total_nodes: int,
-        context_data: List[Dict[str, Any]] = None,
-    ) -> List[MetricStats]:
-        """Calculate statistical summary as structured MetricStats objects."""
-        if not results:
-            return []
-
-        # Find all metrics present in any node (union approach)
-        all_metrics = set()
-        for node_results in results:
-            all_metrics.update(node_results.keys())
-
-        metric_stats_list = []
-
-        for metric in sorted(all_metrics):
-            # Extract values and metadata
-            numeric_values = self._extract_numeric_values(results, metric)
-            # Use context_data for node counting if available (preserves _node_id), otherwise fall back to results
-            node_count = self._count_reporting_nodes(context_data or results, metric)
-
-            # Get formatting metadata from formatter
-            rule = self._formatter.find_rule(metric)
-            emoji = rule.emoji
-            group = rule.group
-
-            if numeric_values:
-                # Calculate statistics and format them
-                stats = self._calculate_metric_statistics(
-                    results, metric, numeric_values
-                )
-                metric_stats = MetricStats(
-                    name=metric,
-                    emoji=emoji,
-                    group=group,
-                    node_count=node_count,
-                    total_nodes=total_nodes,
-                    sum=stats["sum"],
-                    mean=stats["mean"],
-                    std=stats["std"],
-                    min=stats["min"],
-                    max=stats["max"],
-                    median=stats["median"],
-                    cv=stats["cv"],
-                )
-            else:
-                # Handle non-numeric metrics
-                all_values = [
-                    str(result[metric]) for result in results if metric in result
-                ]
-                if all_values:
-                    unique_values = list(set(all_values))
-                    if len(unique_values) == 1:
-                        mean_display = unique_values[0]
-                    else:
-                        mean_display = f"{len(unique_values)} unique values"
-                else:
-                    mean_display = "No data"
-
-                metric_stats = MetricStats(
-                    name=metric,
-                    emoji=emoji,
-                    group=group,
-                    node_count=node_count,
-                    total_nodes=total_nodes,
-                    sum="-",
-                    mean=mean_display,
-                    std="-",
-                    min="-",
-                    max="-",
-                    median="-",
-                    cv="-",
-                )
-
-            metric_stats_list.append(metric_stats)
 
         return metric_stats_list
 
@@ -1443,13 +1421,14 @@ class ExperimentResultsDisplay:
                 "cv": "-",
             }
 
-        # Calculate all statistics
-        sum_val = np.sum(values)
-        mean_val = np.mean(values)
-        std_val = np.std(values)
-        min_val = np.min(values)
-        max_val = np.max(values)
-        median_val = np.median(values)
+        # Calculate all statistics using shared helper
+        stats = self._compute_basic_stats(values)
+        sum_val = stats['sum']
+        mean_val = stats['mean']
+        std_val = stats['std']
+        min_val = stats['min']
+        max_val = stats['max']
+        median_val = stats['median']
 
         # Calculate coefficient of variation (std/mean), handle division by zero
         if abs(mean_val) > 1e-10 and applicable_stats["cv"]:
@@ -1480,7 +1459,6 @@ class ExperimentResultsDisplay:
             "cv": cv_formatted,
         }
 
-
     def _group_metric_stats(
         self, metrics: List[MetricStats]
     ) -> Dict[str, List[MetricStats]]:
@@ -1505,31 +1483,3 @@ class ExperimentResultsDisplay:
         # Sort groups by their display order, then convert to regular dict
         sorted_groups = dict(sorted(groups.items(), key=lambda x: group_orders[x[0]]))
         return sorted_groups
-
-    def _format_with_highlighting(
-        self, metric: str, value: float, all_values: List[Optional[float]]
-    ) -> str:
-        """Format value with best/worst highlighting."""
-        formatted = self._formatter.format(metric, value)
-
-        valid_values = [v for v in all_values if v is not None]
-        if len(valid_values) <= 1:
-            return formatted
-
-        goal = self._formatter.find_rule(metric).optimization_goal
-
-        if goal == MetricDirection.MINIMIZE:
-            best_value = min(valid_values)
-            worst_value = max(valid_values)
-        elif goal == MetricDirection.MAXIMIZE:
-            best_value = max(valid_values)
-            worst_value = min(valid_values)
-        else:
-            return formatted  # Neutral metrics don't get highlighting
-
-        if value == best_value and best_value != worst_value:
-            return f"[bold bright_green]{formatted}[/bold bright_green]"
-        elif value == worst_value and best_value != worst_value:
-            return f"[bold bright_red]{formatted}[/bold bright_red]"
-        else:
-            return formatted

@@ -19,7 +19,6 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, Optional
 
 import ray
-import rich.repr
 import torch
 from hydra.utils import instantiate
 from omegaconf import MISSING

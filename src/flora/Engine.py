@@ -17,27 +17,117 @@ import os
 import pickle
 import time
 import warnings
-from dataclasses import asdict
-from typing import List
+from dataclasses import asdict, dataclass, field
+from typing import Any, Dict, List, Optional
 
 import ray
 import rich.repr
 from hydra.conf import HydraConf
-from tqdm.auto import tqdm
+from hydra.core.config_store import ConfigStore
 from hydra.core.hydra_config import HydraConfig
 from hydra.utils import instantiate
-from omegaconf import DictConfig
+from omegaconf import MISSING
 from rich.pretty import pprint
+from tqdm.auto import tqdm
 
 from . import utils
+from .algorithms.configs import AlgorithmConfig
+from .data.configs import DataModuleConfig
 from .mixins import RequiredSetup
-from .Node import Node
+from .models.configs import ModelConfig
+from .Node import Node, NodeConfig
 from .topology.BaseTopology import BaseTopology
+from .topology.configs import BaseTopologyConfig
 from .utils import print
 from .utils.ExperimentDisplay import ExperimentResultsDisplay
 from .utils.MetricFormatter import MetricFormatter
 
 LOG_FLUSH_DELAY = 2.0
+
+
+@dataclass
+class RayConfig:
+    """Ray cluster configuration for distributed federated learning."""
+
+    # ─────────────────────────────────────────
+    # Cluster Connection & Resource Allocation
+    # ─────────────────────────────────────────
+
+    # Cluster connection (null = auto-detect local cluster)
+    # Use "ray://host:port" for remote clusters, "local" to force local
+    address: Optional[str] = None
+
+    # Resource allocation - CRITICAL for proper GPU/CPU distribution
+    # null = auto-detect based on hardware, explicit numbers override detection
+    num_cpus: Optional[int] = None
+    num_gpus: Optional[int] = None
+
+    # Custom resources: {"accelerator_type": "V100", "high_memory": 2}
+    resources: Optional[Dict[str, Any]] = None
+
+    # ─────────────────────────────────────────
+    # Memory & Performance
+    # ─────────────────────────────────────────
+
+    # Object store memory for large model sharing (null = 30% of system memory)
+    object_store_memory: Optional[int] = None
+
+    # ─────────────────────────────────────────
+    # Monitoring & Development
+    # ─────────────────────────────────────────
+
+    # Essential for FL: forward all distributed node logs to main process
+    log_to_driver: bool = True
+
+    # Ray dashboard (null = auto-start if dependencies available)
+    include_dashboard: Optional[bool] = None
+    dashboard_host: str = "127.0.0.1"  # Use "0.0.0.0" for external access
+    dashboard_port: Optional[int] = None  # null = auto-find port starting from 8265
+
+    # Development convenience - allow multiple ray.init() calls without error
+    ignore_reinit_error: bool = True
+
+    # ─────────────────────────────────────────
+    # Advanced Configuration
+    # ─────────────────────────────────────────
+
+    # Experiment isolation (null = anonymous namespace)
+    namespace: Optional[str] = None
+
+    # Runtime environment for distributed workers (empty = inherit from main process)
+    # Example: {"pip": ["torch==1.12.0"], "env_vars": {"CUDA_VISIBLE_DEVICES": "0,1"}}
+    runtime_env: Optional[Dict[str, Any]] = None
+
+    def __post_init__(self):
+        if self.resources is None:
+            self.resources = {}
+        if self.runtime_env is None:
+            self.runtime_env = {}
+
+
+@dataclass
+class EngineConfig:
+    """Main configuration for FLORA federated learning experiments."""
+
+    # Required experiment parameters
+    global_rounds: int = MISSING
+
+    # Optional experiment parameters
+    overwrite: bool = False
+
+    # Component configurations - these will be resolved by Hydra defaults
+    topology: BaseTopologyConfig = MISSING
+    algorithm: AlgorithmConfig = MISSING
+    model: ModelConfig = MISSING
+    datamodule: DataModuleConfig = MISSING
+
+    # Infrastructure configurations
+    ray: RayConfig = field(default_factory=RayConfig)
+
+
+# Register the config with Hydra's ConfigStore for structured configs
+cs = ConfigStore.instance()
+cs.store(name="base_config", node=EngineConfig)
 
 
 @rich.repr.auto
@@ -55,25 +145,27 @@ class Engine(RequiredSetup):
 
     def __init__(
         self,
-        flora_cfg: DictConfig,
+        cfg: EngineConfig,
     ):
         """
         Initialize the federated learning experiment engine.
 
         Args:
-            flora_cfg: Complete FLORA configuration including topology, algorithm,
-                      model, and datamodule specifications from Hydra
+            cfg: Complete FLORA configuration including topology, algorithm,
+                 model, and datamodule specifications
         """
         super().__init__()
         utils.print_rule()
 
-        self.flora_cfg: DictConfig = flora_cfg
+        self.cfg: EngineConfig = cfg
         self.hydra_cfg: HydraConf = HydraConfig.get()
 
-        self.topology: BaseTopology = instantiate(
-            self.flora_cfg.topology, _recursive_=False
-        )
-        self.global_rounds: int = flora_cfg.global_rounds
+        self.topology: BaseTopology = instantiate(cfg.topology, _recursive_=False)
+        self.global_rounds: int = cfg.global_rounds
+        self.overwrite: bool = cfg.overwrite
+
+        # Convert Ray configuration to dict for ray.init()
+        self.ray_cfg: RayConfig = cfg.ray
 
         self.output_dir: str = self.hydra_cfg.runtime.output_dir
         self.engine_dir: str = os.path.join(self.output_dir, "engine")
@@ -89,8 +181,7 @@ class Engine(RequiredSetup):
         Create and validate output directories for experiment data.
 
         Creates engine/ and node_results/ directories under Hydra's output path.
-        Fails with RuntimeError if conflicting experiment files already exist
-        (ignores Hydra standard files like main.log).
+        Issues warnings if conflicting experiment files already exist unless overwrite=True.
         """
         # Check for pre-existing files that could overwrite results (ignore Hydra standard files)
         if os.path.exists(self.output_dir):
@@ -101,12 +192,20 @@ class Engine(RequiredSetup):
                 if not f.startswith(".") and f not in hydra_standard_files
             ]
             if existing_files:
-                raise RuntimeError(
-                    f"Output directory contains existing files: {self.output_dir}\n"
-                    f"Found: {existing_files[:5]}{'...' if len(existing_files) > 5 else ''}\n"
-                    f"This could overwrite previous experiment results. "
-                    f"Use a fresh Hydra output directory or clean the existing one."
-                )
+                if self.overwrite:
+                    warnings.warn(
+                        f"Output directory contains existing files: {self.output_dir}\n"
+                        f"Found: {existing_files[:5]}{'...' if len(existing_files) > 5 else ''}\n"
+                        f"Proceeding with overwrite=True - previous experiment results may be overwritten.",
+                        UserWarning,
+                    )
+                else:
+                    raise RuntimeError(
+                        f"Output directory contains existing files: {self.output_dir}\n"
+                        f"Found: {existing_files[:5]}{'...' if len(existing_files) > 5 else ''}\n"
+                        f"This could overwrite previous experiment results. "
+                        f"Use a fresh Hydra output directory, clean the existing one, or set overwrite=true."
+                    )
 
         # Create engine directory
         os.makedirs(self.engine_dir, exist_ok=True)
@@ -117,11 +216,19 @@ class Engine(RequiredSetup):
                 f for f in os.listdir(self.engine_dir) if not f.startswith(".")
             ]
             if existing_files:
-                raise RuntimeError(
-                    f"Engine directory is not empty: {self.engine_dir}\n"
-                    f"Found: {existing_files[:5]}{'...' if len(existing_files) > 5 else ''}\n"
-                    f"This indicates a conflicting experiment setup."
-                )
+                if self.overwrite:
+                    warnings.warn(
+                        f"Engine directory is not empty: {self.engine_dir}\n"
+                        f"Found: {existing_files[:5]}{'...' if len(existing_files) > 5 else ''}\n"
+                        f"Proceeding with overwrite=True - conflicting experiment files may be overwritten.",
+                        UserWarning,
+                    )
+                else:
+                    raise RuntimeError(
+                        f"Engine directory is not empty: {self.engine_dir}\n"
+                        f"Found: {existing_files[:5]}{'...' if len(existing_files) > 5 else ''}\n"
+                        f"This indicates a conflicting experiment setup. Set overwrite=true to proceed anyway."
+                    )
 
         print(f"Created engine directory: {self.engine_dir}")
 
@@ -141,7 +248,7 @@ class Engine(RequiredSetup):
         self._setup_output_directories()
 
         # Initialize Ray cluster
-        ray.init(**self.flora_cfg.ray)
+        ray.init(**self.ray_cfg)
 
         # Smart GPU allocation: detect single-node vs multi-node scenarios
         ray_available_resources = ray.available_resources()
@@ -181,6 +288,7 @@ class Engine(RequiredSetup):
         )
 
         print(f"Launching {total_actors} Actors")
+        node_config: NodeConfig
         for node_config in self.topology:
             # Set log directory
             node_config.log_dir_base = (
@@ -201,9 +309,9 @@ class Engine(RequiredSetup):
 
             node_actor = Node.options(**ray_actor_options).remote(
                 **asdict(node_config),  # type: ignore - Ray's remote() typing doesn't understand dataclass unpacking
-                algorithm=self.flora_cfg.algorithm,
-                model=self.flora_cfg.model,
-                datamodule=self.flora_cfg.datamodule,
+                algorithm=self.cfg.algorithm,
+                model=self.cfg.model,
+                datamodule=self.cfg.datamodule,
             )
             self._ray_actor_refs.append(node_actor)
 
