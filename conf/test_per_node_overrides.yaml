@@ -7,7 +7,7 @@
 
 defaults:
   - base # Base framework configuration
-  - override topology: centralized_torchdist # Centralized FL topology with TorchDist
+  - override topology: centralized_with_torchdist # Centralized FL topology with TorchDist
   - override algorithm: fedavg # FedAvg algorithm
   - override model: simple_cnn # Simple CNN for image classification
   - override datamodule: mnist # MNIST dataset
@@ -47,6 +47,6 @@ model:
 
 datamodule:
   train:
-    batch_size: 16
+    batch_size: 128
   eval:
-    batch_size: 16
+    batch_size: 128

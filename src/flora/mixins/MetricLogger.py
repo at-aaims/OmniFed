@@ -16,15 +16,71 @@ import atexit
 import csv
 import os
 import time
+import warnings
 from collections import defaultdict
 from contextlib import contextmanager
 from enum import Enum
 from functools import wraps
-from typing import Any, Callable, Dict, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 import pandas as pd
+import torch
 from torch.utils.tensorboard import SummaryWriter
-from torchmetrics import MeanMetric, SumMetric
+
+from ..utils.MetricFormatter import MetricFormatter
+
+
+class MeanAccumulator:
+    """Simple mean accumulator."""
+
+    def __init__(self):
+        self.sum = 0.0
+        self.count = 0
+        self.update_count = 0
+
+    def update(self, value, weight=1):
+        """Update with a new value and optional weight."""
+        if isinstance(value, torch.Tensor):
+            value = value.item()
+        self.sum += float(value) * weight
+        self.count += weight
+        self.update_count += 1
+
+    def compute(self):
+        """Compute the mean value."""
+        if self.count == 0:
+            return torch.tensor(0.0)
+        return torch.tensor(self.sum / self.count)
+
+    def reset(self):
+        """Reset the accumulator."""
+        self.sum = 0.0
+        self.count = 0
+        self.update_count = 0
+
+
+class SumAccumulator:
+    """Simple sum accumulator."""
+
+    def __init__(self):
+        self.sum = 0.0
+        self.update_count = 0
+
+    def update(self, value, weight=1):
+        """Update with a new value and optional weight."""
+        if isinstance(value, torch.Tensor):
+            value = value.item()
+        self.sum += float(value) * weight
+        self.update_count += 1
+
+    def compute(self):
+        """Compute the sum value."""
+        return torch.tensor(self.sum)
+
+    def reset(self):
+        """Reset the accumulator."""
+        self.sum = 0.0
+        self.update_count = 0
 
 
 class MetricAggType(str, Enum):
@@ -34,87 +90,17 @@ class MetricAggType(str, Enum):
     SUM = "sum"
 
 
-class _MetricContext:
-    """Context manager and decorator for metric context switching."""
-
-    def __init__(
-        self,
-        logger: "MetricLogger",
-        ctx_name: str,
-        log_duration: bool = True,
-        duration_key: Optional[str] = None,
-        print_progress: bool = True,
-    ):
-        self._logger = logger
-        self._context_name = ctx_name
-        self._duration_key = duration_key or f"time/{ctx_name}"
-        self._print_progress = print_progress
-        self._log_duration = log_duration
-        self.previous_context: Optional[str] = None
-        self._start_time: Optional[float] = None
-
-    def __enter__(self):
-        self.previous_context = self._logger.current_context
-        self._logger.current_context = self._context_name
-
-        if self._print_progress:
-            print(
-                f"[{self._context_name}] START @ {self._logger.progress_info_str}",
-                flush=True,
-            )
-
-        self._start_time = time.time()
-        return self
-
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        # Log duration if enabled
-        if self._log_duration and self._start_time is not None:
-            duration = time.time() - self._start_time
-            self._logger.log_metric(self._duration_key, duration)
-
-        # Flush metrics for this context
-        flushed_metrics = self._logger.flush_metrics(self._context_name)
-
-        if self._print_progress:
-            print(
-                f"[{self._context_name}] END @ {self._logger.progress_info_str} | {flushed_metrics}",
-                flush=True,
-            )
-
-        # Restore previous context
-        self._logger.current_context = self.previous_context
-
-    def __call__(self, func):
-        """Decorator functionality."""
-
-        @wraps(func)
-        def wrapper(*args, **kwargs):
-            # Use self directly but update duration key for function name if it's the default
-            original_duration_key = self._duration_key
-            if self._duration_key == f"time/{self._context_name}":
-                self._duration_key = f"time/{func.__name__}"
-
-            try:
-                with self:
-                    return func(*args, **kwargs)
-            finally:
-                # Restore original duration key
-                self._duration_key = original_duration_key
-
-        return wrapper
-
-
 class MetricLogger:
     """Mixin for metrics collection and logging.
 
-    Organizes metrics by context (train/eval/aggregate) and
+    Organizes metrics by aggregation context (train/eval/sync) and
     logs to TensorBoard and CSV files.
 
     Key features:
-        - Separate contexts for different training phases
+        - Separate aggregation contexts for different training phases
         - Built-in timing measurement
         - Multiple output formats
-        - Dual API: decorators and context managers
+        - Context managers and class-level decorators
         - Flexible coordinate extraction (round/epoch/batch/etc.)
 
     Note: Not thread-safe. Use one instance per process/actor.
@@ -144,96 +130,136 @@ class MetricLogger:
         self._metadata_fields = metadata_fields or {}
 
         self._tb_writer = SummaryWriter(log_dir)
-        self._csv_file = open(os.path.join(log_dir, "metrics_all.csv"), "w", newline="")
+        self._csv_file = open(
+            os.path.join(log_dir, "metrics_full.csv"), "w", newline=""
+        )
         self._csv_writer = csv.writer(self._csv_file)
 
         # Build dynamic CSV header based on metadata fields
         header = (
             ["global_step"]
             + list(self._metadata_fields.keys())
-            + ["metric_name", "metric_value"]
+            + [
+                "agg_ctx",
+                "agg_type",
+                "agg_count",
+                "metric_key",
+                "metric_val",
+            ]
         )
         self._csv_writer.writerow(header)
 
-        self.current_context: str = "default"
-        self._ctx_accumulators: Dict[str, Dict[MetricAggType, defaultdict]] = {}
-        self._ctx_dataframes = {}
+        self.current_agg_context: str = "default"
+        self._agg_ctx_accumulators: Dict[str, Dict[MetricAggType, defaultdict]] = {}
+        self._agg_ctx_csv_writers: Dict[str, csv.writer] = {}
+        self._agg_ctx_csv_files: Dict[str, Any] = {}
+        self._formatter = MetricFormatter()
 
         atexit.register(self.close_metrics)
 
-    def metric_context(
+    @contextmanager
+    def logging_context(
         self,
-        name: str,
+        context_key: str,
         *,
         log_duration: bool = True,
-        duration_key: Optional[str] = None,
+        duration_key: str = "time",
         print_progress: bool = True,
     ):
-        """Create a metric context for organized logging (works as both decorator and context manager).
+        """Create a metric context for organized logging (context manager only).
 
         Groups metrics and automatically measures duration. Flushes when exiting.
 
         Args:
-            name: Context name for grouping metrics
+            context_key: Context name for grouping metrics
             log_duration: Whether to automatically log execution duration (default: True)
-            duration_key: Custom duration metric name (default: f"time/{name}")
-            print_progress: Print start/end messages (default: True)
-
-        Examples:
-            # As context manager
-            with self.metric_context("training"):
-                self.log_metric("loss", 0.5)
-                self.log_metric("accuracy", 0.9)
-
-            with self.metric_context("evaluation", log_duration=False, print_progress=False):
-                self.log_metric("eval_loss", 0.3)
-
-            # As decorator
-            @self.metric_context("training", duration_key="custom_time")
-            def train_epoch(self):
-                self.log_metric("loss", 0.5)
-        """
-        return _MetricContext(
-            self,
-            name,
-            log_duration=log_duration,
-            duration_key=duration_key,
-            print_progress=print_progress,
-        )
-
-    @classmethod
-    def context(
-        cls,
-        name: str,
-        *,
-        log_duration: bool = True,
-        duration_key: Optional[str] = None,
-        print_progress: bool = True,
-    ):
-        """Create a decorator for metric context switching (class-level decorator syntax).
-
-        Args:
-            name: Context name for grouping metrics
-            log_duration: Whether to automatically log execution duration (default: True)
-            duration_key: Custom duration metric name (default: uses function name)
+            duration_key: Custom duration metric name (default: "time")
             print_progress: Print start/end messages (default: True)
 
         Example:
-            @MetricLogger.context("training", duration_key="train_time")
+            # As context manager
+            with self.logging_context("training"):
+                self.log_metric("loss", 0.5)
+                self.log_metric("accuracy", 0.9)
+
+            with self.logging_context("evaluation", log_duration=False, print_progress=False):
+                self.log_metric("eval_loss", 0.3)
+        """
+        # Enter logic - set context
+        prev_context = self.current_agg_context
+        self.current_agg_context = context_key
+
+        if print_progress:
+            print(
+                f"[{context_key}] START @ {self.progress_info_str}",
+                flush=True,
+            )
+
+        # Use log_duration for timing if enabled, otherwise just yield
+        duration_context = (
+            self.log_duration(
+                duration_key,
+                print_progress=False,  # We handle our own progress printing
+                agg_context=context_key,
+            )
+            if log_duration
+            else None
+        )
+
+        try:
+            if duration_context:
+                with duration_context:
+                    yield
+            else:
+                yield
+        finally:
+            # Flush metrics to storage
+            try:
+                flushed_metrics = self.flush_metrics(context_key)
+                flushed_metrics = {
+                    key: self._formatter.format(key, value)
+                    for key, value in flushed_metrics.items()
+                }
+            except Exception as e:
+                warnings.warn(
+                    f"Failed to flush metrics for context '{context_key}': {e}"
+                )
+                flushed_metrics = "<flush failed>"
+
+            # Print progress if enabled
+            if print_progress:
+                print(
+                    f"[{context_key}] END @ {self.progress_info_str} | {flushed_metrics}",
+                    flush=True,
+                )
+
+            # Restore previous context (CRITICAL - must always succeed)
+            self.current_agg_context = prev_context
+
+    @classmethod
+    def context(cls, context_key: Optional[str] = None, **kwargs):
+        """Create a decorator for metric context switching (class-level decorator syntax).
+
+        Args:
+            name: Context name for grouping metrics (defaults to function name)
+            **kwargs: Same arguments as logging_context()
+
+        Example:
+            @MetricLogger.context()  # Uses function name
+            def train_epoch(self):
+                self.log_metric("loss", 0.5)
+
+            @MetricLogger.context("custom_training")  # Uses custom name
             def train_epoch(self):
                 self.log_metric("loss", 0.5)
         """
 
         def decorator(func):
             @wraps(func)
-            def wrapper(self, *args, **kwargs):
-                with self.metric_context(
-                    name,
-                    log_duration=log_duration,
-                    duration_key=duration_key or f"time/{func.__name__}",
-                    print_progress=print_progress,
-                ):
-                    return func(self, *args, **kwargs)
+            def wrapper(self, *args, **func_kwargs):
+                context_name = context_key or func.__name__
+                with self.logging_context(context_name, **kwargs):
+                    return func(self, *args, **func_kwargs)
 
             return wrapper
 
@@ -252,58 +278,77 @@ class MetricLogger:
             except Exception:
                 pass
 
-        return f"global_step={global_step} ({' '.join(parts)})"
+        return f"global_step={global_step} ({' '.join(parts)})".upper()
 
     def log_metric(
         self,
-        name: str,
-        value: float,
-        aggregation: MetricAggType = MetricAggType.MEAN,
+        key: str,
+        val: float,
+        agg_type: MetricAggType = MetricAggType.MEAN,
+        agg_context: Optional[str] = None,
     ) -> None:
-        """Log a metric value in the current context.
+        """Log a metric value in the specified or current aggregation context.
 
         Args:
-            name: Metric name (e.g., "loss/train", "accuracy/eval")
-            value: Value to log
-            aggregation: MEAN for averages, SUM for totals
+            key: Metric name (e.g., "loss", "accuracy")
+            val: Value to log
+            agg_type: MEAN for averages, SUM for totals
+            agg_context: Optional aggregation context to override current context
 
         Example:
-            self.log_metric("loss/train", 0.5)
-            self.log_metric("samples/train", 32, MetricAggregation.SUM)
+            self.log_metric("loss", 0.5)
+            self.log_metric("samples", 32, MetricAggType.SUM)
+            self.log_metric("cross_validation", 0.8, agg_context="test")
         """
-        # Initialize current context if not exists
-        if self.current_context not in self._ctx_accumulators:
-            self._ctx_accumulators[self.current_context] = {
-                MetricAggType.MEAN: defaultdict(MeanMetric),
-                MetricAggType.SUM: defaultdict(SumMetric),
+        # Use provided context or fall back to current context
+        target_agg_context = agg_context or self.current_agg_context
+
+        # Create full metric name by joining metric name with aggregation context
+        full_metric_name = f"{target_agg_context}/{key}"
+
+        # Initialize target aggregation context if not exists
+        if target_agg_context not in self._agg_ctx_accumulators:
+            self._agg_ctx_accumulators[target_agg_context] = {
+                MetricAggType.MEAN: defaultdict(MeanAccumulator),
+                MetricAggType.SUM: defaultdict(SumAccumulator),
             }
 
-        ctx = self._ctx_accumulators[self.current_context]
-        match aggregation:
+        agg_ctx = self._agg_ctx_accumulators[target_agg_context]
+        match agg_type:
             case MetricAggType.MEAN:
-                ctx[MetricAggType.MEAN][name].update(value)
+                agg_ctx[MetricAggType.MEAN][full_metric_name].update(val)
             case MetricAggType.SUM:
-                ctx[MetricAggType.SUM][name].update(value)
+                agg_ctx[MetricAggType.SUM][full_metric_name].update(val)
             case _:
-                raise ValueError(f"Unknown aggregation type: {aggregation}")
+                raise ValueError(f"Unknown aggregation type: {agg_type}")
 
     @contextmanager
-    def log_duration(self, metric_key: str, *, print_progress: bool = True):
+    def log_duration(
+        self,
+        key: str,
+        *,
+        print_progress: bool = True,
+        agg_context: Optional[str] = None,
+    ):
         """Time a code block and log the duration.
 
         Args:
-            metric_key: Name for the timing metric
+            key: Name for the timing metric
             print_progress: Print start/end messages (default: False)
+            agg_context: Optional aggregation context to override current context
 
         Example:
-            with self.log_duration("time/training"):
+            with self.log_duration("training_time"):
                 run_training_epoch()
 
-            with self.log_duration("time/sync", print_progress=True):
+            with self.log_duration("sync_time", print_progress=True):
                 perform_synchronization()
+
+            with self.log_duration("validation_time", agg_context="test"):
+                run_validation()
         """
         if print_progress:
-            print(f"[{metric_key}] START @ {self.progress_info_str}", flush=True)
+            print(f"[{key}] START @ {self.progress_info_str}", flush=True)
 
         start_time = time.time()
         try:
@@ -311,118 +356,196 @@ class MetricLogger:
         finally:
             end_time = time.time()
             duration = end_time - start_time
-            self.log_metric(metric_key, duration)
+
+            # Log duration metric (best effort)
+            try:
+                self.log_metric(key, duration, agg_context=agg_context)
+            except Exception as e:
+                warnings.warn(f"Failed to log duration metric '{key}': {e}")
 
             if print_progress:
                 print(
-                    f"[{metric_key}] END @ {self.progress_info_str} | duration={duration:.3f}s",
+                    f"[{key}] END @ {self.progress_info_str} | duration={duration:.3f}s",
                     flush=True,
                 )
 
-    def flush_metrics(self, context: Optional[str] = None) -> Dict[str, float]:
+    def flush_metrics(self, agg_context: Optional[str] = None) -> Dict[str, float]:
         """Write accumulated metrics and reset counters.
 
-        Usually called automatically by @MetricLogger.context decorator.
-        Call manually only when changing contexts without the decorator.
+        Usually called automatically by logging_context() and @MetricLogger.context() decorator.
+        Call manually only when changing agg_contexts without using these methods.
 
         Args:
-            context: Context to flush (defaults to current context)
+            agg_context: Aggregation context to flush (defaults to current agg_context)
 
         Returns:
             Dictionary of computed metrics that were flushed
 
         Note:
-            Skips contexts with no metrics. Resets all counters after writing.
+            Skips agg_contexts with no metrics. Resets all counters after writing.
         """
-        context = context or self.current_context
+        agg_context = agg_context or self.current_agg_context
 
-        # Skip if context doesn't exist (no metrics were accumulated)
-        if context not in self._ctx_accumulators:
-            print(f"WARN: No metrics to flush for context '{context}'. Skipping.")
+        # Skip if aggregation context doesn't exist (no metrics were accumulated)
+        if agg_context not in self._agg_ctx_accumulators:
             return {}
 
-        metrics = {}
-        ctx = self._ctx_accumulators[context]
+        metrics = []
+        return_dict = {}
+        agg_ctx_accumulators = self._agg_ctx_accumulators[agg_context]
 
-        # Compute and reset all metrics in this context
-        for name, metric in ctx[MetricAggType.MEAN].items():
-            if metric.update_count > 0:  # Only compute if metric has been updated
-                metrics[name] = metric.compute().item()
-            metric.reset()
+        # Process both MEAN and SUM metrics
+        for agg_type in [MetricAggType.MEAN, MetricAggType.SUM]:
+            for metric_key, metric_accumulator in agg_ctx_accumulators[
+                agg_type
+            ].items():
+                if metric_accumulator.update_count > 0:
+                    # Compute value before reset
+                    metric_val = metric_accumulator.compute().item()
+                    metric_count = metric_accumulator.update_count
 
-        for name, metric in ctx[MetricAggType.SUM].items():
-            if metric.update_count > 0:  # Only compute if metric has been updated
-                metrics[name] = metric.compute().item()
-            metric.reset()
+                    # Store for writing
+                    metrics.append((metric_key, metric_val, agg_type, metric_count))
 
-        # Only log if we have metrics to log
-        if metrics:
-            self._write_metrics(metrics, context=context)
+                    # Store for return
+                    return_dict[metric_key] = metric_val
 
-        return metrics
+                # Reset accumulator
+                metric_accumulator.reset()
 
-    def _extract_metadata(self, global_step: int) -> Dict[str, int | float]:
+        # Write metrics
+        self._write_metrics(metrics, agg_context)
+
+        return return_dict
+
+    def _extract_metadata(self) -> Dict[str, int | float]:
         """Extract metadata fields with graceful error handling."""
-        metadata: Dict[str, int | float] = {"global_step": global_step}
+        metadata: Dict[str, int | float] = {"global_step": self._global_step_fn()}
         for field_name, field_fn in self._metadata_fields.items():
             try:
                 metadata[field_name] = field_fn()
             except Exception:
+                # Fallback value for failed metadata extraction
                 metadata[field_name] = -1
         return metadata
 
+    def _get_context_metric_names(self, agg_context: str) -> set[str]:
+        """Get all metric names for a given aggregation context."""
+        all_metric_names = set()
+        if agg_context in self._agg_ctx_accumulators:
+            for agg_type in [MetricAggType.MEAN, MetricAggType.SUM]:
+                all_metric_names.update(
+                    self._agg_ctx_accumulators[agg_context][agg_type].keys()
+                )
+        return all_metric_names
+
     def _write_metrics(
-        self, metrics: Dict[str, float], context: Optional[str] = None
+        self,
+        metrics: List[tuple[str, float, MetricAggType, int]],
+        agg_context: str,
     ) -> None:
         """Write metrics to TensorBoard and CSV files.
 
         Args:
-            metrics: Metric names and values to write
-            tag: Optional tag for separate CSV file
+            metrics: List of (metric_name, metric_val, agg_type, agg_count) tuples
+            agg_context: Aggregation context for these metrics
         """
-        print("CALLED WRITE METRICS")
-        # Capture global_step and metadata once
-        global_step = self._global_step_fn()
-        metadata = self._extract_metadata(global_step)
+        # Skip if no metrics to write
+        if not metrics:
+            return
+
+        metadata = self._extract_metadata()
 
         # Write to TensorBoard and long-format CSV
-        metadata_values = [
-            metadata[field]
-            for field in ["global_step"] + list(self._metadata_fields.keys())
-        ]
+        for name, metric_val, agg_type, agg_count in metrics:
+            # Log to TensorBoard (with error handling)
+            try:
+                self._tb_writer.add_scalar(
+                    name, metric_val, global_step=metadata["global_step"]
+                )
+            except (OSError, RuntimeError) as e:
+                warnings.warn(f"Failed to write metric '{name}' to TensorBoard: {e}")
 
-        for name, value in metrics.items():
-            # Log to TensorBoard
-            self._tb_writer.add_scalar(name, value, global_step)
-            # Write to long format CSV (one row per metric)
-            self._csv_writer.writerow(metadata_values + [name, value])
+            # Write to long format CSV using field order from header
+            try:
+                row = [
+                    metadata["global_step"],
+                    *[metadata[field] for field in self._metadata_fields.keys()],
+                    agg_context,
+                    agg_type,
+                    agg_count,
+                    name,
+                    metric_val,
+                ]
+                self._csv_writer.writerow(row)
+            except (OSError, IOError) as e:
+                warnings.warn(f"Failed to write metric '{name}' to main CSV: {e}")
 
-        self._csv_file.flush()
+        # Flush main CSV (with error handling)
+        try:
+            self._csv_file.flush()
+        except (OSError, IOError) as e:
+            warnings.warn(f"Failed to flush main CSV file: {e}")
 
-        # Write to tagged CSV file if tag is provided (one row per flush with all metrics)
-        if context and metrics:
-            # Initialize tagged data accumulator if needed
-            if context not in self._ctx_dataframes:
-                self._ctx_dataframes[context] = []
+        # Handle context-specific CSV (direct writing for crash safety)
+        if metrics:  # Only proceed if we have metrics
+            try:
+                # Get all metric names once (used for both header and row writing)
+                all_metric_names = self._get_context_metric_names(agg_context)
+                sorted_metric_names = sorted(all_metric_names)
 
-            # Build complete row with metadata and all metrics
-            row = metadata.copy()
-            row.update(metrics)
+                # Initialize context CSV writer if needed
+                if agg_context not in self._agg_ctx_csv_writers:
+                    csv_path = os.path.join(
+                        self._metric_log_dir, f"metrics_{agg_context}.csv"
+                    )
+                    csv_file = open(csv_path, "w", newline="")
+                    csv_writer = csv.writer(csv_file)
 
-            # Accumulate row for later pandas processing
-            self._ctx_dataframes[context].append(row)
+                    # Write header with all known metrics for this context
+                    header = list(metadata.keys()) + sorted_metric_names
+                    csv_writer.writerow(header)
+
+                    self._agg_ctx_csv_files[agg_context] = csv_file
+                    self._agg_ctx_csv_writers[agg_context] = csv_writer
+
+                # Build row: metadata + metric values in sorted order
+                metric_values = {name: val for name, val, _, _ in metrics}
+                row = list(metadata.values()) + [
+                    metric_values.get(metric_name, "")
+                    for metric_name in sorted_metric_names
+                ]
+
+                self._agg_ctx_csv_writers[agg_context].writerow(row)
+                self._agg_ctx_csv_files[agg_context].flush()
+            except (OSError, IOError) as e:
+                warnings.warn(f"Failed to write context CSV for '{agg_context}': {e}")
 
     def get_experiment_data(self) -> Dict[str, Any]:
         """Extract experiment timeline data for display purposes.
 
         Returns:
-            Dictionary containing all tagged dataframes data organized by context.
-            Format: {context: [list of metric rows with metadata]}
+            Dictionary containing all context data organized by agg_context.
+            Format: {agg_context: [list of metric rows with metadata]}
         """
-        return dict(self._ctx_dataframes)
+        experiment_data = {}
+
+        for agg_context in self._agg_ctx_csv_files.keys():
+            csv_path = os.path.join(self._metric_log_dir, f"metrics_{agg_context}.csv")
+            try:
+                if os.path.exists(csv_path):
+                    df = pd.read_csv(csv_path)
+                    experiment_data[agg_context] = df.to_dict("records")
+            except Exception as e:
+                warnings.warn(
+                    f"Failed to read experiment data for context '{agg_context}': {e}"
+                )
+                experiment_data[agg_context] = []
+
+        return experiment_data
 
     def close_metrics(self) -> None:
-        """Close TensorBoard writer and write CSV files.
+        """Close TensorBoard writer and CSV files.
 
         Note:
             Called automatically on exit. Safe to call multiple times.
@@ -431,15 +554,14 @@ class MetricLogger:
         # Close TensorBoard writer
         self._tb_writer.close()
 
-        # Close CSV file
+        # Close main CSV file
         self._csv_file.close()
 
-        # Write all tagged DataFrames to CSV files
-        for tag, rows in self._ctx_dataframes.items():
-            if rows:  # Only write if we have data
-                df = pd.DataFrame(rows)
-                csv_path = os.path.join(self._metric_log_dir, f"metrics_{tag}.csv")
-                df.to_csv(csv_path, index=False)
+        # Close all context-specific CSV files
+        for csv_file in self._agg_ctx_csv_files.values():
+            csv_file.close()
+        self._agg_ctx_csv_files.clear()
+        self._agg_ctx_csv_writers.clear()
 
     def __enter__(self):
         """Context manager entry."""

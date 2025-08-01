@@ -27,9 +27,7 @@ from typeguard import typechecked
 
 from ..communicator import AggregationOp, BaseCommunicator
 from ..data import DataModule
-from ..mixins import RequiredSetup
-from ..mixins import LifecycleHooks
-from ..mixins import MetricAggType, MetricLogger
+from ..mixins import LifecycleHooks, MetricAggType, MetricLogger, RequiredSetup
 from . import utils
 from .ExecutionSchedules import ExecutionSchedules
 
@@ -143,6 +141,9 @@ class BaseAlgorithm(RequiredSetup, LifecycleHooks, MetricLogger):
 
         # Store execution schedules
         self.schedules: ExecutionSchedules = schedules
+
+        # Directory for metrics logging and TensorBoard output
+        self.log_dir: str = log_dir
 
         # Node context dependencies (injected via _setup())
         self.__local_comm: Optional[BaseCommunicator] = None
@@ -461,7 +462,7 @@ class BaseAlgorithm(RequiredSetup, LifecycleHooks, MetricLogger):
     # =============================================================================
     # =============================================================================
 
-    @MetricLogger.context("sync")
+    @MetricLogger.context("sync", duration_key="total_time")
     def __synchronize(self) -> None:
         """
         Coordinate federated model aggregation and evaluation.
@@ -484,11 +485,10 @@ class BaseAlgorithm(RequiredSetup, LifecycleHooks, MetricLogger):
         """
         # Phase 0: Pre-aggregation evaluation (before any aggregation)
         if self.schedules.evaluation.pre_aggregation():
-            with self.metric_context("eval_pre_sync"):
-                self.__eval_epoch(self.local_model, "pre_sync")
+            self.__eval_epoch(self.local_model)
 
         # Phase 1: Intra-group aggregation via all-reduce
-        with self.log_duration("time/sync_agg_local"):
+        with self.log_duration("local_agg_time"):
             # Calculate within-group sample totals and weights
             group_total_samples = self.local_comm.aggregate(
                 torch.tensor([self.__num_samples_trained], dtype=torch.float32),
@@ -513,7 +513,7 @@ class BaseAlgorithm(RequiredSetup, LifecycleHooks, MetricLogger):
 
         # Phase 2: Inter-group coordination (group servers only)
         if self.global_comm is not None:
-            with self.log_duration("time/sync_agg_global"):
+            with self.log_duration("global_agg_time"):
                 # Calculate across-group sample totals and weights using group totals
                 global_total_samples = self.global_comm.aggregate(
                     torch.tensor([group_total_samples], dtype=torch.float32),
@@ -538,7 +538,7 @@ class BaseAlgorithm(RequiredSetup, LifecycleHooks, MetricLogger):
         # In cross-institutional/hierarchical FL: only group representatives participate in global_comm,
         # but all nodes need the final global model.
         # Check if any node in this local group participated in global aggregation.
-        with self.log_duration("time/sync_bcast_final"):
+        with self.log_duration("local_bcast_time"):
             needs_final_bcast = (
                 self.local_comm.aggregate(
                     torch.tensor(1.0 if self.global_comm is not None else 0.0),
@@ -552,13 +552,12 @@ class BaseAlgorithm(RequiredSetup, LifecycleHooks, MetricLogger):
 
         # Post-aggregation evaluation (global model)
         if self.schedules.evaluation.post_aggregation():
-            with self.metric_context("eval_post_sync"):
-                self.__eval_epoch(self.local_model, "post_sync")
+            self.__eval_epoch(self.local_model)
 
         # Reset optimizer and sample counter after aggregation
         # After any aggregation (including broadcast), the model parameters have changed,
-        # so the optimizer's internal state (momentum, Adam statistics, etc.) is no longer
-        # valid. All nodes must create fresh optimizers for the new parameters.
+        # so the optimizer's internal state (momentum, Adam statistics, etc.) is no longer valid.
+        # All nodes must create fresh optimizers for the new parameters.
         # Similarly, num_samples_trained resets to track samples for the next aggregation.
         self.__local_optimizer = self._configure_local_optimizer(self.local_lr)
         self.__num_samples_trained = 0
@@ -592,8 +591,7 @@ class BaseAlgorithm(RequiredSetup, LifecycleHooks, MetricLogger):
 
         # Experiment start evaluation (only on first round) - before any training work
         if round_idx == 0 and self.schedules.evaluation.experiment_start():
-            with self.metric_context("eval_exp_start"):
-                self.__eval_epoch(self.local_model, "exp_start")
+            self.__eval_epoch(self.local_model)
 
         print(
             f"[ROUND-START] {self.progress_info_str} | "
@@ -624,10 +622,9 @@ class BaseAlgorithm(RequiredSetup, LifecycleHooks, MetricLogger):
 
         # Experiment end evaluation (only on last round)
         if round_idx == max_rounds - 1 and self.schedules.evaluation.experiment_end():
-            with self.metric_context("eval_exp_end"):
-                self.__eval_epoch(self.local_model, "exp_end")
+            self.__eval_epoch(self.local_model)
 
-    @MetricLogger.context("train", print_progress=True)
+    @MetricLogger.context("train", duration_key="epoch_time", print_progress=True)
     def __train_epoch(
         self,
         epoch_idx: int,
@@ -686,8 +683,8 @@ class BaseAlgorithm(RequiredSetup, LifecycleHooks, MetricLogger):
                     self.log_metric(metric_name, metric_value)
 
                 # Framework adds automatic metrics
-                self.log_metric("samples/train", batch_size, MetricAggType.SUM)
-                self.log_metric("batches/train", 1, MetricAggType.SUM)
+                self.log_metric("num_samples", batch_size, MetricAggType.SUM)
+                self.log_metric("num_batches", 1, MetricAggType.SUM)
 
             _t_batch_compute_end = time.time()
 
@@ -703,21 +700,21 @@ class BaseAlgorithm(RequiredSetup, LifecycleHooks, MetricLogger):
 
             # Add batch timing metrics to accumulator
             self.log_metric(
-                "time/batch_data_train",
+                "batch_data_time",
                 _t_batch_data_end - _t_batch_data_start,
             )
             self.log_metric(
-                "time/batch_compute_train",
+                "batch_compute_time",
                 _t_batch_compute_end - _t_batch_compute_start,
             )
             self.log_metric(
-                "time/batch_train",
+                "batch_time",
                 _t_batch_end - _t_batch_start,
             )
 
         # ---
         # Epoch boundary synchronization
-        with self.log_duration("time/sync_epoch_boundary"):
+        with self.log_duration("epoch_heartbeat_time"):
             sync_signal = torch.tensor([1.0])
             total_signals = self.local_comm.aggregate(sync_signal, AggregationOp.SUM)
 
@@ -728,11 +725,8 @@ class BaseAlgorithm(RequiredSetup, LifecycleHooks, MetricLogger):
         # Train epoch end hook
         self._train_epoch_end()
 
-    def __eval_epoch(
-        self,
-        model: nn.Module,
-        eval_type: str,
-    ) -> None:
+    @MetricLogger.context("eval", duration_key="epoch_time", print_progress=True)
+    def __eval_epoch(self, model: nn.Module) -> None:
         """
         Evaluate the model on this client's test data.
 
@@ -742,7 +736,6 @@ class BaseAlgorithm(RequiredSetup, LifecycleHooks, MetricLogger):
 
         Args:
             model: The model to evaluate (usually self.local_model)
-            eval_type: Evaluation context identifier (e.g., "pre_sync", "post_sync", "exp_start")
         """
         if self.datamodule.eval is None:
             raise RuntimeError(
@@ -782,17 +775,15 @@ class BaseAlgorithm(RequiredSetup, LifecycleHooks, MetricLogger):
                 batch_size = self._infer_batch_size(batch)
 
                 # Execute user evaluation logic and get metrics
-                user_metrics = self._eval_batch(batch, eval_type)
+                user_metrics = self._eval_batch(batch)
 
                 # Framework handles metric logging
                 for metric_name, metric_value in user_metrics.items():
                     self.log_metric(metric_name, metric_value)
 
                 # Framework adds automatic metrics
-                self.log_metric(
-                    f"samples/eval_{eval_type}", batch_size, MetricAggType.SUM
-                )
-                self.log_metric(f"batches/eval_{eval_type}", 1, MetricAggType.SUM)
+                self.log_metric("num_samples", batch_size, MetricAggType.SUM)
+                self.log_metric("num_batches", 1, MetricAggType.SUM)
 
                 _t_batch_compute_end = time.time()
 
@@ -802,17 +793,17 @@ class BaseAlgorithm(RequiredSetup, LifecycleHooks, MetricLogger):
                 # Accumulate timing metrics for batch-level processing
                 _t_batch_end = time.time()
 
-                # Add batch timing metrics to accumulator (automatically uses "eval" context)
+                # Add batch timing metrics to accumulator
                 self.log_metric(
-                    "time/batch_data_eval",
+                    "batch_data_time",
                     _t_batch_data_end - _t_batch_data_start,
                 )
                 self.log_metric(
-                    "time/batch_compute_eval",
+                    "batch_compute_time",
                     _t_batch_compute_end - _t_batch_compute_start,
                 )
                 self.log_metric(
-                    "time/batch_eval",
+                    "batch_time",
                     _t_batch_end - _t_batch_start,
                 )
 
@@ -835,8 +826,8 @@ class BaseAlgorithm(RequiredSetup, LifecycleHooks, MetricLogger):
             batch: Training batch from DataLoader (already moved to device)
 
         Returns:
-            Dictionary of metrics to log (e.g., {"loss/train": 0.5, "accuracy/train": 0.9})
-            Framework automatically adds samples/train and batches/train
+            Dictionary of metrics to log (e.g., {"loss": 0.5, "accuracy": 0.9})
+            Framework automatically adds samples and batches metrics
         """
         # Forward pass
         loss = self._compute_loss(batch)
@@ -852,11 +843,11 @@ class BaseAlgorithm(RequiredSetup, LifecycleHooks, MetricLogger):
 
         # Return metrics to log
         return {
-            "loss/train": loss.detach().item(),
-            "grad_norm/train": grad_norm,
+            "loss": loss.detach().item(),
+            "grad_norm": grad_norm,
         }
 
-    def _eval_batch(self, batch: Any, eval_type: str) -> Dict[str, float]:
+    def _eval_batch(self, batch: Any) -> Dict[str, float]:
         """
         Execute evaluation computation for one batch.
 
@@ -865,17 +856,16 @@ class BaseAlgorithm(RequiredSetup, LifecycleHooks, MetricLogger):
 
         Args:
             batch: Evaluation batch from DataLoader (already moved to device)
-            eval_type: Evaluation context identifier ("pre_sync", "post_sync", etc.)
 
         Returns:
-            Dictionary of metrics to log (e.g., {"loss/eval_pre_sync": 0.3, "accuracy/eval_pre_sync": 0.85})
-            Framework automatically adds samples/eval_{eval_type} and batches/eval_{eval_type}
+            Dictionary of metrics to log (e.g., {"loss": 0.3, "accuracy": 0.85})
+            Framework automatically adds samples and batches metrics
         """
         # Forward pass
         loss = self._compute_loss(batch)
 
         # Return metrics to log
-        return {f"loss/eval_{eval_type}": loss.detach().item()}
+        return {"loss": loss.detach().item()}
 
     # =============================================================================
 

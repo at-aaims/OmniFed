@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import Any, List, Union
+from typing import Any, List
 
 import rich.repr
 from hydra.utils import instantiate
@@ -20,8 +20,6 @@ from omegaconf import DictConfig, OmegaConf
 
 from ..communicator.configs import (
     BaseCommunicatorConfig,
-    GrpcCommunicatorConfig,
-    TorchDistCommunicatorConfig,
 )
 from ..Node import NodeConfig
 from .BaseTopology import BaseTopology
@@ -67,7 +65,7 @@ class MultiGroupTopology(BaseTopology):
     def __init__(
         self,
         groups: List[DictConfig],
-        global_comm: Union[TorchDistCommunicatorConfig, GrpcCommunicatorConfig],
+        global_comm: BaseCommunicatorConfig,
         **kwargs: Any,
     ):
         """
@@ -75,7 +73,7 @@ class MultiGroupTopology(BaseTopology):
 
         Args:
             groups: Each group's topology config (usually CentralizedTopology configs)
-            global_comm: How group servers communicate globally (typically gRPC)
+            global_comm: How group servers communicate globally (any BaseCommunicatorConfig)
         """
         super().__init__(**kwargs)
         self.global_comm_cfg = global_comm
@@ -85,7 +83,7 @@ class MultiGroupTopology(BaseTopology):
 
         # Create the actual topology for each group (e.g., CentralizedTopology instances)
         self.topologies: List[BaseTopology] = [
-            instantiate(topology, **kwargs) for topology in groups
+            instantiate(topology, _recursive_=False, **kwargs) for topology in groups
         ]
 
     def _create_node_configs(self) -> List[NodeConfig]:
@@ -117,6 +115,15 @@ class MultiGroupTopology(BaseTopology):
                     global_comm_cfg.world_size = world_size
                     node_cfg.global_comm = global_comm_cfg
 
+                    # ---
+                    # global_comm_cfg = OmegaConf.merge(
+                    #     self.global_comm_cfg,
+                    #     {"rank": group_id, "world_size": world_size}
+                    # )
+                    # Convert structured config to object with proper type casting
+                    # node_cfg.global_comm = cast(
+                    #     BaseCommunicatorConfig, OmegaConf.to_object(global_comm_cfg)
+                    # )
                 node_configs.append(node_cfg)
 
         return node_configs

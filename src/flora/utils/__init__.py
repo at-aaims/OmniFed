@@ -1,4 +1,3 @@
-from .ExperimentDisplay import ExperimentDisplay
+from .ExperimentDisplay import ExperimentResultsDisplay
 from .logging import *
-from .matchers import *
 from .MetricFormatter import MetricFormatter

@@ -6,17 +6,10 @@
 # ══════════════════════════════════════════════════════════════════════════════
 
 defaults:
-  - base # Base framework configuration
-  - override topology: centralized_torchdist # Centralized FL topology with TorchDist
+  - base_mnist_5K # Base framework configuration
+  - override topology: centralized_with_torchdist # Centralized FL topology with TorchDist
   - override algorithm: fedavg # FedAvg algorithm
-  - override model: simple_cnn # Simple CNN for image classification
-  - override datamodule: mnist # MNIST dataset
   - _self_ # Override with local settings
-
-# ─────────────────────────────────────────
-# Experiment Parameters
-
-global_rounds: 2
 
 # ─────────────────────────────────────────
 # Component Overrides
@@ -26,16 +19,9 @@ topology:
 
 algorithm:
   local_lr: 0.01
-  max_epochs_per_round: 2
+  max_epochs_per_round: 4
 
-model:
-  backbone:
-    in_channels: 1 # MNIST grayscale images
-  head:
-    num_classes: 10 # 10 digit classes
+# ─────────────────────────────────────────
+# Experiment Parameters
 
-datamodule:
-  train:
-    batch_size: 16
-  eval:
-    batch_size: 16
+global_rounds: 3

@@ -64,10 +64,11 @@ class BaseTopology(ABC):
         Lazily calls _create_node_configs() on first access.
         """
         if self.__node_configs is None:
+            print("Lazy-initializing node configurations...")
+            # Call the protected method to create node configurations
             self.__node_configs = self._create_node_configs()
             # Log the created node configurations (only on creation)
-            print()
-            pprint(self.__node_configs)
+            # pprint(self.__node_configs)
 
         if not self.__node_configs:
             raise ValueError(

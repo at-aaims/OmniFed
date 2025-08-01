@@ -1,9 +1,8 @@
 # ══════════════════════════════════════════════════════════════════════════════
-# Centralized Topology with gRPC Communication
+# Centralized Topology with TorchDist Communication
 #
-# Traditional server-client federated learning topology structure.
-# One aggregator node coordinates multiple client nodes.
-# Uses gRPC for cross-network and heterogeneous deployments.
+# Traditional server-client federated learning topology.
+# One aggregator node coordinates multiple client nodes using PyTorch distributed backend.
 #
 # ══════════════════════════════════════════════════════════════════════════════
 
@@ -15,8 +14,18 @@ defaults:
 _target_: src.flora.topology.CentralizedTopology
 
 # ─────────────────────────────────────────
+
 num_clients: ???
 
+local_comm:
+  # NOTE: Check constructor signature for complete parameter list, defaults, types, and docs.
+  _target_: src.flora.communicator.TorchDistCommunicator
+  # backend: gloo            # CPU backend (default)
+  # backend: nccl            # GPU backend
+  # master_addr: "127.0.0.1" # Localhost for single-node setups
+  # master_port: 29500       # Default port
+  # timeout: 60              # Connection timeout
+#
 # ─────────────────────────────────────────
 # Optional Node-Specific Overrides
 # ─────────────────────────────────────────
@@ -28,13 +37,3 @@ num_clients: ???
 #   1: # Client: Custom GPU allocation
 #     device_hint: "cuda:0"
 #     ray_actor_options: {num_gpus: 1.5}
-
-# ─────────────────────────────────────────
-# Intra-Group Communication
-local_comm:
-  _target_: src.flora.communicator.GrpcCommunicator
-  # NOTE: Check constructor signature for complete parameter list, defaults, types, and docs.
-  # master_addr: 127.0.0.1        # Server address
-  # master_port: 50051            # Server port
-  # max_workers: 10               # gRPC server thread pool size
-  # aggregation_timeout: 600.0    # Server wait time for all clients

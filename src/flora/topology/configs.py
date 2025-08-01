@@ -13,11 +13,11 @@
 # limitations under the License.
 
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Union
+from typing import Dict, List, Optional
 
 from omegaconf import MISSING, DictConfig
 
-from ..communicator.configs import GrpcCommunicatorConfig, TorchDistCommunicatorConfig
+from ..communicator.configs import BaseCommunicatorConfig
 
 
 @dataclass
@@ -35,7 +35,7 @@ class CentralizedTopologyConfig(BaseTopologyConfig):
 
     # Required parameters
     num_clients: int = MISSING
-    local_comm: Union[TorchDistCommunicatorConfig, GrpcCommunicatorConfig] = MISSING
+    local_comm: BaseCommunicatorConfig = MISSING
 
     # Optional parameters
     overrides: Optional[Dict[int, DictConfig]] = None
@@ -49,4 +49,4 @@ class MultiGroupTopologyConfig(BaseTopologyConfig):
 
     # Required parameters
     groups: List[DictConfig] = MISSING
-    global_comm: Union[TorchDistCommunicatorConfig, GrpcCommunicatorConfig] = MISSING
+    global_comm: BaseCommunicatorConfig = MISSING

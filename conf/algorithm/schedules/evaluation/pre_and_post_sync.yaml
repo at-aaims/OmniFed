@@ -1,25 +1,17 @@
 # ══════════════════════════════════════════════════════════════════════════════
-# Post-Aggregation Evaluation Configuration
+# Pre and Post-Sync Evaluation Configuration
 #
-# Standard federated learning evaluation pattern.
-# Evaluate at experiment endpoints and after each aggregation step.
+# Evaluate at experiment endpoints and before and after each aggregation synchronization.
 #
 # ══════════════════════════════════════════════════════════════════════════════
 
-# NOTE: Check constructor signature for complete parameter list, defaults, types, and docs.
-_target_: src.flora.algorithms.EvaluationTriggers
+defaults:
+    - base
+    - experiment_endpoints
 
 # ─────────────────────────────────────────
-experiment_start: true # Evaluate at experiment start (baseline)
-# experiment_start: false  # Skip initial evaluation
-
-# ─────────────────────────────────────────
-experiment_end: true # Evaluate at experiment end (final result)
-# experiment_end: false    # Skip final evaluation
-
-# ─────────────────────────────────────────
-pre_aggregation: false # Don't evaluate before aggregation
-# pre_aggregation: true    # Evaluate before every aggregation
+pre_aggregation: true # Evaluate before aggregation
+# pre_aggregation: false   # Skip pre-aggregation evaluation
 # pre_aggregation:         # Selective pre-aggregation evaluation
 #   every: 2               # Before every 2nd aggregation
 #   at: [0, 1, 5, 10]      # Before specific aggregations

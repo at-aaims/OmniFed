@@ -14,10 +14,12 @@
 
 import os
 import time
+import warnings
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 
 import ray
+import rich.repr
 import torch
 from hydra.utils import instantiate
 from omegaconf import MISSING
@@ -173,7 +175,8 @@ class NodeConfig:
     device_hint: str = "auto"
 
     # Experiment directory for this node's log files
-    exp_dir: Optional[str] = "/tmp/flora"
+    # None defaults to Hydra's output directory
+    log_dir_base: Optional[str] = None
 
 
 @ray.remote
@@ -194,12 +197,13 @@ class Node(RequiredSetup):
         name: str,
         local_comm: BaseCommunicatorConfig,
         global_comm: Optional[BaseCommunicatorConfig],
+        ray_actor_options: RayActorConfig,
+        log_dir_base: str,
+        device_hint: str,
+        *,  # Force keyword-only args after this point (passed from Engine)
         algorithm: AlgorithmConfig,
         model: ModelConfig,
         datamodule: DataModuleConfig,
-        device_hint: str,
-        exp_dir: str,
-        **kwargs,  # Accept additional config fields (e.g., ray_actor_options)
     ):
         """
         Initialize federated learning node with configs.
@@ -217,7 +221,7 @@ class Node(RequiredSetup):
         super().__init__()
         self.name: str = name
         self.device_hint: str = device_hint
-        self.log_dir: str = os.path.join(exp_dir, name)
+        self.log_dir: str = os.path.join(log_dir_base, name)
 
         # Store config for model (instantiated during setup)
         self.model_cfg: ModelConfig = model
@@ -227,9 +231,10 @@ class Node(RequiredSetup):
         self.global_comm: Optional[BaseCommunicator] = (
             instantiate(global_comm) if global_comm else None
         )
-        self.algorithm: BaseAlgorithm = instantiate(algorithm, log_dir=self.log_dir)
-        self.datamodule: DataModule = instantiate(datamodule)
 
+        self.algorithm: BaseAlgorithm = instantiate(algorithm, log_dir=self.log_dir)
+
+        self.datamodule: DataModule = instantiate(datamodule)
         # Deferred instantiation
         self.__device: Optional[torch.device] = None
 
@@ -241,11 +246,7 @@ class Node(RequiredSetup):
         Instantiates model, establishes communicator connections,
         and passes dependencies to algorithm.
         """
-        model = instantiate(self.model_cfg)
-        if model is None:
-            raise RuntimeError(
-                f"Failed to instantiate model from config: {self.model_cfg}"
-            )
+        model: nn.Module = instantiate(self.model_cfg)
 
         print(f"[NODE-SETUP] Device: {self.device}", flush=True)
 
@@ -317,7 +318,7 @@ class Node(RequiredSetup):
             "comm_time/total", _t_init_total_end - _t_init_total_start
         )
 
-    def run_experiment(self, total_rounds: int) -> List[Dict[str, Any]]:
+    def run_experiment(self, total_rounds: int) -> Dict[str, Any]:
         """
         Execute federated learning experiment autonomously.
 
@@ -360,9 +361,8 @@ class Node(RequiredSetup):
                 flush=True,
             )
 
-        # Timeline data is now logged directly to CSV/TensorBoard files instead of being returned
-        # Return empty list to maintain API compatibility
-        return []
+        # Return experiment timeline data for display purposes
+        return self.algorithm.get_experiment_data()
 
     def __repr__(self) -> str:
         """Node string representation with name and timestamp."""
@@ -403,7 +403,7 @@ class Node(RequiredSetup):
         # Round-robin GPU assignment
         effective_rank = rank if rank is not None else 0
         if rank is None:
-            print("WARN: No rank provided, defaulting to GPU 0")
+            warnings.warn("No rank provided, defaulting to GPU 0")
 
         gpu_id = effective_rank % gpu_count
         device_str = f"cuda:{gpu_id}"

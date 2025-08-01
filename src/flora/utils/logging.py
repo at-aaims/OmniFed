@@ -57,14 +57,14 @@ ANSI_COLOR_NAMES_LIST = [
 
 
 def _get_color_for_prefix(prefix: str) -> str:
-    """Get a consistent color based on prefix hash."""
+    """Get consistent color for a prefix using hash."""
     color_names = ANSI_COLOR_NAMES_LIST
     color_hash = hash(prefix) % len(color_names)
     return color_names[color_hash]
 
 
 def _get_caller_prefix() -> str:
-    """Generate a colored prefix based on caller context."""
+    """Get caller function/class name for logging prefix."""
     # Get caller information to include function/class name if available
     stack = inspect.stack()
     # Skip this function and get the actual caller
@@ -82,7 +82,8 @@ def _get_caller_prefix() -> str:
     return prefix
 
 
-def print_rule(msg: Optional[str] = None) -> None:
+def print_rule(msg: Optional[str] = None, characters: str = "═") -> None:
+    """Print a separator line with caller context."""
     prefix = _get_caller_prefix()
     color = _get_color_for_prefix(prefix.split("->")[0])
     prefix = f"[bold {color}]{prefix}[/bold {color}]"
@@ -92,12 +93,13 @@ def print_rule(msg: Optional[str] = None) -> None:
         Rule(
             f"[{prefix}] {msg}" if msg else prefix,
             style=color,
-            characters="═",
+            characters=characters,
         )
     )
 
 
 def print(*args, **kwargs) -> None:
+    """Print with caller context prefix."""
     prefix = _get_caller_prefix()
     color = _get_color_for_prefix(prefix.split("->")[0])
     prefix = f"[bold {color}]{prefix}[/bold {color}]"

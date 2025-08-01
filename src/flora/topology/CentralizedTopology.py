@@ -12,7 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import Any, Dict, List, Optional, cast
+from dataclasses import replace
+from typing import Any, Dict, List, Optional
 
 import rich.repr
 from omegaconf import OmegaConf
@@ -102,11 +103,9 @@ class CentralizedTopology(BaseTopology):
                 global_comm=None,
             )
 
-            merged_cfg = OmegaConf.merge(
-                node_cfg,
-                self.overrides.get(rank, {}),
-            )
-            node_cfg = cast(NodeConfig, OmegaConf.to_object(merged_cfg))
+            # Apply overrides using dataclass replace to preserve types
+            override_cfg = self.overrides.get(rank, {})
+            node_cfg = replace(node_cfg, **override_cfg)
 
             node_configs.append(node_cfg)
 

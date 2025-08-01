@@ -32,12 +32,12 @@ groups: ???
 #   - num_clients: 3              # Group 1: 3 clients
 #     local_comm:
 #       _target_: src.flora.communicator.TorchDistCommunicator
-#       master_port: "29500"
+#       master_port: 29500
 #   # ───────────────────────────
 #   - num_clients: 2              # Group 2: 2 clients
 #     local_comm:
 #       _target_: src.flora.communicator.TorchDistCommunicator
-#       master_port: "29501"
+#       master_port: 29501
 #   # ───────────────────────────
 #   - num_clients: 4              # Group 3: 4 clients
 #     local_comm:
