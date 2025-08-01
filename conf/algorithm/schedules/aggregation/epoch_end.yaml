@@ -7,7 +7,7 @@
 # ══════════════════════════════════════════════════════════════════════════════
 
 # NOTE: Check constructor signature for complete parameter list, defaults, types, and docs.
-_target_: src.flora.algorithms.AggregationTriggers
+_target_: src.flora.algorithm.AggregationTriggers
 
 # ─────────────────────────────────────────
 round_end: false # Don't wait for round end

@@ -12,4 +12,4 @@ defaults:
   - aggregation: round_end
   - evaluation: pre_and_post_sync
 
-_target_: src.flora.algorithms.ExecutionSchedules
+_target_: src.flora.algorithm.ExecutionSchedules

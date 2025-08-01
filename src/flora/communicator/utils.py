@@ -18,12 +18,12 @@ import numpy as np
 import torch
 import torch.nn as nn
 
-from . import grpc_communicator_pb2
+from . import grpc_pb2
 
 
 def tensordict_to_proto(
     tensordict: Dict[str, torch.Tensor],
-) -> grpc_communicator_pb2.TensorDict:
+) -> grpc_pb2.TensorDict:
     """
     Convert tensor dictionary to protobuf format for gRPC transmission.
 
@@ -48,7 +48,7 @@ def tensordict_to_proto(
         # Serialize tensor data to bytes for transmission
         tensor_bytes = tensor_cpu.numpy().tobytes()
 
-        entry = grpc_communicator_pb2.TensorEntry(
+        entry = grpc_pb2.TensorEntry(
             key=key,
             data=tensor_bytes,
             shape=list(tensor_cpu.shape),
@@ -58,11 +58,11 @@ def tensordict_to_proto(
         )
         entries.append(entry)
 
-    return grpc_communicator_pb2.TensorDict(entries=entries)
+    return grpc_pb2.TensorDict(entries=entries)
 
 
 def proto_to_tensordict(
-    proto_tensordict: grpc_communicator_pb2.TensorDict,
+    proto_tensordict: grpc_pb2.TensorDict,
 ) -> Dict[str, torch.Tensor]:
     """
     Convert protobuf tensor dictionary back to PyTorch tensors.

@@ -22,7 +22,7 @@ export RAY_DEDUP_LOGS=0   # Show all FL node logs
 # =========================================
 
 # Compile gRPC protocol buffers
-python -m grpc_tools.protoc -I. --python_out=. --grpc_python_out=. ./src/flora/communicator/grpc_communicator.proto
+python -m grpc_tools.protoc -I. --python_out=. --grpc_python_out=. ./src/flora/communicator/grpc.proto
 
 # Run the main script
 # NOTE: additional arguments passed to the `main.sh` script are forwarded to the Python script

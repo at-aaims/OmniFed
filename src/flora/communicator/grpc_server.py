@@ -19,13 +19,13 @@ from typing import Any, Dict
 import rich.repr
 import torch
 
-from . import grpc_communicator_pb2, grpc_communicator_pb2_grpc
-from .BaseCommunicator import AggregationOp
+from . import grpc_pb2, grpc_pb2_grpc
+from .base import AggregationOp
 from .utils import get_msg_info, proto_to_tensordict, tensordict_to_proto
 
 
 @rich.repr.auto
-class CentralServerServicer(grpc_communicator_pb2_grpc.CentralServerServicer):
+class GrpcServer(grpc_pb2_grpc.GrpcServerServicer):
     """
     gRPC server implementation for federated learning communication coordination.
 
@@ -185,11 +185,11 @@ class CentralServerServicer(grpc_communicator_pb2_grpc.CentralServerServicer):
         with self.lock:
             if self._broadcast_state:
                 proto_tensordict = tensordict_to_proto(self._broadcast_state)
-                return grpc_communicator_pb2.OperationResponse(
+                return grpc_pb2.OperationResponse(
                     tensor_dict=proto_tensordict, is_ready=True
                 )
             else:
-                return grpc_communicator_pb2.OperationResponse(is_ready=False)
+                return grpc_pb2.OperationResponse(is_ready=False)
 
     def _create_aggregation_result_response(self, session_id: int):
         """
@@ -206,10 +206,10 @@ class CentralServerServicer(grpc_communicator_pb2_grpc.CentralServerServicer):
             if session_state["result"] is not None:
                 aggregated_tensors = session_state["result"]
                 proto_tensordict = tensordict_to_proto(aggregated_tensors)
-                return grpc_communicator_pb2.OperationResponse(
+                return grpc_pb2.OperationResponse(
                     tensor_dict=proto_tensordict, is_ready=True
                 )
-        return grpc_communicator_pb2.OperationResponse(is_ready=False)
+        return grpc_pb2.OperationResponse(is_ready=False)
 
     def SubmitForAggregation(self, request, context):
         """
@@ -254,11 +254,11 @@ class CentralServerServicer(grpc_communicator_pb2_grpc.CentralServerServicer):
                 )
 
                 self.perform_aggregation_if_ready(session_state, current_session)
-                return grpc_communicator_pb2.StatusResponse(success=True)
+                return grpc_pb2.StatusResponse(success=True)
 
             except Exception as e:
                 print(f"[COMM-ERROR] Submit | {e}")
-                return grpc_communicator_pb2.StatusResponse(success=False)
+                return grpc_pb2.StatusResponse(success=False)
 
     def GetAggregationResult(self, request, context):
         """
@@ -286,7 +286,7 @@ class CentralServerServicer(grpc_communicator_pb2_grpc.CentralServerServicer):
                 print(
                     f"[COMM-ERROR] GetResult | client={client_id} | no submission found"
                 )
-                return grpc_communicator_pb2.OperationResponse(is_ready=False)
+                return grpc_pb2.OperationResponse(is_ready=False)
 
         print(f"[AGG-REQUEST] Client {client_id} requesting aggregation result")
 
@@ -304,11 +304,11 @@ class CentralServerServicer(grpc_communicator_pb2_grpc.CentralServerServicer):
                 if session_state["result"] is not None:
                     print(f"[AGG-SEND] Sending aggregated model to client {client_id}")
                     return self._create_aggregation_result_response(target_session)
-            return grpc_communicator_pb2.OperationResponse(is_ready=False)
+            return grpc_pb2.OperationResponse(is_ready=False)
 
         except Exception as e:
             print(f"[COMM-ERROR] GetResult | {e}")
-            return grpc_communicator_pb2.OperationResponse(is_ready=False)
+            return grpc_pb2.OperationResponse(is_ready=False)
 
     def RegisterClient(self, request, context):
         """
@@ -327,4 +327,4 @@ class CentralServerServicer(grpc_communicator_pb2_grpc.CentralServerServicer):
             print(
                 f"[COMM-REGISTER] Client registered | {total_clients}/{self.world_size} total"
             )
-            return grpc_communicator_pb2.StatusResponse(success=True)
+            return grpc_pb2.StatusResponse(success=True)

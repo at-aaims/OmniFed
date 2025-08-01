@@ -19,8 +19,8 @@ import grpc
 import rich.repr
 import torch
 
-from . import AggregationOp, grpc_communicator_pb2
-from . import grpc_communicator_pb2_grpc
+from . import AggregationOp, grpc_pb2
+from . import grpc_pb2_grpc
 from .utils import get_msg_info, proto_to_tensordict, tensordict_to_proto
 
 
@@ -96,9 +96,9 @@ class GrpcClient:
                         ),
                     ],
                 )
-                self.stub = grpc_communicator_pb2_grpc.CentralServerStub(self.channel)
+                self.stub = grpc_pb2_grpc.GrpcServerStub(self.channel)
                 response = self.stub.RegisterClient(
-                    grpc_communicator_pb2.ClientInfo(client_id=self.client_id),
+                    grpc_pb2.ClientInfo(client_id=self.client_id),
                 )
                 print(f"[COMM-CLIENT] Register | success={response.success}")
                 return
@@ -132,7 +132,7 @@ class GrpcClient:
 
         while True:
             try:
-                request = grpc_communicator_pb2.ClientInfo(client_id=self.client_id)
+                request = grpc_pb2.ClientInfo(client_id=self.client_id)
                 response = self.stub.GetBroadcastState(request)
                 if response.is_ready:
                     tensordict = proto_to_tensordict(response.tensor_dict)
@@ -167,7 +167,7 @@ class GrpcClient:
         """
         try:
             proto_tensordict = tensordict_to_proto(tensordict)
-            request = grpc_communicator_pb2.AggregationRequest(
+            request = grpc_pb2.AggregationRequest(
                 client_id=self.client_id,
                 tensor_dict=proto_tensordict,
                 reduction_type=reduction_type.value,
@@ -206,7 +206,7 @@ class GrpcClient:
             if elapsed > self.client_timeout:
                 raise RuntimeError(f"Aggregation timeout ({self.client_timeout}s)")
             try:
-                request = grpc_communicator_pb2.ClientInfo(client_id=self.client_id)
+                request = grpc_pb2.ClientInfo(client_id=self.client_id)
                 response = self.stub.GetAggregationResult(request)
                 if response.is_ready:
                     tensordict = proto_to_tensordict(response.tensor_dict)

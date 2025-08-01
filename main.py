@@ -17,16 +17,16 @@ import time
 
 import hydra
 from hydra.utils import get_original_cwd
-from omegaconf import DictConfig, OmegaConf
+from omegaconf import OmegaConf
 from rich.pretty import pprint
 
-from src.flora import Engine, utils
+from src.flora import Engine, EngineConfig, utils
 
 # =============================================================================
 
 
 @hydra.main(version_base=None, config_path="conf", config_name="base")
-def main(cfg: DictConfig) -> None:
+def main(cfg: EngineConfig) -> None:
     import logging
 
     # utils.setup_rich_logging()

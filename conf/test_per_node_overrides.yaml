@@ -6,17 +6,8 @@
 # ══════════════════════════════════════════════════════════════════════════════
 
 defaults:
-  - base # Base framework configuration
-  - override topology: centralized_with_torchdist # Centralized FL topology with TorchDist
-  - override algorithm: fedavg # FedAvg algorithm
-  - override model: simple_cnn # Simple CNN for image classification
-  - override datamodule: mnist # MNIST dataset
-  - _self_ # Override with local settings
-
-# ─────────────────────────────────────────
-# Experiment Parameters
-
-global_rounds: 2
+  - test_mnist_fedavg_centralized_torchdist # Inherit base test config
+  - _self_
 
 # ─────────────────────────────────────────
 # Component Overrides
@@ -26,7 +17,7 @@ topology:
   node_overrides: # Override settings per-rank
     # Rank 0 (server) - disable training by setting train dataloader to null
     0:
-      id: Server
+      id: ChangedServerId
       datamodule:
         train: null
     # 1:
@@ -34,19 +25,3 @@ topology:
     #     local_lr: 0.005  # Different learning rate for client 1
     # 2:
     #   device: "cpu"     # Force client 2 to use CPU
-
-algorithm:
-  local_lr: 0.01
-  max_epochs_per_round: 2
-
-model:
-  backbone:
-    in_channels: 1 # MNIST grayscale images
-  head:
-    num_classes: 10 # 10 digit classes
-
-datamodule:
-  train:
-    batch_size: 128
-  eval:
-    batch_size: 128

@@ -10,6 +10,6 @@ defaults:
     - _self_
 
 # NOTE: Check constructor signature for complete parameter list, defaults, types, and docs.
-_target_: src.flora.algorithms.FedNova
+_target_: src.flora.algorithm.FedNova
 
 weight_decay: 0.0 # L2 regularization strength for local training
