@@ -68,6 +68,7 @@ class DifferentialPrivacyTrain:
         self.training_samples = 0
         self.client_id = client_id
         dev_id = self.client_id % 4
+        dev_id += 4
         self.device = (
             torch.device("cuda:" + str(dev_id))
             if torch.cuda.is_available()
