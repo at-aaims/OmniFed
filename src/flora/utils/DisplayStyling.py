@@ -5,19 +5,9 @@ Centralized colors, emojis, table configurations, and column definitions.
 """
 
 from dataclasses import dataclass
-from enum import Enum
 from typing import Dict, Any
 from rich import box
 from typeguard import typechecked
-
-
-class DisplayTheme(Enum):
-    """Available display themes for experiment tables."""
-
-    DEFAULT = "default"
-    DARK = "dark"
-    MINIMAL = "minimal"
-    SCIENTIFIC = "scientific"
 
 
 @dataclass(frozen=True)
@@ -148,10 +138,8 @@ class ColumnDefinitions:
 class TableStyleManager:
     """Manager for table styling and configuration."""
 
-    def __init__(self, theme: DisplayTheme = DisplayTheme.DEFAULT):
+    def __init__(self):
         """Initialize style manager."""
-        # Type annotation ensures theme is always DisplayTheme - no isinstance check needed
-        self.theme = theme
         self.colors = ColorScheme()
         self.emojis = EmojiScheme()
         self.config = TableConfiguration()
@@ -217,16 +205,6 @@ class TableStyleManager:
 
             emoji, text, style, justify = column_def
 
-            # Ensure valid column definition
-            if not isinstance(text, str):
-                text = str(text)
-            if not isinstance(emoji, str):
-                emoji = ""
-            if not isinstance(style, str):
-                style = "white"
-            if not isinstance(justify, str):
-                justify = "left"
-
             return {
                 "header": f"{emoji} {text}".strip(),
                 "justify": justify,
@@ -279,41 +257,21 @@ class TableStyleManager:
     @typechecked
     def format_metric_name(self, metric_name: str, emoji: str) -> str:
         """Format metric names."""
-        try:
-            # @typechecked decorator validates types - handle empty string case
-            if not metric_name.strip():
-                metric_name = "Unknown Metric"
+        if not metric_name.strip():
+            metric_name = "Unknown Metric"
 
-            return f"[{self.colors.metric_emoji}]{emoji}[/{self.colors.metric_emoji}] [{self.colors.metric_name}]{metric_name}[/{self.colors.metric_name}]"
-
-        except Exception as e:
-            # Provide basic fallback formatting
-            return (
-                f"📊 {metric_name}"
-                if isinstance(metric_name, str)
-                else "📊 Unknown Metric"
-            )
+        return f"[{self.colors.metric_emoji}]{emoji}[/{self.colors.metric_emoji}] [{self.colors.metric_name}]{metric_name}[/{self.colors.metric_name}]"
 
     @typechecked
     def format_group_header(self, group_name: str, count: int) -> str:
         """Format group headers."""
-        try:
-            # @typechecked decorator validates types - handle edge cases
-            if not group_name.strip():
-                group_name = "Unknown Group"
+        if not group_name.strip():
+            group_name = "Unknown Group"
 
-            if count < 0:
-                count = 0  # Ensure non-negative count
+        if count < 0:
+            count = 0
 
-            return f"[{self.colors.group_header}]{group_name}[/{self.colors.group_header}] [{self.colors.group_count}]({count})[/{self.colors.group_count}]"
-
-        except Exception as e:
-            # Provide basic fallback formatting
-            return (
-                f"{group_name} ({count})"
-                if isinstance(group_name, str)
-                else "Unknown Group (0)"
-            )
+        return f"[{self.colors.group_header}]{group_name}[/{self.colors.group_header}] [{self.colors.group_count}]({count})[/{self.colors.group_count}]"
 
     def get_header_style(self, level: str = "primary") -> str:
         """Get header style for different hierarchy levels."""
@@ -325,7 +283,7 @@ class TableStyleManager:
         return style_map.get(level, self.colors.header_primary)
 
 
-# Global style manager instance - single source of truth
+# Global style manager instance
 STYLE_MANAGER = TableStyleManager()
 
 
