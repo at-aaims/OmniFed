@@ -324,6 +324,44 @@ class ExperimentResultsDisplay:
         
         return table
 
+    def _add_standard_metric_column(self, table: Table) -> None:
+        """Add standard metric column with consistent configuration.
+        
+        Eliminates duplication across summary, progression, and statistics tables.
+        All tables start with the same metric column format.
+        """
+        metric_config = get_column_config("metric")
+        table.add_column(
+            metric_config["header"],
+            justify=metric_config["justify"],
+            style=metric_config["style"],
+            vertical=metric_config["vertical"],
+        )
+
+    def _add_group_section_if_needed(
+        self, 
+        table: Table, 
+        group_index: int, 
+        group_name: str, 
+        item_count: int,
+        total_groups: int,
+        empty_columns_count: int
+    ) -> None:
+        """Add section separator and group header if needed.
+        
+        Eliminates duplication between progression and statistics row builders.
+        Handles the common pattern of adding section breaks and group headers.
+        """
+        # Add section separator for groups after the first
+        if group_index > 0:
+            table.add_section()
+
+        # Add group header if there are multiple groups
+        if total_groups > 1:
+            empty_cols = [""] * empty_columns_count
+            group_header_text = format_group_header(group_name, item_count)
+            table.add_row(group_header_text, *empty_cols)
+
     @typechecked
     def show_experiment_results(
         self,
@@ -490,15 +528,9 @@ class ExperimentResultsDisplay:
 
     def _add_summary_columns(self, table: Table, analysis: Dict[str, Any]) -> None:
         """Add columns for summary table."""
-        metric_config = get_column_config("metric")
+        self._add_standard_metric_column(table)
+        
         value_config = get_column_config("value")
-
-        table.add_column(
-            metric_config["header"],
-            justify=metric_config["justify"],
-            style=metric_config["style"],
-            vertical=metric_config["vertical"],
-        )
         table.add_column(
             value_config["header"],
             justify=value_config["justify"],
@@ -927,13 +959,7 @@ class ExperimentResultsDisplay:
 
     def _add_progression_columns(self, table: Table, analysis: Dict[str, Any]) -> None:
         """Add progression columns."""
-        metric_config = get_column_config("metric")
-        table.add_column(
-            metric_config["header"],
-            justify=metric_config["justify"],
-            style=metric_config["style"],
-            vertical=metric_config["vertical"],
-        )
+        self._add_standard_metric_column(table)
 
         column_headers = analysis["column_headers"]
 
@@ -952,14 +978,10 @@ class ExperimentResultsDisplay:
         for i, group_name in enumerate(group_names):
             metric_list = grouped_metrics[group_name]
 
-            if i > 0:
-                table.add_section()
-
-            if len(grouped_metrics) > 1:
-                empty_cols = [""] * len(coordinate_matrix)
-                metric_count = len(metric_list)
-                group_header_text = format_group_header(group_name, metric_count)
-                table.add_row(group_header_text, *empty_cols)
+            self._add_group_section_if_needed(
+                table, i, group_name, len(metric_list),
+                len(grouped_metrics), len(coordinate_matrix)
+            )
 
             for metric in metric_list:
                 try:
@@ -1048,16 +1070,6 @@ class ExperimentResultsDisplay:
             if len(valid_values) < 2:
                 return  # Need at least 2 values for comparison
 
-            # Find first valid value as baseline
-            first_valid_value = None
-            for v in values:
-                if v is not None:
-                    first_valid_value = v
-                    break
-
-            if first_valid_value is None:
-                return
-
             # Create percentage change row
             pct_row_data = [""]  # Empty first column for alignment
 
@@ -1072,15 +1084,26 @@ class ExperimentResultsDisplay:
                         pct_row_data.append("-")
                         continue
 
-                    # Calculate percentage change with division by zero protection
-                    if abs(first_valid_value) > self.DIVISION_EPSILON:
+                    # Find previous valid value for sequential comparison
+                    prev_value = None
+                    for j in range(i - 1, -1, -1):
+                        if values[j] is not None:
+                            prev_value = values[j]
+                            break
+
+                    if prev_value is None:
+                        pct_row_data.append("-")
+                        continue
+
+                    # Calculate sequential percentage change with division by zero protection
+                    if abs(prev_value) > self.DIVISION_EPSILON:
                         pct_change = (
-                            (current_value - first_valid_value) / abs(first_valid_value)
+                            (current_value - prev_value) / abs(prev_value)
                         ) * 100
 
-                        # Get color based on optimization goal
+                        # Get color based on optimization goal (using sequential delta)
                         color = self._formatter.get_delta_color(
-                            metric, current_value - first_valid_value
+                            metric, current_value - prev_value
                         )
 
                         # Format percentage with significance indication
@@ -1093,12 +1116,12 @@ class ExperimentResultsDisplay:
 
                         pct_row_data.append(pct_str)
                     else:
-                        # Handle division by zero with clear indicators
-                        if current_value > first_valid_value:
+                        # Handle division by zero with clear indicators (using sequential comparison)
+                        if current_value > prev_value:
                             pct_row_data.append(
                                 f"[{get_colors().positive_change}]+∞%[/{get_colors().positive_change}]"
                             )
-                        elif current_value < first_valid_value:
+                        elif current_value < prev_value:
                             pct_row_data.append(
                                 f"[{get_colors().negative_change}]-∞%[/{get_colors().negative_change}]"
                             )
@@ -1275,13 +1298,7 @@ class ExperimentResultsDisplay:
 
     def _add_statistics_columns(self, table: Table, analysis_data: Dict[str, Any]) -> None:
         """Add statistics columns."""
-        metric_config = get_column_config("metric")
-        table.add_column(
-            metric_config["header"],
-            justify=metric_config["justify"],
-            style=metric_config["style"],
-            vertical=metric_config["vertical"],
-        )
+        self._add_standard_metric_column(table)
 
         for col_type in ["nodes", "sum", "mean", "std", "min", "max", "median", "cv"]:
             config = get_column_config(col_type)
@@ -1307,14 +1324,10 @@ class ExperimentResultsDisplay:
         for i, group_name in enumerate(group_names):
             stats_list = grouped_stats[group_name]
 
-            if i > 0:
-                table.add_section()
-
-            if len(grouped_stats) > 1:
-                stats_count = len(stats_list)
-                group_header_text = format_group_header(group_name, stats_count)
-                empty_cols = [""] * 8  # 8 statistics columns
-                table.add_row(group_header_text, *empty_cols)
+            self._add_group_section_if_needed(
+                table, i, group_name, len(stats_list),
+                len(grouped_stats), 8  # 8 statistics columns
+            )
 
             for stats in stats_list:
                 table.add_row(
