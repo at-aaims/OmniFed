@@ -13,7 +13,7 @@ cd ../
 dir='/ccsopen/home/ssq/datasets/'
 masterport=28670
 interface='eth1'
-worldsize=4
+worldsize=8
 
 bsz=32
 testbsz=32
