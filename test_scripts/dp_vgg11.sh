@@ -15,7 +15,8 @@ masterport=28670
 interface='eth1'
 worldsize=8
 
-bsz=32
+#bsz=32
+bsz=128
 testbsz=32
 comm='Collective'
 masteraddr='127.0.0.1'
