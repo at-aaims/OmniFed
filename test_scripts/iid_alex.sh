@@ -11,14 +11,13 @@ cd ../
 #commfreq=10
 dir='/ccsopen/home/ssq/datasets/'
 interface='eth1'
-commfreq=500
-worldsize=8
+worldsize=4
 bsz=32
 testbsz=128
 #comm='RPC'
 comm='Collective'
-algo='moon'
-commfreq=500
+algo='fedavg'
+commfreq=100
 masteraddr='127.0.0.1'
 masterport=28670
 #masterport=50055
