@@ -5,26 +5,23 @@ cd ../
 # kill -s 9 `ps -ef | grep src.flora.test.launch_sparsification |grep -v grep | awk '{print $2}'`
 # kill -9 $(ps aux | grep src.flora.test.launch_sparsification | grep -v grep | awk '{print $2}')
 
-#dir='/ccsopen/home/ssq/datasets/'
-#masterport=28670
-#dir='/ccsopen/home/ssq/datasets2/'
-#masterport=29860
-#dir='/ccsopen/home/ssq/datasets3/'
-#masterport=27340
+
 dir='/ccsopen/home/ssq/datasets4/'
-masterport=26290
+masterport=28670
 interface='eth1'
-worldsize=8
+worldsize=4
+
 #dir='/Users/ssq/Desktop/datasets/flora_test/'
 #interface='lo0'
 #worldsize=4
+
 bsz=32
 masteraddr='127.0.0.1'
 backend='gloo'
 model='resnet18'
 dataset='cifar10'
-compression='dgc'
-compressratio=0.001
+compression='topK'
+compressratio=0.1
 
 for val in $(seq 1 $worldsize)
 do
