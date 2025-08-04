@@ -22,9 +22,14 @@ backend='gloo'
 model='resnet18'
 dataset='cifar10'
 epochs=200
-epsilon=1.0
+
+#epsilon=1.0
+#delta=1e-5
+#gamma=0.01
+
+epsilon=10.0
 delta=1e-5
-gamma=0.01
+gamma=0.1
 
 for val in $(seq 1 $worldsize)
 do

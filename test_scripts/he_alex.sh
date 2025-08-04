@@ -11,7 +11,7 @@ cd ../
 #masterport=28670
 
 dir='/ccsopen/home/ssq/datasets/'
-masterport=29373
+masterport=28670
 interface='eth1'
 worldsize=2
 
