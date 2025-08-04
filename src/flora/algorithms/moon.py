@@ -198,12 +198,13 @@ class Moon:
         :param train_params: training hyperparameters
         """
 
+        self.model = MoonWrapper(base_model=model)
         # July 18, 2025 for VGG
         # model.classifier[6] = torch.nn.Linear(4096, 10)
         # July 19 2025 for AlexNet
         # self.model = MoonWrapper(base_model=model, num_classes=102)
         # July 20, 2025 MobileNet-v3
-        self.model = MoonWrapper(base_model=model, projection_dim=128)
+        # self.model = MoonWrapper(base_model=model, projection_dim=128)
         # self.model = torchvision.models.resnet18(pretrained=True).l
         self.train_data = train_data
         self.test_data = test_data
