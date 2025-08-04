@@ -201,6 +201,7 @@ class Moon:
         # self.model = MoonWrapper(base_model=model)
         # July 18, 2025 for VGG
         model.classifier[6] = torch.nn.Linear(4096, 10)
+        self.model = MoonWrapper(base_model=model, num_classes=100, projection_dim=128)
         # July 19 2025 for AlexNet
         # self.model = MoonWrapper(base_model=model, num_classes=102)
         # July 20, 2025 MobileNet-v3
