@@ -344,9 +344,9 @@ class ModelTrainer(object):
                 client_id=self.rank,
                 base_model=self.model,
                 # for ResNet18 CIFAR10
-                personal_head=SimpleFedPerHead(input_dim=1000, num_classes=10),
+                # personal_head=SimpleFedPerHead(input_dim=1000, num_classes=10),
                 # for VGG11 CIFAR100
-                # personal_head=SimpleFedPerHead(input_dim=1000, num_classes=100),
+                personal_head=SimpleFedPerHead(input_dim=1000, num_classes=100),
                 # for AlexNet
                 # personal_head=SimpleFedPerHead(input_dim=1000, num_classes=102),
                 # for MobileNet-V3
