@@ -1,7 +1,7 @@
 # ══════════════════════════════════════════════════════════════════════════════
 # Fashion-MNIST Dataset Configuration
 #
-# Configures FLORA DataModule for Fashion-MNIST clothing classification.
+# Configures FLUX DataModule for Fashion-MNIST clothing classification.
 # Uses torchvision dataset with standard normalization values for Fashion-MNIST.
 #
 # Docs:
@@ -19,7 +19,7 @@ defaults:
 train:
   dataset:
     _target_: torchvision.datasets.FashionMNIST
-    root: ${oc.env:FLORA_DATA_DIR,/tmp}/fashion-mnist
+    root: ${oc.env:FLUX_DATA_DIR,/tmp}/fashion-mnist
     train: true  # Use training set
     # target_transform: null  # Optional transform for targets
     download: true
@@ -39,7 +39,7 @@ train:
 eval:
   dataset:
     _target_: torchvision.datasets.FashionMNIST
-    root: ${oc.env:FLORA_DATA_DIR,/tmp}/fashion-mnist
+    root: ${oc.env:FLUX_DATA_DIR,/tmp}/fashion-mnist
     train: false  # Use test set
     # target_transform: null  # Optional transform for targets
     download: true

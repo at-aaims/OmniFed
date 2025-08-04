@@ -31,7 +31,7 @@ class CentralizedTopology(BaseTopology):
     Classic federated learning: one server coordinating multiple clients.
 
     When to use: All participants can communicate directly with a central server.
-    For cross-institutional setups, use MultiGroupTopology instead.
+    For cross-institutional setups, use HierarchicalTopology instead.
 
     How it works:
     - Server (rank 0) aggregates model updates, never trains locally

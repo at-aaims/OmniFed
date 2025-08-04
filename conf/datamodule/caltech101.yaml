@@ -1,7 +1,7 @@
 # ══════════════════════════════════════════════════════════════════════════════
 # Caltech-101 Dataset Configuration
 #
-# Configures FLORA DataModule for Caltech-101 object classification.
+# Configures FLUX DataModule for Caltech-101 object classification.
 # Uses torchvision dataset with appropriate transforms for variable-sized images.
 #
 # Docs:
@@ -19,7 +19,7 @@ defaults:
 train:
   dataset:
     _target_: torchvision.datasets.Caltech101
-    root: ${oc.env:FLORA_DATA_DIR,/tmp}/caltech101
+    root: ${oc.env:FLUX_DATA_DIR,/tmp}/caltech101
     target_type: category # Use class labels (not annotation outlines)
     # target_type: annotation  # Hand-generated outline points
     # target_type: [category, annotation]  # List returns tuple with both types
@@ -48,7 +48,7 @@ train:
 eval:
   dataset:
     _target_: torchvision.datasets.Caltech101
-    root: ${oc.env:FLORA_DATA_DIR,/tmp}/caltech101
+    root: ${oc.env:FLUX_DATA_DIR,/tmp}/caltech101
     target_type: category # Use class labels (not annotation outlines)
     # target_type: annotation  # Hand-generated outline points
     # target_type: [category, annotation]  # List returns tuple with both types

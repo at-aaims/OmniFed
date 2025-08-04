@@ -20,7 +20,7 @@ class RequiredSetup(ABC):
     """
     Template Method pattern for deferred component initialization.
 
-    Provides consistent setup/teardown lifecycle for FLORA components that need
+    Provides consistent setup/teardown lifecycle for FLUX components that need
     runtime initialization (device placement, network connections, etc.).
 
     Pattern enforces clean separation:

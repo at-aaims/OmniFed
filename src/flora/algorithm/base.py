@@ -70,8 +70,8 @@ class BaseAlgorithm(RequiredSetup, LifecycleHooks, MetricLogger):
                 utils.scale_params(self.local_model, weight)
                 return comm.aggregate(self.local_model, AggregationOp.SUM)
 
-    **Advanced - MultiGroupTopology (Cross-Institutional FL):**
-    When using MultiGroupTopology for cross-institutional federated learning,
+    **Advanced - HierarchicalTopology (Cross-Institutional FL):**
+    When using HierarchicalTopology for cross-institutional federated learning,
     the framework uses two-level sample-weighted aggregation:
     - **Within-group**: Each client weighted by personal samples / group total samples
     - **Cross-group**: Each group weighted by group total samples / global total samples
@@ -83,7 +83,7 @@ class BaseAlgorithm(RequiredSetup, LifecycleHooks, MetricLogger):
 
     *Aggregation Methods:*
     - `_aggregate_within_group()`: Custom FL aggregation (FedProx, SCAFFOLD, etc.)
-    - `_aggregate_across_groups()`: Cross-institutional aggregation (MultiGroupTopology)
+    - `_aggregate_across_groups()`: Cross-institutional aggregation (HierarchicalTopology)
 
     *Lifecycle Hooks:*
     - `_round_start()`, `_round_end()`: Round-level setup/cleanup
@@ -435,7 +435,7 @@ class BaseAlgorithm(RequiredSetup, LifecycleHooks, MetricLogger):
         """
         Perform global aggregation across groups.
 
-        **Override for custom cross-institutional aggregation** in MultiGroupTopology setups.
+        **Override for custom cross-institutional aggregation** in HierarchicalTopology setups.
         Default implementation provides sample-weighted averaging across groups.
 
         Called when global_comm is available.

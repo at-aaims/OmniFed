@@ -96,7 +96,7 @@ hydra:
       # These can be used to configure the runtime environment for FL workers.
       # Note: These variables will be copied to all FL workers
 
-      FLORA_ENV_DUMMY1: "dummy_value1" # Example variable for demonstration
+      FLUX_ENV_DUMMY1: "dummy_value1" # Example variable for demonstration
 
       # Example settings:
 

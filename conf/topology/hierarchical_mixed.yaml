@@ -1,5 +1,5 @@
 # ══════════════════════════════════════════════════════════════════════════════
-# MultiGroup Topology with Mixed Communication
+# Hierarchical Topology with Mixed Communication
 #
 # Hierarchical federated learning topology structure.
 # Multiple groups each containing centralized sub-topologies.
@@ -13,7 +13,7 @@ defaults:
   - _self_
 
 # NOTE: Check constructor signature for complete parameter list, defaults, types, and docs.
-_target_: src.flora.topology.MultiGroupTopology
+_target_: src.flora.topology.HierarchicalTopology
 
 # ─────────────────────────────────────────
 # Inter-Group Communication

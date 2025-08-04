@@ -24,14 +24,14 @@ from ..communicator import BaseCommunicatorConfig
 class BaseTopologyConfig:
     """Base configuration for all topology types."""
 
-    pass
+    _target_: str = "src.flora.topology.BaseTopology"
 
 
 @dataclass
 class CentralizedTopologyConfig(BaseTopologyConfig):
     """Configuration for CentralizedTopology."""
 
-    _target_: str = "src.flora.topology.CentralizedTopology.CentralizedTopology"
+    _target_: str = "src.flora.topology.CentralizedTopology"
 
     # Required parameters
     num_clients: int = MISSING
@@ -42,10 +42,10 @@ class CentralizedTopologyConfig(BaseTopologyConfig):
 
 
 @dataclass
-class MultiGroupTopologyConfig(BaseTopologyConfig):
-    """Configuration for MultiGroupTopology."""
+class HierarchicalTopologyConfig(BaseTopologyConfig):
+    """Configuration for HierarchicalTopology."""
 
-    _target_: str = "src.flora.topology.MultiGroupTopology.MultiGroupTopology"
+    _target_: str = "src.flora.topology.HierarchicalTopology"
 
     # Required parameters
     groups: List[DictConfig] = MISSING

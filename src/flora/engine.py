@@ -103,7 +103,7 @@ class RayConfig:
 
 @dataclass
 class EngineConfig:
-    """Main configuration for FLORA federated learning experiments."""
+    """Main configuration for FLUX federated learning experiments."""
 
     # Required experiment parameters
     global_rounds: int = MISSING
@@ -147,7 +147,7 @@ class Engine(RequiredSetup):
         Initialize the federated learning experiment engine.
 
         Args:
-            cfg: Complete FLORA configuration including topology, algorithm,
+            cfg: Complete FLUX configuration including topology, algorithm,
                  model, and datamodule specifications
         """
         super().__init__()

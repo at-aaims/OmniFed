@@ -21,7 +21,7 @@ from rich.rule import Rule
 
 # def setup_rich_logging(level=logging.INFO) -> None:
 #     """
-#     Configure rich console logging for FLORA.
+#     Configure rich console logging for FLUX.
 
 #     Sets up enhanced logging with timestamps, paths, markup support,
 #     and rich tracebacks for better debugging experience.

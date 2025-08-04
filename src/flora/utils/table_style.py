@@ -1,5 +1,5 @@
 """
-Styling and theming for FLORA experiment displays.
+Styling and theming for FLUX experiment displays.
 
 Centralized colors, emojis, table configurations, and column definitions.
 """

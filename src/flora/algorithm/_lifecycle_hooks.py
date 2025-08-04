@@ -13,6 +13,7 @@
 # limitations under the License.
 
 from abc import ABC
+from typing import Any, Dict
 
 
 class LifecycleHooks(ABC):
@@ -42,70 +43,88 @@ class LifecycleHooks(ABC):
 
     def _round_start(self) -> None:
         """Called at start of each FL round.
-        
+
         **Override for round-level setup** like custom metrics initialization or algorithm state reset.
         """
         pass
 
     def _round_end(self) -> None:
         """Called at end of each FL round.
-        
+
         **Override for round-level cleanup** like custom metrics finalization or algorithm state updates.
         """
         pass
 
     def _train_epoch_start(self) -> None:
         """Called at start of each training epoch.
-        
+
         **Override for epoch-level training setup** like learning rate scheduling or epoch-specific initialization.
         """
         pass
 
     def _train_epoch_end(self) -> None:
         """Called at end of each training epoch.
-        
+
         **Override for epoch-level training cleanup** like custom metrics aggregation or epoch-specific updates.
         """
         pass
 
     def _train_batch_start(self) -> None:
         """Called before processing each training batch.
-        
+
         **Override for batch-level training setup** like custom data preprocessing or batch-specific initialization.
         """
         pass
 
     def _train_batch_end(self) -> None:
         """Called after processing each training batch.
-        
+
         **Override for batch-level training cleanup** like custom metrics logging or batch-specific updates.
         """
         pass
 
     def _eval_epoch_start(self) -> None:
         """Called at start of each evaluation epoch.
-        
+
         **Override for epoch-level evaluation setup** like evaluation-specific initialization or mode switching.
         """
         pass
 
     def _eval_epoch_end(self) -> None:
         """Called at end of each evaluation epoch.
-        
+
         **Override for epoch-level evaluation cleanup** like custom evaluation metrics aggregation.
         """
         pass
 
     def _eval_batch_start(self) -> None:
         """Called before processing each evaluation batch.
-        
+
         **Override for batch-level evaluation setup** like custom evaluation preprocessing.
         """
         pass
 
     def _eval_batch_end(self) -> None:
         """Called after processing each evaluation batch.
-        
+
         **Override for batch-level evaluation cleanup** like custom evaluation metrics logging.
         """
         pass
+
+    def _train_batch(self, batch: Any) -> Dict[str, float]:
+        """Override to implement custom training logic for each batch.
+
+        This is called after `_train_batch_start` and before `_train_batch_end`.
+        """
+        raise NotImplementedError(
+            "Override _train_batch to implement custom training logic for each batch."
+        )
+
+    def _eval_batch(self, batch: Any) -> Dict[str, float]:
+        """Override to implement custom evaluation logic for each batch.
+
+        This is called after `_eval_batch_start` and before `_eval_batch_end`.
+        """
+        raise NotImplementedError(
+            "Override _eval_batch to implement custom evaluation logic for each batch."
+        )

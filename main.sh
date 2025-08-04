@@ -11,7 +11,7 @@ set -x            # Print each command before executing it (for debugging)
 
 # =========================================
 
-export FLORA_DEBUG=1 # Enable debug mode (extra printing)
+export FLUX_DEBUG=1 # Enable debug mode (extra printing)
 
 export PYTHONUNBUFFERED=1 # Immediate Python output
 export HYDRA_FULL_ERROR=1 # Full Hydra error traces

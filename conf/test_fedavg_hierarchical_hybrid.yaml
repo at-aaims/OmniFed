@@ -1,14 +1,14 @@
 # ══════════════════════════════════════════════════════════════════════════════
-# MNIST FedAvg MultiGroup Experiment with Mixed Communication
+# MNIST FedAvg Hierarchical Experiment with Mixed Communication
 #
 # Complete configuration for MNIST experiments with FedAvg algorithm.
-# Uses multigroup topology with 2 groups of 2 clients each (4 total clients).
+# Uses hierarchical topology with 2 groups of 2 clients each (4 total clients).
 # Mixed communication: gRPC for global, TorchDist for local.
 # ══════════════════════════════════════════════════════════════════════════════
 
 defaults:
   - base_mnist_5K # Base framework configuration
-  - override topology: multigroup_mixed # MultiGroup FL topology with mixed communication
+  - override topology: hierarchical_mixed # Hierarchical FL topology with mixed communication
   - override algorithm: fedavg # FedAvg algorithm
   - _self_ # Override with local settings
 

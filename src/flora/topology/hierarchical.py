@@ -28,7 +28,7 @@ from .base import BaseTopology
 
 
 @rich.repr.auto
-class MultiGroupTopology(BaseTopology):
+class HierarchicalTopology(BaseTopology):
     """
     Cross-institutional federated learning with hierarchical aggregation.
 

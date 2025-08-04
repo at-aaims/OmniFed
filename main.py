@@ -33,7 +33,7 @@ def main(cfg: EngineConfig) -> None:
     # NOTE: migrate to logging soon (this is currently unused)
     logger = logging.getLogger(__name__)
 
-    utils.print_rule("FLORA Federated Learning Framework")
+    utils.print_rule("FLUX")
 
     print(f"Current working directory : {os.getcwd()}")
     print(f"Orig working directory    : {get_original_cwd()}")

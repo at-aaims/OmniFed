@@ -1,7 +1,7 @@
 # ══════════════════════════════════════════════════════════════════════════════
 # CIFAR-100 Dataset Configuration
 #
-# Configures FLORA DataModule for CIFAR-100 fine-grained object classification.
+# Configures FLUX DataModule for CIFAR-100 fine-grained object classification.
 # Uses torchvision dataset with standard normalization and data augmentation.
 #
 # Docs:
@@ -19,7 +19,7 @@ defaults:
 train:
   dataset:
     _target_: torchvision.datasets.CIFAR100
-    root: ${oc.env:FLORA_DATA_DIR,/tmp}/cifar100
+    root: ${oc.env:FLUX_DATA_DIR,/tmp}/cifar100
     train: true  # Use training set
     # target_transform: null  # Optional transform for targets
     download: true
@@ -42,7 +42,7 @@ train:
 eval:
   dataset:
     _target_: torchvision.datasets.CIFAR100
-    root: ${oc.env:FLORA_DATA_DIR,/tmp}/cifar100
+    root: ${oc.env:FLUX_DATA_DIR,/tmp}/cifar100
     train: false  # Use test set
     # target_transform: null  # Optional transform for targets
     download: true
