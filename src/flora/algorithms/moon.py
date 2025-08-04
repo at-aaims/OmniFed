@@ -106,75 +106,75 @@ nanosec_to_millisec = 1e6
 
 
 # for AlexNet
-class MoonWrapper(torch.nn.Module):
-    def __init__(
-        self,
-        base_model: torch.nn.Module,
-        num_classes: int = 102,
-        projection_dim: int = 128,
-    ):
-        super().__init__()
-
-        self.features = base_model.features  # Conv layers
-        self.avgpool = base_model.avgpool  # AdaptiveAvgPool2d((6, 6)) by default
-        self.flatten = torch.nn.Flatten()
-
-        # Modify classifier for Caltech-101 (102 classes)
-        self.classifier = torch.nn.Sequential(
-            torch.nn.Dropout(),
-            torch.nn.Linear(256 * 6 * 6, 4096),
-            torch.nn.ReLU(inplace=True),
-            torch.nn.Dropout(),
-            torch.nn.Linear(4096, 4096),
-            torch.nn.ReLU(inplace=True),
-            torch.nn.Linear(4096, num_classes),
-        )
-
-        # Projection head for contrastive representation (input = 256 * 6 * 6)
-        self.proj_head = torch.nn.Linear(256 * 6 * 6, projection_dim)
-
-    def extract_features(self, x):
-        x = self.features(x)  # [B, 256, 6, 6] for 224×224 inputs
-        x = self.avgpool(x)  # Still [B, 256, 6, 6]
-        x = self.flatten(x)  # [B, 9216]
-        return x
-
-    def forward(self, x):
-        features = self.extract_features(x)  # [B, 9216]
-        logits = self.classifier(features)  # [B, 102]
-        representation = self.proj_head(features)  # [B, projection_dim]
-        return logits, representation
-
-
-# MobileNet-V3
 # class MoonWrapper(torch.nn.Module):
-#     def __init__(self, base_model: torch.nn.Module, projection_dim: int = 128):
+#     def __init__(
+#         self,
+#         base_model: torch.nn.Module,
+#         num_classes: int = 102,
+#         projection_dim: int = 128,
+#     ):
 #         super().__init__()
 #
-#         self.features = base_model.features  # feature extractor
-#         self.avgpool = base_model.avgpool  # AdaptiveAvgPool2d((1, 1))
-#         self.classifier = base_model.classifier  # already modified externally
-#
-#         # Flatten to match output after avgpool
+#         self.features = base_model.features  # Conv layers
+#         self.avgpool = base_model.avgpool  # AdaptiveAvgPool2d((6, 6)) by default
 #         self.flatten = torch.nn.Flatten()
 #
-#         # Infer feature dimension (e.g., 960) from classifier[0]
-#         feature_dim = base_model.classifier[0].in_features
+#         # Modify classifier for Caltech-101 (102 classes)
+#         self.classifier = torch.nn.Sequential(
+#             torch.nn.Dropout(),
+#             torch.nn.Linear(256 * 6 * 6, 4096),
+#             torch.nn.ReLU(inplace=True),
+#             torch.nn.Dropout(),
+#             torch.nn.Linear(4096, 4096),
+#             torch.nn.ReLU(inplace=True),
+#             torch.nn.Linear(4096, num_classes),
+#         )
 #
-#         # Projection head for MOON
-#         self.proj_head = torch.nn.Linear(feature_dim, projection_dim)
+#         # Projection head for contrastive representation (input = 256 * 6 * 6)
+#         self.proj_head = torch.nn.Linear(256 * 6 * 6, projection_dim)
 #
 #     def extract_features(self, x):
-#         x = self.features(x)  # [B, 960, H, W]
-#         x = self.avgpool(x)  # [B, 960, 1, 1]
-#         x = self.flatten(x)  # [B, 960]
+#         x = self.features(x)  # [B, 256, 6, 6] for 224×224 inputs
+#         x = self.avgpool(x)  # Still [B, 256, 6, 6]
+#         x = self.flatten(x)  # [B, 9216]
 #         return x
 #
 #     def forward(self, x):
-#         features = self.extract_features(x)  # [B, 960]
-#         logits = self.classifier(features)  # [B, 257]
+#         features = self.extract_features(x)  # [B, 9216]
+#         logits = self.classifier(features)  # [B, 102]
 #         representation = self.proj_head(features)  # [B, projection_dim]
 #         return logits, representation
+
+
+# MobileNet-V3
+class MoonWrapper(torch.nn.Module):
+    def __init__(self, base_model: torch.nn.Module, projection_dim: int = 128):
+        super().__init__()
+
+        self.features = base_model.features  # feature extractor
+        self.avgpool = base_model.avgpool  # AdaptiveAvgPool2d((1, 1))
+        self.classifier = base_model.classifier  # already modified externally
+
+        # Flatten to match output after avgpool
+        self.flatten = torch.nn.Flatten()
+
+        # Infer feature dimension (e.g., 960) from classifier[0]
+        feature_dim = base_model.classifier[0].in_features
+
+        # Projection head for MOON
+        self.proj_head = torch.nn.Linear(feature_dim, projection_dim)
+
+    def extract_features(self, x):
+        x = self.features(x)  # [B, 960, H, W]
+        x = self.avgpool(x)  # [B, 960, 1, 1]
+        x = self.flatten(x)  # [B, 960]
+        return x
+
+    def forward(self, x):
+        features = self.extract_features(x)  # [B, 960]
+        logits = self.classifier(features)  # [B, 257]
+        representation = self.proj_head(features)  # [B, projection_dim]
+        return logits, representation
 
 
 class Moon:
@@ -203,9 +203,9 @@ class Moon:
         # model.classifier[6] = torch.nn.Linear(4096, 10)
         # self.model = MoonWrapper(base_model=model, num_classes=100, projection_dim=128)
         # July 19 2025 for AlexNet
-        self.model = MoonWrapper(base_model=model, num_classes=102, projection_dim=128)
+        # self.model = MoonWrapper(base_model=model, num_classes=102, projection_dim=128)
         # July 20, 2025 MobileNet-v3
-        # self.model = MoonWrapper(base_model=model, projection_dim=128)
+        self.model = MoonWrapper(base_model=model, projection_dim=128)
         # self.model = torchvision.models.resnet18(pretrained=True).l
         self.train_data = train_data
         self.test_data = test_data
