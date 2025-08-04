@@ -44,65 +44,65 @@ nanosec_to_millisec = 1e6
 #         return logits, representation
 
 # ResNet18
-class MoonWrapper(torch.nn.Module):
-    def __init__(self, base_model):
-        super().__init__()
-        self.base_model = base_model
-        self.proj_head = torch.nn.Identity()
-
-    def extract_features(self, x):
-        x = self.base_model.conv1(x)
-        x = self.base_model.bn1(x)
-        x = self.base_model.relu(x)
-        x = self.base_model.maxpool(x)
-        x = self.base_model.layer1(x)
-        x = self.base_model.layer2(x)
-        x = self.base_model.layer3(x)
-        x = self.base_model.layer4(x)
-        x = self.base_model.avgpool(x)
-        x = torch.flatten(x, 1)
-        return x
-
-    def forward(self, input):
-        features = self.extract_features(input)
-        logits = self.base_model.fc(features)
-        representation = self.proj_head(features)
-        return logits, representation
-
-# VGG11
 # class MoonWrapper(torch.nn.Module):
-#     def __init__(self, base_model: torch.nn.Module, num_classes: int = 100, projection_dim: int = 128):
+#     def __init__(self, base_model):
 #         super().__init__()
-#
-#         self.features = base_model.features
-#         self.avgpool = torch.nn.AdaptiveAvgPool2d((1, 1))
-#         self.flatten = torch.nn.Flatten()
-#
-#         # Rebuild classifier for CIFAR-100
-#         self.classifier = torch.nn.Sequential(
-#             torch.nn.Linear(512, 4096),
-#             torch.nn.ReLU(True),
-#             torch.nn.Dropout(),
-#             torch.nn.Linear(4096, 4096),
-#             torch.nn.ReLU(True),
-#             torch.nn.Dropout(),
-#             torch.nn.Linear(4096, num_classes)
-#         )
-#
-#         # Projection head for contrastive representation
-#         self.proj_head = torch.nn.Linear(512, projection_dim)
+#         self.base_model = base_model
+#         self.proj_head = torch.nn.Identity()
 #
 #     def extract_features(self, x):
-#         x = self.features(x)     # -> [B, 512, 1, 1] for CIFAR-100 (32x32)
-#         x = self.avgpool(x)
-#         x = self.flatten(x)      # -> [B, 512]
+#         x = self.base_model.conv1(x)
+#         x = self.base_model.bn1(x)
+#         x = self.base_model.relu(x)
+#         x = self.base_model.maxpool(x)
+#         x = self.base_model.layer1(x)
+#         x = self.base_model.layer2(x)
+#         x = self.base_model.layer3(x)
+#         x = self.base_model.layer4(x)
+#         x = self.base_model.avgpool(x)
+#         x = torch.flatten(x, 1)
 #         return x
 #
-#     def forward(self, x):
-#         features = self.extract_features(x)           # -> [B, 512]
-#         logits = self.classifier(features)            # -> [B, 100]
-#         representation = self.proj_head(features)     # -> [B, projection_dim]
+#     def forward(self, input):
+#         features = self.extract_features(input)
+#         logits = self.base_model.fc(features)
+#         representation = self.proj_head(features)
 #         return logits, representation
+
+# VGG11
+class MoonWrapper(torch.nn.Module):
+    def __init__(self, base_model: torch.nn.Module, num_classes: int = 100, projection_dim: int = 128):
+        super().__init__()
+
+        self.features = base_model.features
+        self.avgpool = torch.nn.AdaptiveAvgPool2d((1, 1))
+        self.flatten = torch.nn.Flatten()
+
+        # Rebuild classifier for CIFAR-100
+        self.classifier = torch.nn.Sequential(
+            torch.nn.Linear(512, 4096),
+            torch.nn.ReLU(True),
+            torch.nn.Dropout(),
+            torch.nn.Linear(4096, 4096),
+            torch.nn.ReLU(True),
+            torch.nn.Dropout(),
+            torch.nn.Linear(4096, num_classes)
+        )
+
+        # Projection head for contrastive representation
+        self.proj_head = torch.nn.Linear(512, projection_dim)
+
+    def extract_features(self, x):
+        x = self.features(x)     # -> [B, 512, 1, 1] for CIFAR-100 (32x32)
+        x = self.avgpool(x)
+        x = self.flatten(x)      # -> [B, 512]
+        return x
+
+    def forward(self, x):
+        features = self.extract_features(x)           # -> [B, 512]
+        logits = self.classifier(features)            # -> [B, 100]
+        representation = self.proj_head(features)     # -> [B, projection_dim]
+        return logits, representation
 
 
 # for AlexNet
@@ -198,9 +198,9 @@ class Moon:
         :param train_params: training hyperparameters
         """
 
-        self.model = MoonWrapper(base_model=model)
+        # self.model = MoonWrapper(base_model=model)
         # July 18, 2025 for VGG
-        # model.classifier[6] = torch.nn.Linear(4096, 10)
+        model.classifier[6] = torch.nn.Linear(4096, 10)
         # July 19 2025 for AlexNet
         # self.model = MoonWrapper(base_model=model, num_classes=102)
         # July 20, 2025 MobileNet-v3
