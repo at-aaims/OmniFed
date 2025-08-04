@@ -9,11 +9,11 @@ cd ../
 dir='/ccsopen/home/ssq/datasets/'
 interface='eth1'
 bsz=32
-worldsize=8
+worldsize=4
 #comm='RPC'
 comm='Collective'
-algo='diloco'
-commfreq=500
+algo='fedavg'
+commfreq=100
 masteraddr='127.0.0.1'
 masterport=28670
 #masterport=50055
