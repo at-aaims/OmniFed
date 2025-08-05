@@ -25,8 +25,8 @@ lr=0.01
 gamma=0.1
 weightdecay=5e-4
 momentum=0.9
-compression='topK'
-compressratio=0.001
+compression='dgc'
+compressratio=0.1
 
 for val in $(seq 1 $worldsize)
 do

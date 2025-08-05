@@ -27,8 +27,10 @@ weightdecay=5e-4
 momentum=0.9
 compression='PowerSGD'
 poweritr=5
+
 #compressrank=64
 #mincompressrate=20
+
 compressrank=32
 mincompressrate=20
 
