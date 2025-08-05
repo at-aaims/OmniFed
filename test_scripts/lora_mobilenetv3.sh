@@ -11,9 +11,9 @@ cd ../
 #worldsize=4
 
 dir='/ccsopen/home/ssq/datasets/'
-masterport=25783
+masterport=28670
 interface='eth1'
-worldsize=8
+worldsize=4
 
 bsz=32
 testbsz=32
@@ -29,8 +29,10 @@ lrstepsize=40
 numclasses=257
 compression='PowerSGD'
 poweritr=5
+
 #compressrank=64
 #mincompressrate=20
+
 compressrank=32
 mincompressrate=20
 

@@ -28,7 +28,7 @@ momentum=0.9
 lrstepsize=40
 numclasses=257
 compression='dgc'
-compressratio=0.1
+compressratio=0.001
 
 for val in $(seq 1 $worldsize)
 do

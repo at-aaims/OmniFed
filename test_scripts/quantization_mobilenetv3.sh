@@ -11,15 +11,9 @@ cd ../
 #worldsize=4
 
 dir='/ccsopen/home/ssq/datasets/'
-masterport=25783
-#dir='/ccsopen/home/ssq/datasets2/'
-#masterport=29275
-#dir='/ccsopen/home/ssq/datasets3/'
-#masterport=28139
-#dir='/ccsopen/home/ssq/datasets4/'
-#masterport=26290
+masterport=28670
 interface='eth1'
-worldsize=8
+worldsize=4
 
 bsz=32
 testbsz=32
