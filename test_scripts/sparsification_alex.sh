@@ -10,16 +10,10 @@ cd ../
 #worldsize=3
 #interface='lo0'
 
-#dir='/ccsopen/home/ssq/datasets/'
-#masterport=29110
-dir='/ccsopen/home/ssq/datasets2/'
-masterport=27110
-#dir='/ccsopen/home/ssq/datasets3/'
-#masterport=23457
-#dir='/ccsopen/home/ssq/datasets4/'
-#masterport=26884
+dir='/ccsopen/home/ssq/datasets/'
+masterport=28670
 interface='eth1'
-worldsize=8
+worldsize=4
 
 bsz=32
 testbsz=128
@@ -31,8 +25,8 @@ lr=0.01
 gamma=0.1
 weightdecay=5e-4
 momentum=0.9
-compression='dgc'
-compressratio=0.001
+compression='topK'
+compressratio=0.1
 
 for val in $(seq 1 $worldsize)
 do
