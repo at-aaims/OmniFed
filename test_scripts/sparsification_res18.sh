@@ -6,7 +6,7 @@ cd ../
 # kill -9 $(ps aux | grep src.flora.test.launch_sparsification | grep -v grep | awk '{print $2}')
 
 
-dir='/ccsopen/home/ssq/datasets4/'
+dir='/ccsopen/home/ssq/datasets/'
 masterport=28670
 interface='eth1'
 worldsize=4
