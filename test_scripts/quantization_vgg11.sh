@@ -11,15 +11,15 @@ cd ../
 #masterport=28670
 
 dir='/ccsopen/home/ssq/datasets/'
-masterport=28360
-worldsize=8
+masterport=28640
+worldsize=4
 interface='eth1'
 
 bsz=32
 testbsz=32
 masteraddr='127.0.0.1'
 masterport=28670
-backend='Gloo'
+backend='gloo'
 lr=0.01
 gamma=0.2
 momentum=0.9
