@@ -28,7 +28,7 @@ momentum=0.9
 lrstepsize=40
 numclasses=257
 compression='QSGD'
-bitwidth=8
+bitwidth=16
 
 for val in $(seq 1 $worldsize)
 do
