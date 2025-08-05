@@ -18,7 +18,6 @@ interface='eth1'
 bsz=32
 testbsz=32
 masteraddr='127.0.0.1'
-masterport=28670
 backend='gloo'
 lr=0.01
 gamma=0.2
