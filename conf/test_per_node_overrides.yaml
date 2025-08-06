@@ -6,7 +6,7 @@
 # ══════════════════════════════════════════════════════════════════════════════
 
 defaults:
-  - test_mnist_fedavg_centralized_torchdist # Inherit base test config
+  - test_fedavg_centralized_torchdist # Inherit base test config
   - _self_
 
 # ─────────────────────────────────────────
@@ -14,14 +14,14 @@ defaults:
 
 topology:
   num_clients: 2
-  node_overrides: # Override settings per-rank
+  overrides: # Override settings per-rank
     # Rank 0 (server) - disable training by setting train dataloader to null
     0:
-      id: ChangedServerId
+      name: MyCentralServer
       datamodule:
         train: null
-    # 1:
-    #   algorithm:
-    #     local_lr: 0.005  # Different learning rate for client 1
+    1:
+      algorithm:
+        local_lr: 0.005
     # 2:
     #   device: "cpu"     # Force client 2 to use CPU

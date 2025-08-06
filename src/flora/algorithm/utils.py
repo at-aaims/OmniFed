@@ -19,6 +19,8 @@ from typing import Any, Callable, Dict, List, Optional
 import torch
 from torch import nn
 
+from ..utils import print
+
 
 def get_param_norm(model: nn.Module) -> float:
     """
@@ -64,7 +66,7 @@ def clip_grads(model: nn.Module, max_norm: float) -> float:
         model: Model to clip gradients for
         max_norm: Maximum gradient norm threshold
     """
-    print(f"[UTIL-GRAD-CLIP] max_norm={max_norm:.4f}")
+    print(f"max_norm={max_norm:.4f}")
     if max_norm <= 0:
         raise ValueError("max_norm must be positive for gradient clipping")
     return torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm).item()
@@ -80,7 +82,7 @@ def scale_grads(model: nn.Module, scale_factor: float) -> None:
         model: Model to scale gradients for
         scale_factor: Factor to scale gradients by
     """
-    print(f"[UTIL-GRAD-SCALE] scale_factor={scale_factor:.4f}")
+    print(f"scale_factor={scale_factor:.4f}")
     for param in model.parameters():
         if param.grad is not None:
             param.grad.mul_(scale_factor)
@@ -153,7 +155,7 @@ def scale_params(
             buffers_total = len(list(model.named_buffers()))
 
     print(
-        f"[UTIL-PARAM-SCALE] scaled {params_scaled}/{params_total} params, {buffers_scaled}/{buffers_total} buffers | scale_factor={scale_factor:.4f}"
+        f"scaled {params_scaled}/{params_total} params, {buffers_scaled}/{buffers_total} buffers | scale_factor={scale_factor:.4f}"
     )
 
 

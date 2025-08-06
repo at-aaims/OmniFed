@@ -27,7 +27,7 @@ from typeguard import typechecked
 
 from ..communicator import AggregationOp, BaseCommunicator
 from ..data import DataModule
-from ..utils import MetricAggType, MetricLogger, RequiredSetup
+from ..utils import MetricAggType, MetricLogger, RequiredSetup, print
 from . import utils
 from ._lifecycle_hooks import LifecycleHooks
 from ._schedules import ExecutionSchedules
@@ -595,7 +595,7 @@ class BaseAlgorithm(RequiredSetup, LifecycleHooks, MetricLogger):
             self.__eval_epoch(self.local_model)
 
         print(
-            f"[ROUND-START] {self.progress_info_str} | "
+            f"ROUND-START @ {self.progress_info_str} | "
             f"global_max_epochs_per_round={self.global_max_epochs_per_round} | "
             f"global_max_iters_per_epoch={self.global_max_iters_per_epoch}",
             flush=True,
@@ -619,7 +619,7 @@ class BaseAlgorithm(RequiredSetup, LifecycleHooks, MetricLogger):
         # Overridable hook for algorithm-specific logic
         self._round_end()
 
-        print(f"[ROUND-END] {self.progress_info_str}", flush=True)
+        print(f"ROUND-END {self.progress_info_str}", flush=True)
 
         # Experiment end evaluation (only on last round)
         if round_idx == max_rounds - 1 and self.schedules.evaluation.experiment_end():
@@ -1043,7 +1043,7 @@ class BaseAlgorithm(RequiredSetup, LifecycleHooks, MetricLogger):
             changed = before_hash != after_hash
 
             print(
-                f"[{phase.upper()}] local_model hash: {before_hash[:8]} → {after_hash[:8]} | "
+                f"{phase.upper()} local_model hash: {before_hash[:8]} → {after_hash[:8]} | "
                 f"norm: {before_norm:.4f} → {after_norm:.4f} (Δ={delta:.6f}) | "
                 f"{'CHANGED' if changed else 'UNCHANGED'}"
             )

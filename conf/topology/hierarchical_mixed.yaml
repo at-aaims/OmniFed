@@ -21,7 +21,7 @@ global_comm:
   # NOTE: Check constructor signature for complete parameter list, defaults, types, and docs.
   _target_: src.flora.communicator.GrpcCommunicator
   # master_addr: 127.0.0.1        # Global coordinator address
-  # master_port: 50051            # Global coordinator port
+  master_port: 50051            # Global coordinator port (default for gRPC)
   # aggregation_timeout: 600.0    # Wait time for all groups
 
 # ─────────────────────────────────────────

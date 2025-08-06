@@ -45,11 +45,23 @@ class RequiredSetup(ABC):
     @property
     def is_ready(self) -> bool:
         """True if component has completed setup and is ready for operations."""
-        if not hasattr(self, "_setup_complete"):
-            self._setup_complete = False
-        return self._setup_complete
+        return getattr(self, "_setup_complete", False)
 
-    def setup(self, *args: Any, **kwargs: Any) -> None:
+    @property
+    def setup_result(self) -> Any:
+        """
+        Get the result from the setup() call.
+        
+        Raises:
+            RuntimeError: If setup() has not been called yet
+        """
+        if not self.is_ready:
+            raise RuntimeError(
+                f"{self.__class__.__name__} must call setup() before accessing setup_result"
+            )
+        return self._setup_result
+
+    def setup(self, *args: Any, **kwargs: Any) -> Any:
         """
         Initialize component with duplicate setup protection.
 
@@ -59,19 +71,21 @@ class RequiredSetup(ABC):
         Args:
             *args: Positional arguments passed to _setup()
             **kwargs: Keyword arguments passed to _setup()
+            
+        Returns:
+            Result from _setup() method
         """
-        if not hasattr(self, "_setup_complete"):
-            self._setup_complete = False
-
-        if self._setup_complete:
+        if getattr(self, "_setup_complete", False):
             print(f"NOTE: {self.__class__.__name__} is already set up. Skipping setup.")
-            return
+            return self._setup_result
 
-        self._setup(*args, **kwargs)
+        result = self._setup(*args, **kwargs)
         self._setup_complete = True
+        self._setup_result = result
+        return result
 
     @abstractmethod
-    def _setup(self, *args: Any, **kwargs: Any) -> None:
+    def _setup(self, *args: Any, **kwargs: Any) -> Any:
         """
         Component-specific setup logic (override required).
 
@@ -81,5 +95,8 @@ class RequiredSetup(ABC):
         Args:
             *args: Setup arguments (component-specific)
             **kwargs: Setup keyword arguments (component-specific)
+            
+        Returns:
+            Component-specific result (can be None for components that don't return anything)
         """
         pass

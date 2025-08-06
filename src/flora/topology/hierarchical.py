@@ -12,16 +12,19 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import Any, List
+from typing import List, cast
 
 import rich.repr
 from hydra.utils import instantiate
-from omegaconf import DictConfig, OmegaConf
+from omegaconf import OmegaConf
 
-from ..communicator import (
-    BaseCommunicatorConfig,
-)
+from ..algorithm import BaseAlgorithmConfig
+from ..communicator import BaseCommunicatorConfig
+from ..data import DataModuleConfig
+from ..model import ModelConfig
 from ..node import NodeConfig
+from ..utils import print
+from . import BaseTopologyConfig
 from .base import BaseTopology
 
 # ======================================================================================
@@ -64,9 +67,8 @@ class HierarchicalTopology(BaseTopology):
 
     def __init__(
         self,
-        groups: List[DictConfig],
+        groups: List[BaseTopologyConfig],
         global_comm: BaseCommunicatorConfig,
-        **kwargs: Any,
     ):
         """
         Set up multiple FL groups with global coordination.
@@ -75,18 +77,29 @@ class HierarchicalTopology(BaseTopology):
             groups: Each group's topology config (usually CentralizedTopology configs)
             global_comm: How group servers communicate globally (any BaseCommunicatorConfig)
         """
-        super().__init__(**kwargs)
-        self.global_comm_cfg = global_comm
+        super().__init__()
+        self.groups: List[BaseTopologyConfig] = groups
+        self.global_comm: BaseCommunicatorConfig = global_comm
+
+        # print(type(self.topologies_cfgs))
 
         if not groups:
             raise ValueError("At least one group must be specified")
 
         # Create the actual topology for each group (e.g., CentralizedTopology instances)
         self.topologies: List[BaseTopology] = [
-            instantiate(topology, _recursive_=False, **kwargs) for topology in groups
+            instantiate(topology_cfg, _recursive_=False) for topology_cfg in self.groups
         ]
 
-    def _create_node_configs(self) -> List[NodeConfig]:
+        # ---
+        print(self)
+
+    def _setup(
+        self,
+        default_algorithm_cfg: BaseAlgorithmConfig,
+        default_model_cfg: ModelConfig,
+        default_datamodule_cfg: DataModuleConfig,
+    ) -> List[NodeConfig]:
         """
         Wire up all nodes with proper naming and cross-group communication.
 
@@ -96,34 +109,49 @@ class HierarchicalTopology(BaseTopology):
 
         Returns all nodes flattened into one list for the Engine to launch.
         """
+        # Setup all child topologies first
+        for topology in self.topologies:
+            topology.setup(
+                default_algorithm_cfg=default_algorithm_cfg,
+                default_model_cfg=default_model_cfg,
+                default_datamodule_cfg=default_datamodule_cfg,
+            )
+
         world_size = len(self.topologies)
         node_configs: List[NodeConfig] = []
 
-        for group_id, local_topology in enumerate(self.topologies):
-            for node_cfg in local_topology:
+        for topology_idx, topology in enumerate(self.topologies):
+            for node_idx, node_cfg in enumerate(topology):
                 # Give each node a name showing which group and local rank
-                node_cfg.name = f"Node{group_id}.{node_cfg.local_comm.rank}"
+                node_cfg.name = f"Node{topology_idx}.{node_cfg.local_comm.rank}"
+                # node_cfg.name = f"Node{topology_idx}.{node_cfg.local_comm['rank']}"
 
-                # Only group servers (local rank 0) need global communication
+                # Handle global communication assignment
                 if node_cfg.local_comm.rank == 0:
-                    # Create global comm config with rank-specific parameters
-                    # Use structured config to preserve type information
-                    global_comm_cfg: BaseCommunicatorConfig = OmegaConf.structured(
-                        self.global_comm_cfg
-                    )
-                    global_comm_cfg.rank = group_id
-                    global_comm_cfg.world_size = world_size
-                    node_cfg.global_comm = global_comm_cfg
+                    # Only group servers (local rank 0) need global communication
 
-                    # ---
+                    # Create global comm config with rank and world_size
+                    # global_comm_cfg = copy.deepcopy(self.global_comm)
+                    global_comm_cfg: BaseCommunicatorConfig = OmegaConf.structured(
+                        self.global_comm
+                    )
+                    global_comm_cfg.rank = topology_idx
+                    global_comm_cfg.world_size = world_size
                     # global_comm_cfg = OmegaConf.merge(
-                    #     self.global_comm_cfg,
-                    #     {"rank": group_id, "world_size": world_size}
+                    #     self.global_comm,
+                    #     {
+                    #         "rank": topology_idx,
+                    #         "world_size": world_size,
+                    #     },
                     # )
-                    # Convert structured config to object with proper type casting
-                    # node_cfg.global_comm = cast(
-                    #     BaseCommunicatorConfig, OmegaConf.to_object(global_comm_cfg)
-                    # )
+
+                    # Merge the global_comm config into the node_cfg using OmegaConf.merge
+                    # node_cfg.global_comm = global_comm_cfg
+                    merged_cfg = OmegaConf.merge(
+                        node_cfg, {"global_comm": global_comm_cfg}
+                    )
+                    node_cfg = cast(NodeConfig, merged_cfg)
+
                 node_configs.append(node_cfg)
 
         return node_configs

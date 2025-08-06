@@ -19,6 +19,7 @@ import rich.repr
 import torch
 from torch import nn
 
+from ..utils import print
 from . import BaseCommunicator, grpc_pb2_grpc
 from .base import AggregationOp
 from .grpc_client import GrpcClient
@@ -50,7 +51,6 @@ class GrpcCommunicator(BaseCommunicator):
         client_timeout: float = 60.0,
         retry_delay: float = 5.0,
         max_retries: int = 5,
-        **kwargs,
     ) -> None:
         """
         Initialize gRPC-based federated learning communicator.
@@ -68,16 +68,14 @@ class GrpcCommunicator(BaseCommunicator):
             retry_delay: Seconds between connection retry attempts
             max_retries: Maximum connection retry attempts
         """
-        super().__init__()
-        print(
-            f"[COMM-INIT] rank={rank}/{world_size} | addr={master_addr}:{master_port}"
-        )
+        super().__init__(rank, world_size, master_addr, master_port)
+        print(f"rank={rank}/{world_size} | addr={master_addr}:{master_port}")
 
         # Core distributed parameters
-        self.rank: int = rank
-        self.world_size: int = world_size
-        self.master_addr: str = master_addr
-        self.master_port: int = master_port
+        # self.rank: int = rank
+        # self.world_size: int = world_size
+        # self.master_addr: str = master_addr
+        # self.master_port: int = master_port
 
         # gRPC configuration
         self.max_workers = max_workers
@@ -173,7 +171,7 @@ class GrpcCommunicator(BaseCommunicator):
             grpc_pb2_grpc.add_GrpcServerServicer_to_server(self._servicer, self._server)
 
             self._server.add_insecure_port(f"[::]:{self.master_port}")
-            print(f"[COMM-SETUP] Server listening on port {self.master_port}")
+            print(f"Server listening on port {self.master_port}")
             self._server.start()
         else:
             self._client = GrpcClient(
@@ -205,16 +203,15 @@ class GrpcCommunicator(BaseCommunicator):
         Returns:
             Broadcasted message with updated values
         """
+        print(f"{get_msg_info(msg)} | src={src}")
         if self.is_server:
             # Server: Store broadcast state for client retrieval
             tensordict = self._extract_tensordict_from_msg(msg)
-            print(f"[BCAST-SEND] {get_msg_info(msg)} | src={src}")
             self.servicer.set_broadcast_state(tensordict)
             return msg
         else:
             # Client: Retrieve broadcast state from server
             tensordict = self.client.get_broadcast_state()
-            print(f"[BCAST-RECV] {get_msg_info(msg)} | src={src}")
             return self._apply_tensordict_to_msg(msg, tensordict)
 
     def aggregate(
@@ -237,7 +234,7 @@ class GrpcCommunicator(BaseCommunicator):
         """
         # Extract tensors and perform distributed aggregation
         tensordict = self._extract_tensordict_from_msg(msg)
-        print(f"[COMM-AGG] {get_msg_info(msg)} | reduction={reduction}")
+        print(f"{get_msg_info(msg)} | reduction={reduction}")
 
         # Perform aggregation via gRPC protocol
         aggregated_tensordict = self._grpc_aggregate(tensordict, reduction)
@@ -342,7 +339,7 @@ class GrpcCommunicator(BaseCommunicator):
             data_count = len(session_state["data"])
 
             print(
-                f"[COMM-AGG] Server submit | session={current_session} | {data_count}/{self.servicer.world_size}"
+                f"Server submit | session={current_session} | {data_count}/{self.servicer.world_size}"
             )
 
             # Trigger aggregation if ready
@@ -365,7 +362,7 @@ class GrpcCommunicator(BaseCommunicator):
         """
         session_state = self.servicer.aggregation_state[session_id]
 
-        print(f"[COMM-AGG] Server wait | session={session_id}")
+        print(f"Server wait | session={session_id}")
 
         wait_result = session_state["event"].wait(timeout=self.aggregation_timeout)
         if not wait_result:
@@ -385,7 +382,7 @@ class GrpcCommunicator(BaseCommunicator):
         Gracefully shuts down server (rank 0) or closes client connections.
         Should be called when communication is no longer needed.
         """
-        print("[COMM-CLOSE]")
+        print()
         if self._server is not None:
             self._server.stop(grace=15)
         if self._client is not None:

@@ -12,21 +12,23 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from abc import ABC, abstractmethod
-from typing import Any, List, Optional
+from abc import abstractmethod
+from typing import List
 
 import rich.repr
-from rich.pretty import pprint
 
 from .. import utils
+from ..algorithm import BaseAlgorithmConfig
+from ..data import DataModuleConfig
+from ..model import ModelConfig
 from ..node import NodeConfig
-from ..utils import print
+from ..utils import RequiredSetup
 
 # ======================================================================================
 
 
 @rich.repr.auto
-class BaseTopology(ABC):
+class BaseTopology(RequiredSetup):
     """
     Base class for federated learning network topologies.
 
@@ -39,57 +41,56 @@ class BaseTopology(ABC):
     - Extend BaseTopology: Custom communication patterns (advanced users)
 
     How it works:
-    - Subclasses implement create_node_configs() to define network structure
-    - Returns NodeConfig objects that the Engine launches as Ray actors
+    - Subclasses implement _setup() to define network structure
+    - Engine calls setup() which creates NodeConfig objects that the Engine launches as Ray actors
     - Provides iteration interface for easy access to all nodes
     """
 
-    def __init__(self, **kwargs: Any):
+    def __init__(self):
         """
         Initialize topology base class.
-
-        Args:
-            **kwargs: Topology-specific parameters passed to subclasses
         """
+        super().__init__()
         utils.print_rule()
-
-        # Lazy-initialized node configurations list
-        self.__node_configs: Optional[List[NodeConfig]] = None
 
     @property
     def node_configs(self) -> List[NodeConfig]:
         """
         Get all node configurations for this topology.
 
-        Lazily calls _create_node_configs() on first access.
+        Requires setup() to have been called first.
         """
-        if self.__node_configs is None:
-            print("Lazy-initializing node configurations...")
-            # Call the protected method to create node configurations
-            self.__node_configs = self._create_node_configs()
-            # Log the created node configurations (only on creation)
-            # pprint(self.__node_configs)
+        # The setup result is cached by RequiredSetup mixin
+        node_configs = self.setup_result
 
-        if not self.__node_configs:
-            raise ValueError(
-                "_create_node_configs() must return at least one node configuration"
-            )
+        if not node_configs:
+            raise ValueError("_setup() must return at least one node configuration")
 
-        return self.__node_configs
+        return node_configs
 
     @abstractmethod
-    def _create_node_configs(self) -> List[NodeConfig]:
+    def _setup(
+        self,
+        default_algorithm_cfg: BaseAlgorithmConfig,
+        default_model_cfg: ModelConfig,
+        default_datamodule_cfg: DataModuleConfig,
+    ) -> List[NodeConfig]:
         """
-        Create node configurations defining this topology's network structure.
+        Create node configurations for this topology.
 
-        Protected method - called internally by node_configs property.
-        External code should use the node_configs property, not call this directly.
+        Called by setup() method. Creates and returns node configurations
+        that define the network structure.
 
         Subclasses must implement this to define:
         - How many nodes and their roles (server, client, etc.)
         - Communication patterns between nodes
         - Node naming conventions
         - Device assignments and resource requirements
+
+        Args:
+            default_algorithm_cfg: Default algorithm configuration for all nodes
+            default_model_cfg: Default model configuration for all nodes
+            default_datamodule_cfg: Default datamodule configuration for all nodes
 
         Returns:
             List of NodeConfig objects ready for Engine to launch as Ray actors

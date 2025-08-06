@@ -22,16 +22,15 @@ from .torchdist import InitMethod
 class BaseCommunicatorConfig:
     """Base configuration for all communicator types with shared parameters."""
 
-    # Core distributed parameters (required)
+    _target_: str = "src.flora.communicator.BaseCommunicator"
+
+    # Core distributed parameters
     rank: int = MISSING
     world_size: int = MISSING
 
-    # Network configuration
+    # Default network configuration
     master_addr: str = "127.0.0.1"
-    master_port: int = MISSING  # Subclasses provide specific defaults
-
-    # Retry settings
-    max_retries: int = 5
+    master_port: int = MISSING
 
 
 @dataclass
@@ -39,9 +38,6 @@ class TorchDistCommunicatorConfig(BaseCommunicatorConfig):
     """Configuration for TorchDistCommunicator."""
 
     _target_: str = "src.flora.communicator.TorchDistCommunicator"
-
-    # TorchDist-specific network configuration
-    master_port: int = 29500
 
     # Initialization and backend settings
     init_method: InitMethod = InitMethod.TCP
@@ -51,15 +47,15 @@ class TorchDistCommunicatorConfig(BaseCommunicatorConfig):
     # Connection settings
     timeout: int = 60
 
+    # Retry settings
+    max_retries: int = 5
+
 
 @dataclass
 class GrpcCommunicatorConfig(BaseCommunicatorConfig):
     """Configuration for GrpcCommunicator."""
 
     _target_: str = "src.flora.communicator.GrpcCommunicator"
-
-    # gRPC-specific network configuration
-    master_port: int = 50051
 
     # gRPC server configuration
     max_workers: int = 10
@@ -69,4 +65,7 @@ class GrpcCommunicatorConfig(BaseCommunicatorConfig):
     # Timeout settings
     aggregation_timeout: float = 600.0  # Seconds for server to wait for all clients
     client_timeout: float = 60.0  # Seconds for clients to wait for aggregation result
+
+    # Retry settings
+    max_retries: int = 5
     retry_delay: float = 5.0  # Seconds between retries

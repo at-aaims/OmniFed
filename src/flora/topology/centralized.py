@@ -12,14 +12,17 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from dataclasses import replace
-from typing import Any, Dict, List, Optional
+from typing import Dict, List, Optional, cast
 
 import rich.repr
 from omegaconf import OmegaConf
 
+from ..algorithm import BaseAlgorithmConfig
 from ..communicator import BaseCommunicatorConfig
+from ..data import DataModuleConfig
+from ..model import ModelConfig
 from ..node import NodeConfig
+from ..utils import print
 from .base import BaseTopology
 
 # ======================================================================================
@@ -58,7 +61,6 @@ class CentralizedTopology(BaseTopology):
         num_clients: int,
         local_comm: BaseCommunicatorConfig,
         overrides: Optional[Dict[int, NodeConfig]] = None,
-        **kwargs: Any,
     ):
         """
         Set up server-client FL topology.
@@ -69,12 +71,20 @@ class CentralizedTopology(BaseTopology):
             overrides: Custom settings per rank (0=server, 1+=clients).
                       Example: {0: {"device_hint": "cpu"}, 1: {"device_hint": "cuda:X"}}
         """
-        super().__init__(**kwargs)
+        super().__init__()
         self.num_clients: int = num_clients
-        self.local_comm_cfg: BaseCommunicatorConfig = local_comm
+        self.local_comm: BaseCommunicatorConfig = local_comm
         self.overrides: Dict[int, NodeConfig] = overrides or {}
 
-    def _create_node_configs(self) -> List[NodeConfig]:
+        # ---
+        print(self)
+
+    def _setup(
+        self,
+        default_algorithm_cfg: BaseAlgorithmConfig,
+        default_model_cfg: ModelConfig,
+        default_datamodule_cfg: DataModuleConfig,
+    ) -> List[NodeConfig]:
         """
         Create server and client node configurations.
 
@@ -87,23 +97,35 @@ class CentralizedTopology(BaseTopology):
         node_configs: List[NodeConfig] = []
 
         for rank in range(world_size):
-            # Create local comm config with rank-specific parameters
-            # Use structured config to preserve type information
+            # Create rank-specific communicator config
             local_comm_cfg: BaseCommunicatorConfig = OmegaConf.structured(
-                self.local_comm_cfg
+                self.local_comm
             )
+            # local_comm_cfg = copy.deepcopy(self.local_comm)
             local_comm_cfg.rank = rank
             local_comm_cfg.world_size = world_size
 
-            node_cfg = NodeConfig(
+            # Create base node configuration
+            base_node_cfg = NodeConfig(
                 name=f"Node0.{rank}",
                 local_comm=local_comm_cfg,
                 global_comm=None,
+                algorithm=default_algorithm_cfg,
+                model=default_model_cfg,
+                datamodule=default_datamodule_cfg,
             )
 
-            # Apply overrides using dataclass replace to preserve types
-            override_cfg = self.overrides.get(rank, {})
-            node_cfg = replace(node_cfg, **override_cfg)
+            # Apply per-node overrides using OmegaConf.merge()
+            node_cfg = OmegaConf.merge(
+                OmegaConf.structured(base_node_cfg),
+                OmegaConf.structured(self.overrides.get(rank, {})),
+                # base_node_cfg,
+                # self.overrides.get(rank, {}),
+            )
+            node_cfg = cast(NodeConfig, node_cfg)
+            # node_cfg = OmegaConf.to_object(node_cfg)
+            # node_cfg = cast(NodeConfig, node_cfg)
+            # node_cfg = OmegaConf.to_container(node_cfg, resolve=True)
 
             node_configs.append(node_cfg)
 

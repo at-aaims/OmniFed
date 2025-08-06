@@ -20,7 +20,8 @@ import torch
 import torch.distributed as dist
 from torch import nn
 
-from .base import BaseCommunicator, AggregationOp
+from ..utils import print
+from .base import AggregationOp, BaseCommunicator
 from .utils import get_msg_info
 
 
@@ -71,17 +72,19 @@ class TorchDistCommunicator(BaseCommunicator):
             timeout: Process group initialization timeout (seconds)
             max_retries: Maximum initialization retry attempts
         """
-        super().__init__()
+        super().__init__(rank, world_size, master_addr, master_port)
         print(
-            f"[COMM-INIT] rank={rank}/{world_size} | backend={backend} | addr={master_addr}:{master_port}"
+            f"rank={rank}/{world_size} | backend={backend} | addr={master_addr}:{master_port}"
         )
 
         # Core distributed parameters
-        self.rank: int = rank
-        self.world_size: int = world_size
+        # self.rank: int = rank
+        # self.world_size: int = world_size
+        # self.master_addr: str = master_addr
+        # self.master_port: int = master_port
+
+        # ---
         self.init_method: str = init_method
-        self.master_addr: str = master_addr
-        self.master_port: int = master_port
         self.backend: str = backend
         self.sharedfile: str = sharedfile
         self.timeout: datetime.timedelta = datetime.timedelta(seconds=timeout)
@@ -89,7 +92,7 @@ class TorchDistCommunicator(BaseCommunicator):
 
         # Backend validation with automatic fallback
         if self.backend == "nccl" and not torch.cuda.is_available():
-            print("[COMM-INIT] NCCL→gloo fallback (no CUDA available)")
+            print("NCCL→gloo fallback (no CUDA available)")
             self.backend = "gloo"
 
     def _setup(self):
@@ -103,7 +106,7 @@ class TorchDistCommunicator(BaseCommunicator):
         """
 
         print(
-            f"[COMM-SETUP] rank={self.rank}/{self.world_size} | {self.init_method} | backend={self.backend}"
+            f"rank={self.rank}/{self.world_size} | {self.init_method} | backend={self.backend}"
         )
 
         match self.init_method:
@@ -148,7 +151,7 @@ class TorchDistCommunicator(BaseCommunicator):
         Returns:
             Message with broadcasted values
         """
-        print(f"[COMM-BCAST] {get_msg_info(msg)} | src={src}")
+        print(f"{get_msg_info(msg)} | src={src}")
 
         if isinstance(msg, nn.Module):
             # Broadcast all trainable parameters
@@ -182,7 +185,7 @@ class TorchDistCommunicator(BaseCommunicator):
             Message with aggregated values distributed to all ranks
         """
 
-        print(f"[COMM-AGG] {get_msg_info(msg)} | reduction={reduction}")
+        print(f"{get_msg_info(msg)} | reduction={reduction}")
 
         # Map reduction type to PyTorch operation
         reduction_ops = {
@@ -218,5 +221,5 @@ class TorchDistCommunicator(BaseCommunicator):
         Should be called when distributed communication is no longer needed.
         All ranks must call this to properly clean up the process group.
         """
-        print("[COMM-CLOSE]")
+        print()
         dist.destroy_process_group()

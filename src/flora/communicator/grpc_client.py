@@ -14,13 +14,14 @@
 
 import time
 from typing import Dict
+import warnings
 
 import grpc
 import rich.repr
 import torch
 
-from . import AggregationOp, grpc_pb2
-from . import grpc_pb2_grpc
+from ..utils import print
+from . import AggregationOp, grpc_pb2, grpc_pb2_grpc
 from .utils import get_msg_info, proto_to_tensordict, tensordict_to_proto
 
 
@@ -60,7 +61,7 @@ class GrpcClient:
             max_retries: Maximum connection retry attempts
             client_timeout: Seconds to wait for server responses
         """
-        print(f"[COMM-INIT] Client | addr={master_addr}:{master_port}")
+        print(f"addr={master_addr}:{master_port}")
 
         # Store configuration
         self.client_id = client_id
@@ -100,19 +101,16 @@ class GrpcClient:
                 response = self.stub.RegisterClient(
                     grpc_pb2.ClientInfo(client_id=self.client_id),
                 )
-                print(f"[COMM-CLIENT] Register | success={response.success}")
+                print(f"Register | success={response.success}")
                 return
 
             except grpc.RpcError as e:
                 if attempt >= self.max_retries:
-                    print(
-                        f"[COMM-ERROR] Connection failed after {self.max_retries} attempts"
-                    )
-                    raise e
+                    raise RuntimeError(
+                        f"Failed to connect to server {self.master_addr}:{self.master_port} after {self.max_retries} retries"
+                    ) from e
 
-                print(
-                    f"[COMM-ERROR] Connection retry | attempt {attempt}/{self.max_retries} | {self.retry_delay}s delay"
-                )
+                print(f"Retry {attempt}/{self.max_retries} | {self.retry_delay}s delay")
                 time.sleep(self.retry_delay)
 
     def get_broadcast_state(self) -> Dict[str, torch.Tensor]:
@@ -125,7 +123,7 @@ class GrpcClient:
         Returns:
             Dictionary mapping parameter names to tensor values
         """
-        print(f"[BCAST-REQUEST] Waiting for server to broadcast model")
+        print("Waiting for server to broadcast model")
 
         poll_count = 0
         error_count = 0
@@ -136,22 +134,20 @@ class GrpcClient:
                 response = self.stub.GetBroadcastState(request)
                 if response.is_ready:
                     tensordict = proto_to_tensordict(response.tensor_dict)
-                    print(f"[BCAST-RECEIVED] {get_msg_info(tensordict)}")
+                    print(f"Received {get_msg_info(tensordict)}")
                     return tensordict
                 poll_count += 1
-                print(
-                    f"[COMM-BCAST] Waiting | poll {poll_count} | retry in {self.retry_delay}s"
-                )
+                print(f"Polling | {poll_count} total | {self.retry_delay}s delay")
                 time.sleep(self.retry_delay)
 
             except grpc.RpcError as e:
                 error_count += 1
                 if error_count > self.max_retries:
                     raise RuntimeError(
-                        f"Max retries ({self.max_retries}) exceeded for broadcast state"
-                    )
+                        f"Failed to get broadcast state after {self.max_retries} retries"
+                    ) from e
                 print(
-                    f"[COMM-ERROR] Broadcast fetch | error {error_count}/{self.max_retries} | retry in {self.retry_delay}s"
+                    f"Retry {error_count}/{self.max_retries} | {self.retry_delay}s delay"
                 )
                 time.sleep(self.retry_delay)
 
@@ -174,11 +170,11 @@ class GrpcClient:
             )
             response = self.stub.SubmitForAggregation(request)
             if response.success:
-                print(f"[AGG-SUBMIT] Successfully sent local model to server")
+                print("Successfully sent local model to server")
             else:
-                print(f"[COMM-ERROR] Submit failed")
+                print("Submit failed")
         except grpc.RpcError as e:
-            print(f"[COMM-ERROR] Submit exception | {e}")
+            print(f"Submit exception | {e}")
 
     def get_aggregation_result(self) -> Dict[str, torch.Tensor]:
         """
@@ -194,7 +190,7 @@ class GrpcClient:
             RuntimeError: If aggregation times out or max retries exceeded
         """
         print(
-            f"[AGG-WAIT] Waiting for server to aggregate models (timeout={self.client_timeout}s)"
+            f"Waiting for server to aggregate models (timeout={self.client_timeout}s)"
         )
 
         start_time = time.time()
@@ -211,23 +207,21 @@ class GrpcClient:
                 if response.is_ready:
                     tensordict = proto_to_tensordict(response.tensor_dict)
                     print(
-                        f"[AGG-RECEIVED] {get_msg_info(tensordict)} (waited {elapsed:.1f}s)"
+                        f"Received {get_msg_info(tensordict)} (waited {elapsed:.1f}s)"
                     )
                     return tensordict
                 poll_count += 1
                 remaining = self.client_timeout - elapsed
-                print(
-                    f"[COMM-AGG] Waiting | poll {poll_count} | {remaining:.1f}s remaining"
-                )
+                print(f"Waiting | poll {poll_count} | {remaining:.1f}s remaining")
                 time.sleep(min(self.retry_delay, remaining))
 
             except grpc.RpcError as e:
                 error_count += 1
                 if error_count > self.max_retries:
                     raise RuntimeError(
-                        f"Max retries ({self.max_retries}) exceeded for aggregation result"
-                    )
+                        f"Failed to get aggregation result after {self.max_retries} retries"
+                    ) from e
                 print(
-                    f"[COMM-ERROR] Aggregation fetch | error {error_count}/{self.max_retries} | retry in {self.retry_delay}s"
+                    f"Aggregation fetch | error {error_count}/{self.max_retries} | retry in {self.retry_delay}s"
                 )
                 time.sleep(self.retry_delay)

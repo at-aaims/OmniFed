@@ -26,7 +26,7 @@ from hydra.conf import HydraConf
 from hydra.core.config_store import ConfigStore
 from hydra.core.hydra_config import HydraConfig
 from hydra.utils import instantiate
-from omegaconf import MISSING
+from omegaconf import MISSING, OmegaConf
 from rich.pretty import pprint
 from tqdm.auto import tqdm
 
@@ -36,7 +36,13 @@ from .data import DataModuleConfig
 from .model import ModelConfig
 from .node import Node, NodeConfig
 from .topology import BaseTopology, BaseTopologyConfig
-from .utils import ExperimentResultsDisplay, MetricFormatter, RequiredSetup, print
+from .utils import (
+    ExperimentResultsDisplay,
+    MetricFormatter,
+    RequiredSetup,
+    print,
+    print_rule,
+)
 
 LOG_FLUSH_DELAY = 2.0
 
@@ -243,6 +249,13 @@ class Engine(RequiredSetup):
         # Setup directories first
         self._setup_output_directories()
 
+        # Setup topology (creates node configurations)
+        self.topology.setup(
+            default_algorithm_cfg=self.cfg.algorithm,
+            default_model_cfg=self.cfg.model,
+            default_datamodule_cfg=self.cfg.datamodule,
+        )
+
         # Initialize Ray cluster
         ray.init(**self.ray_cfg)
 
@@ -257,33 +270,44 @@ class Engine(RequiredSetup):
         pprint(ray_nodes)
 
         # Save Ray cluster information to engine directory
-        ray_resources_path = os.path.join(
+        _savepath_ray_resources = os.path.join(
             self.engine_dir, "ray_available_resources.json"
         )
-        ray_nodes_path = os.path.join(self.engine_dir, "ray_nodes.json")
+        _savepath_ray_nodes = os.path.join(self.engine_dir, "ray_nodes.json")
 
-        with open(ray_resources_path, "w") as f:
+        with open(_savepath_ray_resources, "w") as f:
             json.dump(ray_available_resources, f, indent=2, default=str)
-            print(f"Saved Ray resources info to: {ray_resources_path}")
+            print(f"Saved Ray resources info to: {_savepath_ray_resources}")
 
-        with open(ray_nodes_path, "w") as f:
+        with open(_savepath_ray_nodes, "w") as f:
             json.dump(ray_nodes, f, indent=2, default=str)
-            print(f"Saved Ray nodes info to: {ray_nodes_path}")
-
-        # print(f"Saved Ray cluster info to: {self.engine_dir}")
+            print(f"Saved Ray nodes info to: {_savepath_ray_nodes}")
 
         ray_nodes_alive = [node for node in ray_nodes if node["Alive"]]
         is_single_node = len(ray_nodes_alive) == 1
 
         available_gpus = ray_available_resources.get("GPU", 0)
-        total_actors = len(list(self.topology))
+
+        total_actors = len(self.topology)
 
         # Determine GPU allocation strategy
         use_fractional_gpu = (
             is_single_node and total_actors > available_gpus and available_gpus > 0
         )
 
-        print(f"Launching {total_actors} Actors")
+        gpus_per_actor = available_gpus / total_actors if use_fractional_gpu else 1.0
+
+        print(f"Launching {len(list(self.topology))} Ray Actors")
+
+        self._ray_actor_refs = self._init_ray_actors(gpus_per_actor)
+
+        print(f"Calling setup() on {len(self._ray_actor_refs)} Nodes")
+        setup_futures = [node.setup.remote() for node in self._ray_actor_refs]
+        ray.get(setup_futures)
+
+    def _init_ray_actors(self, gpus_per_actor: float = 1.0) -> List[Node]:
+        ray_actor_refs: List[Node] = []
+
         node_config: NodeConfig
         for node_config in self.topology:
             # Set log directory
@@ -292,28 +316,31 @@ class Engine(RequiredSetup):
             )
 
             # Configure GPU allocation
-            ray_actor_options = asdict(node_config.ray_actor_options)
-            if ray_actor_options.get("num_gpus") is None and available_gpus > 0:
-                if use_fractional_gpu:
-                    # Single-node with GPU shortage: use fractional allocation
-                    ray_actor_options["num_gpus"] = available_gpus / total_actors
-                else:
-                    # Multi-node or sufficient GPUs: request 1 GPU per actor
-                    ray_actor_options["num_gpus"] = 1
+            if node_config.ray_actor_options.num_gpus is None and gpus_per_actor > 0:
+                # Single-node with GPU shortage: use fractional allocation
+                # Multi-node or sufficient GPUs: request 1 GPU per actor
+                node_config.ray_actor_options.num_gpus = gpus_per_actor
 
+            print_rule()
             pprint(node_config)
 
-            node_actor = Node.options(**ray_actor_options).remote(
-                **asdict(node_config),  # type: ignore - Ray's remote() typing doesn't understand dataclass unpacking
-                algorithm=self.cfg.algorithm,
-                model=self.cfg.model,
-                datamodule=self.cfg.datamodule,
-            )
-            self._ray_actor_refs.append(node_actor)
+            # node_config_dict = OmegaConf.to_container(
+            #     node_config,
+            #     resolve=True,
+            # )
+            # ray_actor_options_dict = OmegaConf.to_container(
+            #     ray_actor_options,
+            #     resolve=True,
+            # )
+            # node_config_dict = asdict(node_config)
+            # ray_actor_options_dict = asdict(ray_actor_options)
 
-        print(f"Calling setup() on {len(self._ray_actor_refs)} Nodes")
-        setup_futures = [node.setup.remote() for node in self._ray_actor_refs]
-        ray.get(setup_futures)
+            node_actor = Node.options(**node_config.ray_actor_options).remote(
+                **node_config,  # type: ignore[call-arg]
+            )
+            ray_actor_refs.append(node_actor)
+
+        return ray_actor_refs
 
     def _save_node_results(self, results: List) -> None:
         """

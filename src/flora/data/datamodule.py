@@ -17,6 +17,7 @@ from typing import Any, Optional
 import rich.repr
 from torch.utils.data import DataLoader
 from typeguard import typechecked
+from ..utils import print
 
 
 @rich.repr.auto
@@ -46,7 +47,7 @@ class DataModule:
             train: DataLoader for training data (local to this node)
             eval: DataLoader for evaluation data (local to this node)
         """
-        print("[DATAMODULE-INIT]")
+        print(f"train={train}, eval={eval}")
 
         self.train: Optional[DataLoader[Any]] = train
         self.eval: Optional[DataLoader[Any]] = eval

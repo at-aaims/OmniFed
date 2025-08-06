@@ -15,10 +15,12 @@
 import threading
 from collections import defaultdict
 from typing import Any, Dict
+import warnings
 
 import rich.repr
 import torch
 
+from ..utils import print
 from . import grpc_pb2, grpc_pb2_grpc
 from .base import AggregationOp
 from .utils import get_msg_info, proto_to_tensordict, tensordict_to_proto
@@ -44,7 +46,7 @@ class GrpcServer(grpc_pb2_grpc.GrpcServerServicer):
         Args:
             world_size: Total number of FL participants (including server)
         """
-        print(f"[COMM-INIT] gRPC Server | world_size={world_size}")
+        print(f"world_size={world_size}")
 
         # Core configuration
         self.world_size = world_size
@@ -64,8 +66,6 @@ class GrpcServer(grpc_pb2_grpc.GrpcServerServicer):
 
         # Broadcast state storage
         self._broadcast_state = {}
-
-        print(f"[COMM-READY] Server listening for {world_size} clients")
 
     def get_broadcast_state(self) -> Dict[str, torch.Tensor]:
         """
@@ -88,7 +88,7 @@ class GrpcServer(grpc_pb2_grpc.GrpcServerServicer):
         """
         with self.lock:
             self._broadcast_state = tensordict
-        print(f"[COMM-BCAST] Stored | {get_msg_info(tensordict)}")
+        print(get_msg_info(tensordict))
 
     def perform_aggregation_if_ready(
         self, session_state: Dict, current_session: int
@@ -105,14 +105,10 @@ class GrpcServer(grpc_pb2_grpc.GrpcServerServicer):
         """
         submitted_count = len(session_state["data"])
 
-        print(
-            f"[AGG-STATUS] Waiting for clients ({submitted_count}/{self.world_size} ready)"
-        )
+        print(f"Waiting for clients ({submitted_count}/{self.world_size} ready)")
 
         if submitted_count == self.world_size:
-            print(
-                f"[AGG-START] All {self.world_size} clients ready - beginning aggregation"
-            )
+            print(f"All {self.world_size} clients ready - beginning aggregation")
 
             first_data = next(iter(session_state["data"].values()))
             aggregated_tensors = {}
@@ -163,7 +159,7 @@ class GrpcServer(grpc_pb2_grpc.GrpcServerServicer):
             session_state["result"] = aggregated_tensors
             session_state["event"].set()
             print(
-                f"[AGG-COMPLETE] Aggregated {len(aggregated_tensors)} tensors using {reduction_type}"
+                f"Aggregated {len(aggregated_tensors)} tensors using {reduction_type}"
             )
             self.current_aggregation_session += 1
             return True
@@ -180,7 +176,7 @@ class GrpcServer(grpc_pb2_grpc.GrpcServerServicer):
         Returns:
             OperationResponse with tensor data or not-ready status
         """
-        print(f"[BCAST-REQUEST] Client {request.client_id}")
+        print(f"request.client_id={request.client_id}")
 
         with self.lock:
             if self._broadcast_state:
@@ -229,7 +225,7 @@ class GrpcServer(grpc_pb2_grpc.GrpcServerServicer):
             client_id = request.client_id
             current_session = self.current_aggregation_session
             print(
-                f"[AGG-SUBMIT] Client {client_id} submitting {len(request.tensor_dict.entries)} tensors"
+                f"Client {client_id} submitting {len(request.tensor_dict.entries)} tensors"
             )
 
             try:
@@ -239,25 +235,26 @@ class GrpcServer(grpc_pb2_grpc.GrpcServerServicer):
 
                 if session_state["reduction_type"] is None:
                     session_state["reduction_type"] = request.reduction_type
-                    print(
-                        f"[COMM-AGG] Session | {current_session} | reduction={request.reduction_type}"
-                    )
-                elif session_state["reduction_type"] != request.reduction_type:
-                    print(
-                        f"[COMM-ERROR] Reduction mismatch | expected={session_state['reduction_type']} got={request.reduction_type}"
+
+                if session_state["reduction_type"] != request.reduction_type:
+                    raise ValueError(
+                        f"Reduction mismatch | expected={session_state['reduction_type']} got={request.reduction_type}"
                     )
 
                 session_state["data"][client_id] = data
                 data_count = len(session_state["data"])
                 print(
-                    f"[AGG-COLLECT] Received from client {client_id} ({data_count}/{self.world_size} ready)"
+                    f"Received from client {client_id} ({data_count}/{self.world_size} ready)"
                 )
 
                 self.perform_aggregation_if_ready(session_state, current_session)
                 return grpc_pb2.StatusResponse(success=True)
 
             except Exception as e:
-                print(f"[COMM-ERROR] Submit | {e}")
+                warnings.warn(
+                    f"Failed to process aggregation submission from client {client_id} | {e}",
+                    RuntimeWarning,
+                )
                 return grpc_pb2.StatusResponse(success=False)
 
     def GetAggregationResult(self, request, context):
@@ -283,31 +280,35 @@ class GrpcServer(grpc_pb2_grpc.GrpcServerServicer):
                     target_session = session_id
                     break
             if target_session is None:
-                print(
-                    f"[COMM-ERROR] GetResult | client={client_id} | no submission found"
+                warnings.warn(
+                    f"Client {client_id} has no data submitted for aggregation",
+                    RuntimeWarning,
                 )
                 return grpc_pb2.OperationResponse(is_ready=False)
 
-        print(f"[AGG-REQUEST] Client {client_id} requesting aggregation result")
+        print(f"Client {client_id} requesting aggregation result")
 
         try:
             session_state = self.aggregation_state[target_session]
             with self.lock:
                 if session_state["result"] is not None:
-                    print(f"[AGG-SEND] Sending aggregated model to client {client_id}")
+                    print(f"Sending aggregated model to client {client_id}")
                     return self._create_aggregation_result_response(target_session)
 
-            print(f"[AGG-WAIT] Client {client_id} waiting for aggregation to complete")
+            print(f"Client {client_id} waiting for aggregation to complete")
             session_state["event"].wait()
-            print(f"[AGG-READY] Aggregation complete for client {client_id}")
+            print(f"Aggregation complete for client {client_id}")
             with self.lock:
                 if session_state["result"] is not None:
-                    print(f"[AGG-SEND] Sending aggregated model to client {client_id}")
+                    print(f"Sending aggregated model to client {client_id}")
                     return self._create_aggregation_result_response(target_session)
             return grpc_pb2.OperationResponse(is_ready=False)
 
         except Exception as e:
-            print(f"[COMM-ERROR] GetResult | {e}")
+            warnings.warn(
+                f"Failed to get aggregation result for client {client_id} | {e}",
+                RuntimeWarning,
+            )
             return grpc_pb2.OperationResponse(is_ready=False)
 
     def RegisterClient(self, request, context):
@@ -324,7 +325,5 @@ class GrpcServer(grpc_pb2_grpc.GrpcServerServicer):
         with self.lock:
             self.registered_clients.add(request.client_id)
             total_clients = len(self.registered_clients)
-            print(
-                f"[COMM-REGISTER] Client registered | {total_clients}/{self.world_size} total"
-            )
+            print(f"{total_clients}/{self.world_size} total")
             return grpc_pb2.StatusResponse(success=True)

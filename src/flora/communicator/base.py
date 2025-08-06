@@ -46,6 +46,22 @@ class BaseCommunicator(RequiredSetup, ABC):
 
     MsgT = TypeVar("MsgT", nn.Module, torch.Tensor, Dict[str, torch.Tensor])
 
+    def __init__(self, rank: int, world_size: int, master_addr: str, master_port: int):
+        """
+        Initialize communicator with core distributed parameters.
+
+        Args:
+            rank: Unique rank ID for this node (0 for server, 1+ for clients)
+            world_size: Total number of nodes in the distributed setup
+            master_addr: Address of the master node (server)
+            master_port: Port for communication with the master node
+        """
+        super().__init__()
+        self.rank = rank
+        self.world_size = world_size
+        self.master_addr = master_addr
+        self.master_port = master_port
+
     @abstractmethod
     def broadcast(
         self,

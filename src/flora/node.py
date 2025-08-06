@@ -28,7 +28,7 @@ from .algorithm import BaseAlgorithm, BaseAlgorithmConfig
 from .communicator import AggregationOp, BaseCommunicator, BaseCommunicatorConfig
 from .data import DataModule, DataModuleConfig
 from .model import ModelConfig
-from .utils import RequiredSetup
+from .utils import RequiredSetup, print
 
 
 @dataclass
@@ -149,28 +149,49 @@ class NodeConfig:
     See conf/ directory for working topology examples.
     """
 
+    # ---
     # Unique identifier for this node within the federated learning topology.
     # Used for logging, debugging, and actor naming. Must be unique per experiment.
     name: str = MISSING
 
+    # ---
     # Local communication configuration for intra-group federated learning operations.
     # Handles model aggregation within the same communication group (e.g., local cluster).
     # Required - must specify either TorchDist (NCCL/Gloo) or GRPC communicator.
     local_comm: BaseCommunicatorConfig = MISSING
 
+    # ---
     # Global communication configuration for inter-group federated learning operations.
     # Used by hierarchical topologies where local groups communicate with global coordinators.
     # Optional - None for purely local/centralized topologies.
     global_comm: Optional[BaseCommunicatorConfig] = MISSING
 
+    # ---
+    # Algorithm configuration for federated learning logic
+    # Defines which FL algorithm this node runs (FedAvg, FedProx, etc.)
+    algorithm: BaseAlgorithmConfig = MISSING
+
+    # ---
+    # Model configuration for neural network architecture
+    # Defines the PyTorch model this node will train
+    model: ModelConfig = MISSING
+
+    # ---
+    # DataModule configuration for data loading and preprocessing
+    # Defines how this node loads and processes its training/evaluation data
+    datamodule: DataModuleConfig = MISSING
+
+    # ---
     # Ray actor configuration options for distributed execution.
     # Controls resource allocation, fault tolerance, and scheduling behavior.
     # Default creates actor with Ray defaults (no special resource requirements).
     ray_actor_options: RayActorConfig = field(default_factory=RayActorConfig)
 
+    # ---
     # Device hint for this node's computation placement
     device_hint: str = "auto"
 
+    # ---
     # Experiment directory for this node's log files
     # None defaults to Hydra's output directory
     log_dir_base: Optional[str] = None
@@ -194,13 +215,14 @@ class Node(RequiredSetup):
         name: str,
         local_comm: BaseCommunicatorConfig,
         global_comm: Optional[BaseCommunicatorConfig],
-        ray_actor_options: RayActorConfig,
-        log_dir_base: str,
-        device_hint: str,
-        *,  # Force keyword-only args after this point (passed from Engine)
+        # ---
         algorithm: BaseAlgorithmConfig,
         model: ModelConfig,
         datamodule: DataModuleConfig,
+        # ---
+        ray_actor_options: RayActorConfig,
+        log_dir_base: str,
+        device_hint: str,
     ):
         """
         Initialize federated learning node with configs.
@@ -244,8 +266,6 @@ class Node(RequiredSetup):
         and passes dependencies to algorithm.
         """
         model: nn.Module = instantiate(self.model_cfg)
-
-        print(f"[NODE-SETUP] Device: {self.device}", flush=True)
 
         # Establish communicator connections
         self.local_comm.setup()
@@ -333,7 +353,7 @@ class Node(RequiredSetup):
             raise RuntimeError("Node not ready - call setup() first")
 
         print(
-            f"[EXPERIMENT-START] Node starting {total_rounds} round experiment",
+            f"Node starting {total_rounds} round experiment",
             flush=True,
         )
 
@@ -346,7 +366,7 @@ class Node(RequiredSetup):
                 self.algorithm.round_exec(round_idx, total_rounds)
 
             print(
-                f"[EXPERIMENT-END] Node completed {total_rounds} round experiment",
+                f"Node completed {total_rounds} round experiment",
                 flush=True,
             )
 
@@ -354,7 +374,7 @@ class Node(RequiredSetup):
             # Restore original device placement
             self.algorithm.local_model = self.algorithm.local_model.to(original_device)
             print(
-                f"[EXPERIMENT-CLEANUP] Model restored to original device: {original_device}",
+                f"Model restored to original device: {original_device}",
                 flush=True,
             )
 
@@ -388,13 +408,13 @@ class Node(RequiredSetup):
             PyTorch device for computation
         """
         if device_hint != "auto":
-            print(f"[NODE-DEVICE] Explicit: {device_hint}")
+            print(f"Explicit: {device_hint}")
             return torch.device(device_hint)
 
         # Auto-assignment with GPU detection
         gpu_count = torch.cuda.device_count()
         if gpu_count == 0:
-            print("[NODE-DEVICE] Auto: CPU (no GPUs available)")
+            print("Auto: CPU (no GPUs available)")
             return torch.device("cpu")
 
         # Round-robin GPU assignment
@@ -404,7 +424,5 @@ class Node(RequiredSetup):
 
         gpu_id = effective_rank % gpu_count
         device_str = f"cuda:{gpu_id}"
-        print(
-            f"[NODE-DEVICE] Auto: {device_str} (rank {effective_rank}, {gpu_count} GPUs)"
-        )
+        print(f"Auto: {device_str} (rank {effective_rank}, {gpu_count} GPUs)")
         return torch.device(device_str)
