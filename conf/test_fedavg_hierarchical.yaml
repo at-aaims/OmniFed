@@ -1,8 +1,9 @@
 # ================================================================================
-# MNIST FedAvg Centralized Experiment with TorchDist Communication
+# MNIST FedAvg Hierarchical Experiment with Mixed Communication
 #
 # Complete configuration for MNIST experiments with FedAvg algorithm.
-# Uses centralized topology with 3 clients and TorchDist communication.
+# Uses hierarchical topology with 2 groups of 3 clients each (6 total).
+# Mixed communication: gRPC for global, TorchDist for local.
 # Runs for 3 global rounds with 4 local epochs per round.
 # ================================================================================
 
@@ -10,18 +11,34 @@ defaults:
   - base # Base framework configuration
   - override model: simple_cnn # reference template for custom PyTorch models.
   - override datamodule: mnist # reference template for custom datasets.
-  - override topology: centralized # using centralized topology template
+  - override topology: hierarchical # using hierarchical topology template
   - override algorithm: fedavg # using FedAvg algorithm template
   - _self_ # Everything below is merged on top of the above defaults
 
-# ─────────────────────────────────── Centralized Topology Overrides
+# ─────────────────────────────────── Hierarchical Topology Overrides
 topology:
-  num_clients: 3
-  local_comm:
-    _target_: src.flora.communicator.TorchDistCommunicator
+  global_comm: # Inter-group Communication
+    _target_: src.flora.communicator.GrpcCommunicator
     # master_addr: 127.0.0.1 # Default
-    master_port: 29500
+    master_port: 50051
     # ... see class docs/constructor for more options
+  groups:
+    # ──────────────────────────────── Group 1
+    - _target_: src.flora.topology.CentralizedTopology
+      num_clients: 3
+      local_comm:
+        _target_: src.flora.communicator.TorchDistCommunicator
+        # master_addr: 127.0.0.1 # Default
+        master_port: 29500
+        # ... see class docs/constructor for more options
+    # ──────────────────────────────── Group 2
+    - _target_: src.flora.topology.CentralizedTopology
+      num_clients: 3
+      local_comm:
+        _target_: src.flora.communicator.TorchDistCommunicator
+        # master_addr: 127.0.0.1 # Default
+        master_port: 29501
+        # ... see class docs/constructor for more options
 
 # ─────────────────────────────────── FedAvg Algorithm Overrides
 algorithm: # see ./conf/algorithm/fedavg.yaml for all options

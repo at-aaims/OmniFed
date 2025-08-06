@@ -17,17 +17,19 @@ _target_: src.flora.topology.CentralizedTopology
 
 num_clients: ???
 
-local_comm:
-  # NOTE: Check constructor signature for complete parameter list, defaults, types, and docs.
-  _target_: src.flora.communicator.TorchDistCommunicator
-  # backend: gloo            # CPU backend (default)
-  # backend: nccl            # GPU backend
-  # master_addr: "127.0.0.1" # Localhost for single-node setups
-  # master_port: 29500       # Default port
-  # timeout: 60              # Connection timeout
+local_comm: ???
+# Example communicator configuration:
+# local_comm:
+#   # NOTE: Check constructor signature for complete parameter list, defaults, types, and docs.
+#   _target_: src.flora.communicator.TorchDistCommunicator
+#   # backend: gloo            # CPU backend (default)
+#   # backend: nccl            # GPU backend
+#   # master_addr: "127.0.0.1" # Localhost for single-node setups
+#   # master_port: 29500       # Default port
+#   # timeout: 60              # Connection timeout
 #
 # ─────────────────────────────────────────
-# Optional Node-Specific Overrides
+# Optional Per-Node Overrides
 # ─────────────────────────────────────────
 # Useful for forcing specific resource allocation (e.g., server CPU-only)
 # overrides:
