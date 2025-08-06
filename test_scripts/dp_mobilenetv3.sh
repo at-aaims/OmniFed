@@ -2,7 +2,7 @@
 
 cd ../
 
-# kill -s 9 `ps -ef | grep src.flora.privacy.launch_dp |grep -v grep | awk '{print $2}'`
+# t
 # kill -9 $(ps aux | grep src.flora.privacy.launch_dp | grep -v grep | awk '{print $2}')
 
 #dir='/Users/ssq/Desktop/datasets/flora_test/'
@@ -35,7 +35,7 @@ epochs=80
 #delta=1e-5
 #gamma=0.01
 
-epsilon=10.0
+epsilon=25.0
 delta=1e-5
 gamma=0.01
 
