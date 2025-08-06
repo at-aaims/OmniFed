@@ -2,7 +2,7 @@
 
 cd ../
 
-# t
+# kill -s 9 `ps -ef | grep src.flora.privacy.launch_dp |grep -v grep | awk '{print $2}'`
 # kill -9 $(ps aux | grep src.flora.privacy.launch_dp | grep -v grep | awk '{print $2}')
 
 #dir='/Users/ssq/Desktop/datasets/flora_test/'
