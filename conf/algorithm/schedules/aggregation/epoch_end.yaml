@@ -1,10 +1,9 @@
-# ══════════════════════════════════════════════════════════════════════════════
+# ================================================================================
 # Epoch-End Aggregation Configuration
 #
 # High-frequency aggregation pattern.
 # Aggregate model updates at the end of each epoch during local training.
-#
-# ══════════════════════════════════════════════════════════════════════════════
+# ================================================================================
 
 # NOTE: Check constructor signature for complete parameter list, defaults, types, and docs.
 _target_: src.flora.algorithm.AggregationTriggers

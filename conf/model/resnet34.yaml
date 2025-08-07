@@ -1,9 +1,8 @@
 # ================================================================================
-# ResNet-50 Model Configuration
+# ResNet-34 Model Configuration
 #
-# ResNet-50 deep residual network for image classification.
-# Uses torchvision's ResNet-50 implementation.
-# Uses bottleneck blocks.
+# ResNet-34 deep residual network for image classification.
+# Uses torchvision's ResNet-34 implementation.
 #
 # Reference: https://docs.pytorch.org/vision/stable/models/resnet.html
 # Paper: "Deep Residual Learning for Image Recognition" (He et al., 2016)
@@ -14,7 +13,7 @@ defaults:
   - _self_
 
 # NOTE: Check constructor signature for complete parameter list, defaults, types, and docs.
-_target_: torchvision.models.resnet50
+_target_: torchvision.models.resnet34
 
 # ─────────────────────────────────────────
 # Required Parameters
@@ -28,11 +27,9 @@ num_classes: ???
 # ─────────────────────────────────────────
 
 # Pre-trained weights (None for random initialization)
-# Options: None, "IMAGENET1K_V1", "IMAGENET1K_V2", "DEFAULT"
+# Options: None, "IMAGENET1K_V1"
 # weights: null  # Default: no pre-trained weights
-# weights: "IMAGENET1K_V1"  # ImageNet pre-trained weights (original)
-# weights: "IMAGENET1K_V2"  # ImageNet pre-trained weights (improved)
-# weights: "DEFAULT"  # Use default pre-trained weights
+# weights: "IMAGENET1K_V1"  # ImageNet pre-trained weights
 
 # Show progress bar when downloading weights
 progress: true

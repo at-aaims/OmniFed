@@ -12,14 +12,55 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import List, Dict, Any, Optional
-from dataclasses import dataclass
-from enum import Enum
-from collections import defaultdict
-import numpy as np
-import warnings
+import math
 import re
+import warnings
+from collections import defaultdict
+from dataclasses import dataclass, field
+from enum import Enum
+from typing import Any, Callable, Dict, List, DefaultDict, Tuple
+
+import numpy as np
 from typeguard import typechecked
+
+from .table_style import DISPLAY_PLACEHOLDER, EMOJIS
+
+OUTLIER_DEVIATION_THRESHOLD = 3.0  # Standard deviation threshold for outliers
+EXTREME_OUTLIER_THRESHOLD = 4  # Order of magnitude for extreme outliers
+
+
+def group_by_metric_rules(
+    items: List[Any], rule_finder: Callable[[str], Any]
+) -> Dict[str, List[Any]]:
+    """Shared utility for grouping items by metric rules."""
+    groups: DefaultDict[str, List[Any]] = defaultdict(list)
+    group_orders: Dict[str, int] = {}
+
+    for item in items:
+        # Handle both string names and objects with name attribute
+        try:
+            name = item.name  # type: ignore[attr-defined]
+        except AttributeError:
+            name = str(item)
+
+        rule = rule_finder(name)
+        group = rule.group.value
+        groups[group].append(item)
+        if group not in group_orders:
+            group_orders[group] = getattr(rule, "group_order", 100)
+
+    # Sort items within each group
+    for group, group_items in groups.items():
+        try:
+            group_items.sort(key=lambda x: x.name)  # type: ignore[attr-defined]
+        except Exception:
+            try:
+                group_items.sort()
+            except Exception:
+                pass
+
+    # Sort groups by display order
+    return dict(sorted(groups.items(), key=lambda x: group_orders.get(x[0], 100)))
 
 
 class MetricDirection(str, Enum):
@@ -42,11 +83,29 @@ class MetricGroup(str, Enum):
     OTHER = "Other"
 
 
+class ValidationErrorType(str, Enum):
+    """Metric validation error types."""
+
+    NAN = "NaN"  # Not a number values
+    INFINITE = "infinite"  # Infinite values
+    NEGATIVE_TIME = "negative-time"  # Time cannot be negative
+    NEGATIVE_VALUE = "negative-value"  # Value cannot be negative
+    IMPOSSIBLE_ORDER = "impossible-order"  # min > max contradiction
+
+
+class ValidationRule(str, Enum):
+    """Validation rule identifiers."""
+
+    NO_NEGATIVE = "no_negative"  # Reject negative values
+    NO_INFINITE = "no_infinite"  # Reject infinite values
+
+
 @dataclass
 class MetricFormatRule:
-    """Formatting rules for FL metrics.
+    """Complete metric rules for FL metrics: formatting, validation, statistics.
 
     Rules are matched by regex pattern in order.
+    Each rule defines ALL aspects of how a metric type should be handled.
     """
 
     regex: str
@@ -56,9 +115,11 @@ class MetricFormatRule:
     format_as_integer: bool = False
     emoji: str = ""
     group: str = MetricGroup.OTHER
-    group_order: int = 50
     description: str = "Default formatting"
+    # NEW: explicit display ordering within grouped tables (lower = earlier)
+    group_order: int = 50
 
+    # Statistical computation rules
     show_sum: bool = False
     show_mean: bool = True
     show_std: bool = True
@@ -67,6 +128,12 @@ class MetricFormatRule:
     show_median: bool = True
     show_cv: bool = True
 
+    # Validation rules
+    validation_rules: List[ValidationRule] = field(default_factory=list)
+
+    # Display formatting rules
+    display_config: Dict[str, Any] = field(default_factory=dict)
+
 
 DEFAULT_FORMAT_RULES = [
     MetricFormatRule(
@@ -74,18 +141,22 @@ DEFAULT_FORMAT_RULES = [
         precision=4,
         units="s",
         optimization_goal=MetricDirection.MINIMIZE,
-        emoji=":stopwatch:",
+        emoji="⏱️",
         group=MetricGroup.TIMING_METRICS,
         group_order=40,
         description="Timing metrics",
         show_sum=False,
+        validation_rules=[
+            ValidationRule.NO_NEGATIVE,
+            ValidationRule.NO_INFINITE,
+        ],  # Time cannot be negative or infinite
     ),
     MetricFormatRule(
         regex=r"(loss|error|mse|mae|rmse)",
         precision=4,
         units="",
         optimization_goal=MetricDirection.MINIMIZE,
-        emoji=":chart_decreasing:",
+        emoji="📉",
         group=MetricGroup.LOSS_METRICS,
         group_order=10,
         description="Loss and error metrics",
@@ -96,7 +167,7 @@ DEFAULT_FORMAT_RULES = [
         precision=4,
         units="",
         optimization_goal=MetricDirection.MAXIMIZE,
-        emoji=":dart:",
+        emoji="🎯",
         group=MetricGroup.PERFORMANCE_METRICS,
         group_order=20,
         description="Performance metrics",
@@ -108,7 +179,7 @@ DEFAULT_FORMAT_RULES = [
         units="",
         optimization_goal=MetricDirection.NEUTRAL,
         format_as_integer=True,
-        emoji=":package:",
+        emoji="📦",
         group=MetricGroup.DATASET_METRICS,
         group_order=5,
         description="Count metrics",
@@ -119,7 +190,7 @@ DEFAULT_FORMAT_RULES = [
         precision=4,
         units="",
         optimization_goal=MetricDirection.NEUTRAL,
-        emoji=":bar_chart:",
+        emoji="📊",
         group=MetricGroup.GRADIENT_METRICS,
         group_order=30,
         description="Gradient metrics",
@@ -131,7 +202,7 @@ DEFAULT_FORMAT_RULES = [
         units="",
         optimization_goal=MetricDirection.NEUTRAL,
         format_as_integer=True,
-        emoji=":spiral_calendar:",
+        emoji="🗓️",
         group=MetricGroup.REPORTING_METADATA,
         group_order=90,  # Show last
         description="Training progression coordinates",
@@ -163,33 +234,25 @@ class MetricFormatter:
             if not rule.regex.strip():
                 raise ValueError(f"Rule {i} has invalid regex: {rule.regex}")
 
-        self.rules = rules
-        self._rule_cache = {}
-        self._validation_stats = {"cache_hits": 0, "cache_misses": 0, "fallbacks": 0}
+        self.rules: List[MetricFormatRule] = rules
+        self._rule_cache: Dict[str, MetricFormatRule] = {}
 
     def find_rule(self, metric_name: str) -> MetricFormatRule:
         """Find matching formatting rule for metric."""
         if not metric_name.strip():
             metric_name = "empty_metric"
-            self._validation_stats["fallbacks"] += 1
 
         if metric_name in self._rule_cache:
-            self._validation_stats["cache_hits"] += 1
             return self._rule_cache[metric_name]
 
-        self._validation_stats["cache_misses"] += 1
-
-        try:
-            for rule in self.rules:
-                try:
-                    if re.search(rule.regex, metric_name, re.IGNORECASE):
-                        self._rule_cache[metric_name] = rule
-                        return rule
-                except re.error as e:
-                    warnings.warn(f"Invalid regex in rule for {rule.regex}: {e}")
-                    continue
-        except Exception as e:
-            warnings.warn(f"Error searching rules for metric '{metric_name}': {e}")
+        for rule in self.rules:
+            try:
+                if re.search(rule.regex, metric_name, re.IGNORECASE):
+                    self._rule_cache[metric_name] = rule
+                    return rule
+            except re.error as e:
+                warnings.warn(f"Invalid regex in rule for {rule.regex}: {e}")
+                continue
 
         default_rule = MetricFormatRule(
             regex=r".*",
@@ -197,7 +260,6 @@ class MetricFormatter:
             description=f"Auto-generated default for '{metric_name}'",
         )
         self._rule_cache[metric_name] = default_rule
-        self._validation_stats["fallbacks"] += 1
         return default_rule
 
     def format(self, metric_name: str, value: float) -> str:
@@ -221,44 +283,22 @@ class MetricFormatter:
 
             return formatted_value
 
-        except Exception as e:
-            raise ValueError(
+        except (TypeError, AttributeError) as e:
+            warnings.warn(
                 f"Failed to format metric '{metric_name}' with value {value}: {e}"
-            ) from e
+            )
+            return f"{value}"  # Return basic string representation as fallback
 
     def group_metric_names(self, metric_names: List[str]) -> Dict[str, List[str]]:
         """Group metrics by category."""
         if not metric_names:
             return {}
-
-        validated_names = []
+        validated_names: List[str] = []
         for i, name in enumerate(metric_names):
-            if not name.strip():
+            if not name or not name.strip():
                 name = f"empty_metric_{i}"
-                self._validation_stats["fallbacks"] += 1
             validated_names.append(name.strip())
-
-        try:
-            groups = defaultdict(list)
-            group_orders = {}
-
-            for metric_name in validated_names:
-                rule = self.find_rule(metric_name)
-                group = rule.group.value
-                groups[group].append(metric_name)
-                if group not in group_orders:
-                    group_orders[group] = rule.group_order
-
-            for group in groups:
-                groups[group].sort()
-
-            sorted_groups = dict(
-                sorted(groups.items(), key=lambda x: group_orders[x[0]])
-            )
-            return sorted_groups
-
-        except Exception as e:
-            raise RuntimeError(f"Failed to group metrics: {e}") from e
+        return group_by_metric_rules(validated_names, self.find_rule)
 
     def get_applicable_stats(self, metric_name: str) -> Dict[str, bool]:
         """Get which statistics to show for a metric.
@@ -271,23 +311,17 @@ class MetricFormatter:
         """
         if not metric_name.strip():
             metric_name = "empty_metric"
-            self._validation_stats["fallbacks"] += 1
 
-        try:
-            rule = self.find_rule(metric_name)
-            return {
-                "sum": rule.show_sum,
-                "mean": rule.show_mean,
-                "std": rule.show_std,
-                "min": rule.show_min,
-                "max": rule.show_max,
-                "median": rule.show_median,
-                "cv": rule.show_cv,
-            }
-        except Exception as e:
-            raise RuntimeError(
-                f"Failed to get applicable stats for metric '{metric_name}': {e}"
-            ) from e
+        rule = self.find_rule(metric_name)
+        return {
+            "sum": rule.show_sum,
+            "mean": rule.show_mean,
+            "std": rule.show_std,
+            "min": rule.show_min,
+            "max": rule.show_max,
+            "median": rule.show_median,
+            "cv": rule.show_cv,
+        }
 
     def get_delta_color(
         self, metric_name: str, delta: float, threshold: float = 1e-4
@@ -323,7 +357,194 @@ class MetricFormatter:
             )
             return "bright_green" if is_good_change else "bright_red"
 
-        except Exception as e:
-            raise RuntimeError(
-                f"Failed to get delta color for metric '{metric_name}': {e}"
-            ) from e
+        except AttributeError as e:
+            warnings.warn(f"Failed to get delta color for metric '{metric_name}': {e}")
+            return "dim white"  # Return neutral color as fallback
+
+    def compute_statistics(self, values: List[float]) -> Dict[str, float]:
+        """Compute basic statistics for values.
+
+        Args:
+            values: List of numeric values
+
+        Returns:
+            Dictionary with computed statistics
+        """
+        if not values:
+            return {
+                "sum": 0.0,
+                "mean": 0.0,
+                "std": 0.0,
+                "min": 0.0,
+                "max": 0.0,
+                "median": 0.0,
+            }
+
+        return {
+            "sum": float(np.sum(values)),
+            "mean": float(np.mean(values)),
+            "std": float(np.std(values)),
+            "min": float(np.min(values)),
+            "max": float(np.max(values)),
+            "median": float(np.median(values)),
+        }
+
+    def detect_outliers(self, values: List[float]) -> Dict[str, Any]:
+        """Detect statistical outliers using order-of-magnitude analysis.
+
+        Args:
+            values: List of numeric values to analyze
+
+        Returns:
+            Dictionary with outlier information: count, percentage, details
+        """
+        if len(values) < 2:
+            return {
+                "count": 0,
+                "percentage": 0.0,
+                "details": DISPLAY_PLACEHOLDER,
+                "outlier_indices": [],
+            }
+
+        # Convert to log scale for order-of-magnitude analysis
+        log_values: List[Tuple[int, float]] = []
+        for i, v in enumerate(values):
+            if v > 0:
+                log_values.append((i, math.log10(v)))
+            elif v == 0:
+                log_values.append((i, -10.0))  # Assign very low log value for zeros
+            else:
+                log_values.append((i, math.log10(abs(v)) if v != 0 else -10.0))
+
+        if len(log_values) < 2:
+            return {
+                "count": 0,
+                "percentage": 0.0,
+                "details": DISPLAY_PLACEHOLDER,
+                "outlier_indices": [],
+            }
+
+        # Calculate log scale statistics
+        log_vals_only: List[float] = [lv[1] for lv in log_values]
+        log_median: float = float(np.median(log_vals_only))
+
+        # Define outlier threshold (3+ orders of magnitude difference from median)
+        outlier_threshold = OUTLIER_DEVIATION_THRESHOLD
+        magnitude_threshold = EXTREME_OUTLIER_THRESHOLD
+
+        outliers: List[Tuple[int, float]] = []
+        for idx, log_val in log_values:
+            deviation: float = abs(log_val - log_median)
+            if deviation > outlier_threshold:
+                outliers.append((idx, deviation))
+
+        # Create details string
+        if not outliers:
+            details = DISPLAY_PLACEHOLDER
+        elif len(outliers) == 1:
+            deviation = outliers[0][1]
+            if deviation >= magnitude_threshold:
+                details = f"{magnitude_threshold}+ord-mag"
+            elif deviation >= 3:
+                details = "3ord-mag"
+            else:
+                details = "extreme"
+        else:
+            max_deviation = max(o[1] for o in outliers)
+            if max_deviation >= magnitude_threshold:
+                details = f"{magnitude_threshold}+ord-mag"
+            elif max_deviation >= 3:
+                details = "3ord-mag"
+            else:
+                details = "extreme"
+
+        outlier_count = len(outliers)
+        percentage = (outlier_count / len(values)) * 100 if values else 0.0
+
+        return {
+            "count": outlier_count,
+            "percentage": percentage,
+            "details": details,
+            "outlier_indices": [o[0] for o in outliers],
+        }
+
+    def validate_metric_values(
+        self, values: List[float], metric_name: str
+    ) -> List[ValidationErrorType]:
+        """Validate metric values based on metric-specific rules.
+
+        Args:
+            values: List of numeric values to validate
+            metric_name: Name of the metric being validated
+
+        Returns:
+            List of validation errors found
+        """
+        errors: List[ValidationErrorType] = []
+
+        # Universal validation: NaN and infinite values
+        for val in values:
+            if val != val:  # NaN check
+                errors.append(ValidationErrorType.NAN)
+                break
+            elif abs(val) == float("inf"):
+                errors.append(ValidationErrorType.INFINITE)
+                break
+
+        # Metric-specific validation based on rules
+        rule = self.find_rule(metric_name)
+        if ValidationRule.NO_NEGATIVE in rule.validation_rules:
+            for val in values:
+                if val < 0:
+                    if "time" in metric_name.lower():
+                        errors.append(ValidationErrorType.NEGATIVE_TIME)
+                    else:
+                        errors.append(ValidationErrorType.NEGATIVE_VALUE)
+                    break
+
+        # Mathematical consistency validation
+        if len(values) >= 2:
+            min_val = min(values)
+            max_val = max(values)
+            if min_val > max_val:
+                errors.append(ValidationErrorType.IMPOSSIBLE_ORDER)
+
+        return errors
+
+    def format_validation_display(
+        self, values: List[float], anomaly_data: Dict[str, Any], metric_name: str
+    ) -> str:
+        """Format combined validation and statistical anomaly display.
+
+        Args:
+            values: Raw metric values
+            anomaly_data: Statistical anomaly information
+            metric_name: Name of the metric
+
+        Returns:
+            Formatted display string with appropriate emojis and colors
+        """
+        errors = self.validate_metric_values(values, metric_name)
+        anomaly_count = anomaly_data["count"]
+
+        if errors:
+            error_summary = ",".join(errors[:2])
+            if len(errors) > 2:
+                error_summary += f"+{len(errors) - 2}"
+
+            # Simple classification: impossible vs implementation errors
+            if any(
+                e
+                in [
+                    ValidationErrorType.NEGATIVE_TIME,
+                    ValidationErrorType.IMPOSSIBLE_ORDER,
+                ]
+                for e in errors
+            ):
+                return f"[bold red]{EMOJIS.blocked} {len(errors)} ({error_summary})[/bold red]"
+            else:
+                return f"[bold red]{EMOJIS.forbidden} {len(errors)} ({error_summary})[/bold red]"
+        elif anomaly_count > 0:
+            return f"[orange3]{EMOJIS.investigate} {anomaly_count} ({anomaly_data['details']})[/orange3]"
+        else:
+            return DISPLAY_PLACEHOLDER

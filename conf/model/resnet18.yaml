@@ -1,4 +1,4 @@
-# ══════════════════════════════════════════════════════════════════════════════
+# ================================================================================
 # ResNet-18 Model Configuration
 #
 # ResNet-18 deep residual network for image classification.
@@ -6,7 +6,7 @@
 #
 # Reference: https://docs.pytorch.org/vision/stable/models/resnet.html
 # Paper: "Deep Residual Learning for Image Recognition" (He et al., 2016)
-# ══════════════════════════════════════════════════════════════════════════════
+# ================================================================================
 
 defaults:
   - base
@@ -33,7 +33,7 @@ num_classes: ???
 
 # Show progress bar when downloading weights
 progress: true
-
+#
 # ─────────────────────────────────────────
 # Architecture Parameters (Advanced)
 # ─────────────────────────────────────────
@@ -44,7 +44,7 @@ progress: true
 # Number of groups for grouped convolution (for ResNeXt-style models)
 # groups: 1  # Default: 1 (standard ResNet)
 
-# Width of each group in grouped convolution 
+# Width of each group in grouped convolution
 # width_per_group: 64  # Default: 64 (standard ResNet)
 
 # Replace 3x3 stride-2 conv with dilated conv (for dense prediction tasks)

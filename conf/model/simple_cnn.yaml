@@ -1,10 +1,10 @@
-# ══════════════════════════════════════════════════════════════════════════════
+# ================================================================================
 # Simple CNN Model Configuration
 #
 # Basic convolutional neural network for image classification.
 # Composable architecture with separate backbone and head components.
 # Configure input channels for your data and number of classes for your task.
-# ══════════════════════════════════════════════════════════════════════════════
+# ================================================================================
 
 defaults:
   - base

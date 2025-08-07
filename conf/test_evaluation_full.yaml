@@ -1,0 +1,10 @@
+# ================================================================================
+# Full Evaluation Test Configuration
+# Tests comprehensive evaluation with all evaluation points enabled.
+# Inherits from centralized torchdist base and overrides evaluation timing.
+# ================================================================================
+
+defaults:
+  - test_fedavg_centralized_torchdist
+  - override algorithm/schedules/evaluation: full
+  - _self_

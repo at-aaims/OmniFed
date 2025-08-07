@@ -1,9 +1,9 @@
-# ══════════════════════════════════════════════════════════════════════════════
+# ================================================================================
 # FedProx Algorithm Configuration
 #
 # FedProx adds a proximal term to stabilize training in heterogeneous environments.
 # Prevents clients from deviating too far from the global model.
-# ══════════════════════════════════════════════════════════════════════════════
+# ================================================================================
 
 defaults:
     - base

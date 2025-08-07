@@ -1,0 +1,10 @@
+# ================================================================================
+# Standard Evaluation Test Configuration
+# Tests standard FL evaluation pattern (start + post-sync + end).
+# Inherits from centralized torchdist base and overrides evaluation timing.
+# ================================================================================
+
+defaults:
+  - test_fedavg_centralized_torchdist
+  - override algorithm/schedules/evaluation: standard
+  - _self_

@@ -1,12 +1,11 @@
-# ══════════════════════════════════════════════════════════════════════════════
+# ================================================================================
 # Hierarchical Topology with Mixed Communication
 #
 # Hierarchical federated learning topology structure.
 # Multiple groups each containing centralized sub-topologies.
 # Uses gRPC for global inter-group communication and TorchDist for local intra-group.
 # Each group has the same fields as a centralized topology.
-#
-# ══════════════════════════════════════════════════════════════════════════════
+# ================================================================================
 
 defaults:
   - base

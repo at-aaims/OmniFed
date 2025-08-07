@@ -1,11 +1,11 @@
-# ══════════════════════════════════════════════════════════════════════════════
+# ================================================================================
 # Base Algorithm Configuration
 #
 # Template for federated learning algorithm configurations.
 # Works with any class that subclasses src.flora.algorithm.BaseAlgorithm.
 # Compose this base in specific algorithm configs (like fedavg.yaml) with "- base" in their defaults list.
 # Override the required parameters marked with ???.
-# ══════════════════════════════════════════════════════════════════════════════
+# ================================================================================
 
 defaults:
   - schedules: base

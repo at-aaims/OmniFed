@@ -1,4 +1,4 @@
-# ══════════════════════════════════════════════════════════════════════════════
+# ================================================================================
 # Base Schedules Configuration
 #
 # Standard federated learning execution schedule with sensible defaults
@@ -6,10 +6,10 @@
 #
 # This config provides a working schedule, unlike other base.yaml files.
 # You can use this directly or override the aggregation/evaluation components.
-# ══════════════════════════════════════════════════════════════════════════════
+# ================================================================================
 
 defaults:
   - aggregation: round_end
-  - evaluation: pre_and_post_sync
+  - evaluation: standard
 
 _target_: src.flora.algorithm.ExecutionSchedules

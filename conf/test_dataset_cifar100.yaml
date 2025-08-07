@@ -1,32 +1,40 @@
-# ══════════════════════════════════════════════════════════════════════════════
+# ================================================================================
 # CIFAR-100 Test Configuration
-#
-# Test configuration for CIFAR-100 dataset using FedAvg centralized setup.
-# Inherits from the base centralized configuration.
-# ══════════════════════════════════════════════════════════════════════════════
+# Tests CIFAR-100 dataset using FedAvg centralized setup with ResNet18.
+# Uses RGB images with 100 fine-grained object categories.
+# ================================================================================
 
 defaults:
-  - test_mnist_fedavg_centralized_torchdist # Inherit base centralized config
-  - override datamodule: cifar100 # Override with CIFAR-100 dataset
-  - override model: resnet18
+  - base # Base framework configuration
+  - override topology: centralized # see ./conf/topology/centralized.yaml
+  - override algorithm: fedavg # see ./conf/algorithm/fedavg.yaml
+  - override model: resnet18 # see ./conf/model/resnet18.yaml
+  - override datamodule: cifar100 # see ./conf/datamodule/cifar100.yaml
   - _self_
 
-# ─────────────────────────────────────────
+# ─────────────────────────────────── Topology Overrides
+topology:
+  num_clients: 3
+  local_comm:
+    _target_: src.flora.communicator.TorchDistCommunicator
+    # master_addr: 127.0.0.1 # Default
+    master_port: 29500
 
-global_rounds: 5
-
+# ─────────────────────────────────── Algorithm Overrides
 algorithm:
   local_lr: 0.001
-  max_epochs_per_round: 3
+  max_epochs_per_round: 4
 
-# ─────────────────────────────────────────
-
-# Override model for CIFAR-100 (100 classes)
+# ─────────────────────────────────── Model Overrides
 model:
-  num_classes: 100 # 100 fine-grained object classes
+  num_classes: 100
 
-# datamodule:
-#   train:
-#     batch_size: 128
-#   eval:
-#     batch_size: 128
+# ─────────────────────────────────── DataModule Overrides
+datamodule:
+  train:
+    batch_size: 128
+  eval:
+    batch_size: 128
+
+# ─────────────────────────────────── Engine Parameters
+global_rounds: 3 # see ./conf/base.yaml for all options

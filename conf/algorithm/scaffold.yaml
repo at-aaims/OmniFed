@@ -1,9 +1,9 @@
-# ══════════════════════════════════════════════════════════════════════════════
+# ================================================================================
 # SCAFFOLD Algorithm Configuration
 #
 # SCAFFOLD uses control variates to address client drift in federated learning.
 # Maintains control variables to correct for heterogeneous data distributions.
-# ══════════════════════════════════════════════════════════════════════════════
+# ================================================================================
 
 defaults:
     - base

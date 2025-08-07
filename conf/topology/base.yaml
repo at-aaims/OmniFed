@@ -1,11 +1,11 @@
-# ══════════════════════════════════════════════════════════════════════════════
+# ================================================================================
 # Base Topology Configuration
 #
 # Template for network topology configurations.
 # Works with any class that subclasses src.flora.topology.BaseTopology.
 # Compose this base in specific topology configs (like centralized_with_grpc.yaml) with "- base" in their defaults list.
 # Override the _target_ and add the topology-specific parameters your chosen topology class needs.
-# ══════════════════════════════════════════════════════════════════════════════
+# ================================================================================
 
 _target_: ??? # Topology class (src.flora.topology.Centralized, custom.MyTopology, etc.)
 

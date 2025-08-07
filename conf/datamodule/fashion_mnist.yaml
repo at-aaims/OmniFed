@@ -1,4 +1,4 @@
-# ══════════════════════════════════════════════════════════════════════════════
+# ================================================================================
 # Fashion-MNIST Dataset Configuration
 #
 # Configures FLUX DataModule for Fashion-MNIST clothing classification.
@@ -7,7 +7,7 @@
 # Docs:
 # - https://pytorch.org/vision/stable/generated/torchvision.datasets.FashionMNIST.html
 # - https://github.com/zalandoresearch/fashion-mnist
-# ══════════════════════════════════════════════════════════════════════════════
+# ================================================================================
 
 defaults:
   - base
@@ -20,7 +20,7 @@ train:
   dataset:
     _target_: torchvision.datasets.FashionMNIST
     root: ${oc.env:FLUX_DATA_DIR,/tmp}/fashion-mnist
-    train: true  # Use training set
+    train: true # Use training set
     # target_transform: null  # Optional transform for targets
     download: true
     transform:
@@ -30,8 +30,8 @@ train:
         - _target_: torchvision.transforms.RandomHorizontalFlip
           p: 0.5
         - _target_: torchvision.transforms.Normalize
-          mean: [0.2859]  # Fashion-MNIST specific mean (corrected)
-          std: [0.3530]   # Fashion-MNIST specific std
+          mean: [0.2859] # Fashion-MNIST specific mean (corrected)
+          std: [0.3530] # Fashion-MNIST specific std
 
 # ─────────────────────────────────────────
 # Evaluation Data
@@ -40,7 +40,7 @@ eval:
   dataset:
     _target_: torchvision.datasets.FashionMNIST
     root: ${oc.env:FLUX_DATA_DIR,/tmp}/fashion-mnist
-    train: false  # Use test set
+    train: false # Use test set
     # target_transform: null  # Optional transform for targets
     download: true
     transform:
@@ -48,5 +48,5 @@ eval:
       transforms:
         - _target_: torchvision.transforms.ToTensor
         - _target_: torchvision.transforms.Normalize
-          mean: [0.2859]  # Fashion-MNIST specific mean (corrected)
-          std: [0.3530]   # Fashion-MNIST specific std
+          mean: [0.2859] # Fashion-MNIST specific mean (corrected)
+          std: [0.3530] # Fashion-MNIST specific std

@@ -37,9 +37,9 @@ from .model import ModelConfig
 from .node import Node, NodeConfig
 from .topology import BaseTopology, BaseTopologyConfig
 from .utils import (
-    ExperimentResultsDisplay,
     MetricFormatter,
     RequiredSetup,
+    ResultsDisplayManager,
     print,
     print_rule,
 )
@@ -174,7 +174,7 @@ class Engine(RequiredSetup):
         self.results_dir: str = os.path.join(self.engine_dir, "node_results")
 
         self._metric_formatter: MetricFormatter = MetricFormatter()
-        self._results_display: ExperimentResultsDisplay = ExperimentResultsDisplay()
+        self._results_report: ResultsDisplayManager = ResultsDisplayManager()
 
         self._ray_actor_refs: List[Node] = []
 
@@ -436,7 +436,7 @@ class Engine(RequiredSetup):
                 LOG_FLUSH_DELAY
             )  # Ensure async Ray logs complete before displaying results
 
-            self._results_display.show_experiment_results(
+            self._results_report.show_experiment_results(
                 results,
                 experiment_duration,
                 self.global_rounds,

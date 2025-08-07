@@ -1,35 +1,43 @@
-# ══════════════════════════════════════════════════════════════════════════════
+# ================================================================================
 # Fashion-MNIST Test Configuration
-#
-# Test configuration for Fashion-MNIST dataset using FedAvg centralized setup.
-# Inherits from the base centralized configuration.
-# ══════════════════════════════════════════════════════════════════════════════
+# Tests Fashion-MNIST dataset using FedAvg centralized setup with SimpleCNN.
+# Uses grayscale images with 10 clothing categories.
+# ================================================================================
 
 defaults:
-  - test_mnist_fedavg_centralized_torchdist # Inherit base centralized config
-  - override datamodule: fashion_mnist # Override with Fashion-MNIST dataset
-  - override model: simple_cnn
+  - base # Base framework configuration
+  - override topology: centralized # see ./conf/topology/centralized.yaml
+  - override algorithm: fedavg # see ./conf/algorithm/fedavg.yaml
+  - override model: simple_cnn # see ./conf/model/simple_cnn.yaml
+  - override datamodule: fashion_mnist # see ./conf/datamodule/fashion_mnist.yaml
   - _self_
 
-# ─────────────────────────────────────────
+# ─────────────────────────────────── Topology Overrides
+topology:
+  num_clients: 3
+  local_comm:
+    _target_: src.flora.communicator.TorchDistCommunicator
+    # master_addr: 127.0.0.1 # Default
+    master_port: 29500
 
-global_rounds: 5
-
+# ─────────────────────────────────── Algorithm Overrides
 algorithm:
   local_lr: 0.001
-  max_epochs_per_round: 3
+  max_epochs_per_round: 4
 
-# ─────────────────────────────────────────
-
-# Override model for Fashion-MNIST (grayscale, 10 classes)
+# ─────────────────────────────────── Model Overrides
 model:
   backbone:
-    in_channels: 1 # Fashion-MNIST grayscale images
+    in_channels: 1 # Fashion-MNIST grayscale
   head:
     num_classes: 10 # 10 clothing classes
 
-# datamodule:
-#   train:
-#     batch_size: 128
-#   eval:
-#     batch_size: 128
+# ─────────────────────────────────── DataModule Overrides
+datamodule:
+  train:
+    batch_size: 128
+  eval:
+    batch_size: 128
+
+# ─────────────────────────────────── Engine Parameters
+global_rounds: 3 # see ./conf/base.yaml for all options

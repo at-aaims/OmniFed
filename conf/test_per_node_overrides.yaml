@@ -1,17 +1,14 @@
-# ══════════════════════════════════════════════════════════════════════════════
-# MNIST FedAvg Centralized Experiment with TorchDist Communication
-#
-# Complete configuration for MNIST experiments with FedAvg algorithm.
-# Uses centralized topology with 2 clients and TorchDist communication.
-# ══════════════════════════════════════════════════════════════════════════════
+# ================================================================================
+# Per-Node Overrides Test Configuration
+# Tests per-node configuration overrides in centralized topology.
+# Demonstrates custom node names, disabled training, and per-node parameters.
+# ================================================================================
 
 defaults:
-  - test_fedavg_centralized_torchdist # Inherit base test config
+  - test_fedavg_centralized_torchdist # Base centralized configuration
   - _self_
 
-# ─────────────────────────────────────────
-# Component Overrides
-
+# ─────────────────────────────────── Topology Configuration
 topology:
   num_clients: 2
   overrides: # Override settings per-rank

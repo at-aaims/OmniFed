@@ -1,4 +1,4 @@
-# ══════════════════════════════════════════════════════════════════════════════
+# ================================================================================
 # CIFAR-10 Dataset Configuration
 #
 # Configures FLUX DataModule for CIFAR-10 object classification.
@@ -7,7 +7,7 @@
 # Docs:
 # - https://pytorch.org/vision/stable/generated/torchvision.datasets.CIFAR10.html
 # - https://www.cs.toronto.edu/~kriz/cifar.html
-# ══════════════════════════════════════════════════════════════════════════════
+# ================================================================================
 
 defaults:
   - base
@@ -20,7 +20,7 @@ train:
   dataset:
     _target_: torchvision.datasets.CIFAR10
     root: ${oc.env:FLUX_DATA_DIR,/tmp}/cifar10
-    train: true  # Use training set
+    train: true # Use training set
     # target_transform: null  # Optional transform for targets
     download: true
     transform:
@@ -33,8 +33,8 @@ train:
           size: 32
           padding: 4
         - _target_: torchvision.transforms.Normalize
-          mean: [0.4914, 0.4822, 0.4465]  # CIFAR-10 specific mean
-          std: [0.2470, 0.2435, 0.2616]   # CIFAR-10 specific std
+          mean: [0.4914, 0.4822, 0.4465] # CIFAR-10 specific mean
+          std: [0.2470, 0.2435, 0.2616] # CIFAR-10 specific std
 
 # ─────────────────────────────────────────
 # Evaluation Data
@@ -43,7 +43,7 @@ eval:
   dataset:
     _target_: torchvision.datasets.CIFAR10
     root: ${oc.env:FLUX_DATA_DIR,/tmp}/cifar10
-    train: false  # Use test set
+    train: false # Use test set
     # target_transform: null  # Optional transform for targets
     download: true
     transform:
@@ -51,5 +51,5 @@ eval:
       transforms:
         - _target_: torchvision.transforms.ToTensor
         - _target_: torchvision.transforms.Normalize
-          mean: [0.4914, 0.4822, 0.4465]  # CIFAR-10 specific mean
-          std: [0.2470, 0.2435, 0.2616]   # CIFAR-10 specific std
+          mean: [0.4914, 0.4822, 0.4465] # CIFAR-10 specific mean
+          std: [0.2470, 0.2435, 0.2616] # CIFAR-10 specific std

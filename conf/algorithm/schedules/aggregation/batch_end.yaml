@@ -1,11 +1,10 @@
-# ══════════════════════════════════════════════════════════════════════════════
+# ================================================================================
 # Batch-End Aggregation Configuration
 #
 # Very high-frequency aggregation pattern.
 # Aggregate model updates at the end of each batch during local training.
 # Warning: This creates significant communication overhead.
-#
-# ══════════════════════════════════════════════════════════════════════════════
+# ================================================================================
 
 # NOTE: Check constructor signature for complete parameter list, defaults, types, and docs.
 _target_: src.flora.algorithm.AggregationTriggers

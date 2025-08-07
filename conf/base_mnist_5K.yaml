@@ -1,9 +1,9 @@
-# ══════════════════════════════════════════════════════════════════════════════
+# ================================================================================
 # MNIST Sampled Test Configuration
 #
 # Fast test configuration using torch.utils.data.RandomSampler for flexible sampling.
 # Configurable via environment variables for different test sizes.
-# ══════════════════════════════════════════════════════════════════════════════
+# ================================================================================
 
 defaults:
   - base # Base framework configuration

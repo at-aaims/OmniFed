@@ -1,9 +1,9 @@
-# ══════════════════════════════════════════════════════════════════════════════
+# ================================================================================
 # DataLoader Template
 #
 # Template for torch.utils.data.DataLoader configuration.
 # Used by DataModule configurations to ensure consistent structure.
-# ══════════════════════════════════════════════════════════════════════════════
+# ================================================================================
 
 # NOTE: Check constructor signature for complete parameter list, defaults, types, and docs.
 _target_: torch.utils.data.DataLoader

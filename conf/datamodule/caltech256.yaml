@@ -1,4 +1,4 @@
-# ══════════════════════════════════════════════════════════════════════════════
+# ================================================================================
 # Caltech-256 Dataset Configuration
 #
 # Configures FLUX DataModule for Caltech-256 object classification.
@@ -7,7 +7,7 @@
 # Docs:
 # - https://pytorch.org/vision/stable/generated/torchvision.datasets.Caltech256.html
 # - http://www.vision.caltech.edu/Image_Datasets/Caltech256/
-# ══════════════════════════════════════════════════════════════════════════════
+# ================================================================================
 
 defaults:
   - base

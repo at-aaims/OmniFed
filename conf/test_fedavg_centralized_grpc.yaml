@@ -1,6 +1,5 @@
 # ================================================================================
 # MNIST FedAvg Centralized Experiment with gRPC Communication
-#
 # Complete configuration for MNIST experiments with FedAvg algorithm.
 # Uses centralized topology with 3 clients and gRPC communication.
 # Runs for 3 global rounds with 4 local epochs per round.
@@ -8,10 +7,10 @@
 
 defaults:
   - base # Base framework configuration
-  - override model: simple_cnn # reference template for custom PyTorch models.
-  - override datamodule: mnist # reference template for custom datasets.
-  - override topology: centralized # using centralized topology template
-  - override algorithm: fedavg # using FedAvg algorithm template
+  - override model: simple_cnn # see ./conf/model/simple_cnn.yaml
+  - override datamodule: mnist # see ./conf/datamodule/mnist.yaml
+  - override topology: centralized # see ./conf/topology/centralized.yaml
+  - override algorithm: fedavg # see ./conf/algorithm/fedavg.yaml
   - _self_ # Everything below is merged on top of the above defaults
 
 # ─────────────────────────────────── Centralized Topology Overrides
@@ -21,28 +20,25 @@ topology:
     _target_: src.flora.communicator.GrpcCommunicator
     # master_addr: 127.0.0.1 # Default
     master_port: 50051
-    # ... see class docs/constructor for more options
 
-# ─────────────────────────────────── FedAvg Algorithm Overrides
-algorithm: # see ./conf/algorithm/fedavg.yaml for all options
+# ─────────────────────────────────── FedAvg Overrides
+algorithm:
   local_lr: 0.01
   max_epochs_per_round: 4
 
 # ─────────────────────────────────── SimpleCNN Overrides
-model: # see ./conf/model/simple_cnn.yaml for all options
+model:
   backbone:
     in_channels: 1 # MNIST grayscale
   head:
     num_classes: 10 # MNIST digits
 
 # ─────────────────────────────────── MNIST DataModule Overrides
-datamodule: # see ./conf/datamodule/mnist.yaml for all options
+datamodule:
   train:
     batch_size: 128
   eval:
     batch_size: 128
 
 # ─────────────────────────────────── Engine Parameters
-# see ./conf/base.yaml for all options
-
-global_rounds: 3
+global_rounds: 3 # see ./conf/base.yaml for all options

@@ -1,43 +1,51 @@
-# ══════════════════════════════════════════════════════════════════════════════
+# ================================================================================
 # ResNet Model Family Test Configuration
-#
-# Test configuration demonstrating ResNet model variants.
-# ══════════════════════════════════════════════════════════════════════════════
+# Tests various ResNet model variants (ResNet18, ResNet50, ResNet152).
+# Demonstrates different model architectures with optional pre-trained weights.
+# ================================================================================
 
 defaults:
-  - test_mnist_fedavg_centralized_torchdist # Inherit base test config
-  - _self_
+  - base # Base framework configuration
+  - override topology: centralized # see ./conf/topology/centralized.yaml
+  - override algorithm: fedavg # see ./conf/algorithm/fedavg.yaml
+  # NOTE1: In this example, we define the model directly in this file.
+  # NOTE2: Alternatively, create configs in `./conf/model/` and use the defaults override
+  # - override model: my_model
+  - override datamodule: mnist # see ./conf/datamodule/mnist.yaml
+  - _self_ # Everything below is merged on top of the above defaults
 
-# ─────────────────────────────────────────
-# ResNet Model Selection
-# ─────────────────────────────────────────
+# ─────────────────────────────────── Topology Overrides
+topology:
+  num_clients: 3
+  local_comm:
+    _target_: src.flora.communicator.TorchDistCommunicator
+    # master_addr: 127.0.0.1 # Default
+    master_port: 29500
 
-# Active ResNet variant
+# ─────────────────────────────────── Algorithm Overrides
+algorithm:
+  local_lr: 0.01
+  max_epochs_per_round: 4
+
+# ─────────────────────────────────── Model Configuration
 model:
-  _target_: torchvision.models.resnet50
+  _target_: torchvision.models.resnet18
+  # _target_: torchvision.models.resnet34
+  # _target_: torchvision.models.resnet50
+  # _target_: torchvision.models.resnet101
+  # _target_: torchvision.models.resnet152
   num_classes: 10
   progress: true
   # weights: null  # Random initialization
   # weights: "IMAGENET1K_V1"  # ImageNet pre-trained (original)
   # weights: "IMAGENET1K_V2"  # ImageNet pre-trained (improved)
-# ─────────────────────────────────────────
-# Alternative ResNet Variants
-# ─────────────────────────────────────────
 
-# Lightweight ResNet
-# model:
-#   _target_: torchvision.models.resnet18
-#   num_classes: 10
-#   progress: true
-#   # weights: null
-#   # weights: "IMAGENET1K_V1"
+# ─────────────────────────────────── DataModule Overrides
+datamodule:
+  train:
+    batch_size: 128
+  eval:
+    batch_size: 128
 
-# Deeper ResNet
-# model:
-#   _target_: torchvision.models.resnet152
-#   num_classes: 10
-#   progress: true
-#   # weights: null
-#   # weights: "IMAGENET1K_V1"
-#   # weights: "IMAGENET1K_V2"
-
+# ─────────────────────────────────── Engine Parameters
+global_rounds: 3 # see ./conf/base.yaml for all options

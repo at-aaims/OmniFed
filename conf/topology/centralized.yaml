@@ -1,10 +1,9 @@
-# ══════════════════════════════════════════════════════════════════════════════
+# ================================================================================
 # Centralized Topology with TorchDist Communication
 #
 # Traditional server-client federated learning topology.
 # One aggregator node coordinates multiple client nodes using PyTorch distributed backend.
-#
-# ══════════════════════════════════════════════════════════════════════════════
+# ================================================================================
 
 defaults:
   - base

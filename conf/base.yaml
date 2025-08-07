@@ -1,9 +1,9 @@
-# ══════════════════════════════════════════════════════════════════════════════
+# ================================================================================
 # Base Configuration
 #
 # Main configuration template with required components for federated learning experiments.
 # This is the primary config that composes all other components.
-# ══════════════════════════════════════════════════════════════════════════════
+# ================================================================================
 
 defaults:
   - topology: base

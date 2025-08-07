@@ -1,0 +1,25 @@
+# ================================================================================
+# Full Evaluation Configuration
+#
+# Comprehensive evaluation pattern with all evaluation points enabled.
+# Evaluates at start, end, before aggregation, and after aggregation.
+# ================================================================================
+
+defaults:
+    - base
+
+# ─────────────────────────────────────────
+experiment_start: true
+experiment_end: true
+
+# ─────────────────────────────────────────
+pre_aggregation: true
+# pre_aggregation:         # Selective pre-aggregation evaluation
+#   every: 2               # Before every 2nd aggregation
+#   at: [0, 1, 5, 10]      # Before specific aggregations
+
+# ─────────────────────────────────────────
+post_aggregation: true
+# post_aggregation:        # Selective post-aggregation evaluation
+#   every: 2               # After every 2nd aggregation
+#   at: [0, 1, 5, 10]      # After specific aggregations

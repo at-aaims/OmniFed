@@ -19,36 +19,6 @@ from rich import print as rich_print
 from rich.color import ANSI_COLOR_NAMES
 from rich.rule import Rule
 
-# def setup_rich_logging(level=logging.INFO) -> None:
-#     """
-#     Configure rich console logging for FLUX.
-
-#     Sets up enhanced logging with timestamps, paths, markup support,
-#     and rich tracebacks for better debugging experience.
-
-#     Args:
-#         level: Logging level (default: INFO)
-#     """
-#     root_logger = logging.getLogger()
-#     root_logger.handlers.clear()
-
-#     rich_handler = RichHandler(
-#         console=console,
-#         show_time=True,
-#         show_path=True,
-#         markup=True,
-#         omit_repeated_times=True,
-#         rich_tracebacks=True,
-#         tracebacks_show_locals=True,
-#     )
-
-#     formatter = logging.Formatter(fmt="[%(name)s] %(message)s")
-#     rich_handler.setFormatter(formatter)
-
-#     root_logger.addHandler(rich_handler)
-#     root_logger.setLevel(level)
-
-
 ANSI_COLOR_NAMES_LIST = [
     name
     for name in ANSI_COLOR_NAMES.keys()
