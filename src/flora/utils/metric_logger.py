@@ -153,7 +153,6 @@ class MetricLogger:
         self._agg_ctx_accumulators: Dict[str, Dict[MetricAggType, defaultdict]] = {}
         self._agg_ctx_csv_writers: Dict[str, csv.writer] = {}
         self._agg_ctx_csv_files: Dict[str, Any] = {}
-        self._formatter = DisplayFormatter()
 
         atexit.register(self.close_metrics)
 
@@ -216,10 +215,6 @@ class MetricLogger:
             # Flush metrics to storage
             try:
                 flushed_metrics = self.flush_metrics(context_key)
-                flushed_metrics = {
-                    key: self._formatter.format(key, value)
-                    for key, value in flushed_metrics.items()
-                }
             except Exception as e:
                 warnings.warn(
                     f"Failed to flush metrics for context '{context_key}': {e}"
