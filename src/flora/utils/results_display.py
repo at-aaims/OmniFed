@@ -44,7 +44,7 @@ class MetricType(Enum):
     LOSS = "Loss & Error"
     PERFORMANCE = "Performance"
     TIME = "Timing"
-    COUNT = "Dataset"
+    DATASET = "Dataset"
     PROGRESS = "Progress"
     LOCAL_AGG = "Local Agg"
     GLOBAL_AGG = "Global Agg"
@@ -187,18 +187,6 @@ class MetricRule:
         )
     )
 
-    def is_valid_value(self, value: float) -> bool:
-        if math.isnan(value) or math.isinf(value):
-            return False
-
-        if self.valid_range is None:
-            return True
-
-        min_val, max_val = self.valid_range
-        return (min_val is None or value >= min_val) and (
-            max_val is None or value <= max_val
-        )
-
 
 METRIC_RULES = [
     MetricRule(
@@ -219,15 +207,6 @@ METRIC_RULES = [
         show_median=True,
     ),
     MetricRule(
-        r"(count|total|num_)",
-        precision=0,
-        emoji=":package:",
-        metric_type=MetricType.COUNT,
-        valid_range=(0.0, None),
-        show_cv=False,
-        show_sum=True,
-    ),
-    MetricRule(
         r"time",
         precision=4,
         units="s",
@@ -236,7 +215,16 @@ METRIC_RULES = [
         metric_type=MetricType.TIME,
         valid_range=(0.0, None),
     ),
-MetricRule(
+    MetricRule(
+        r"(total_batches|total_samples)",
+        precision=0,
+        emoji=":package:",
+        metric_type=MetricType.DATASET,
+        valid_range=(0.0, None),
+        show_cv=False,
+        show_sum=True,
+    ),
+    MetricRule(
         r"local_agg",
         precision=4,
         emoji=":arrow_up:",
@@ -269,6 +257,93 @@ MetricRule(
 ]
 
 DEFAULT_RULE = MetricRule(pattern=".*", emoji=":bar_chart:")
+
+
+@dataclass(frozen=True)
+class ValidationResult:
+    """Single source of truth for validation state"""
+
+    is_valid: bool
+    is_nan: bool = False
+    is_inf: bool = False
+    is_out_of_range: bool = False
+    is_outlier: bool = False
+    outlier_severity: float = 0.0
+    value_index: int = -1
+
+
+def validate_metric_value(
+    value: Any, rule: MetricRule, context_values: Optional[List[float]] = None
+) -> ValidationResult:
+    """Single validation function - all validation logic here"""
+
+    # Type validation
+    if not isinstance(value, (int, float, bool)):
+        return ValidationResult(is_valid=False)
+
+    # NaN/inf validation (only done ONCE)
+    if isinstance(value, float):
+        if math.isnan(value):
+            return ValidationResult(is_valid=False, is_nan=True)
+        if math.isinf(value):
+            return ValidationResult(is_valid=False, is_inf=True)
+
+    # Range validation
+    is_out_of_range = False
+    if rule.valid_range:
+        min_val, max_val = rule.valid_range
+        if (min_val is not None and value < min_val) or (
+            max_val is not None and value > max_val
+        ):
+            is_out_of_range = True
+
+    # Outlier detection (if context provided)
+    is_outlier = False
+    outlier_severity = 0.0
+    value_index = -1
+    if context_values and len(context_values) >= CONFIG.MIN_DATA_POINTS_REQUIRED:
+        # Find value in context (handle floating point comparison properly)
+        for i, ctx_val in enumerate(context_values):
+            if ctx_val == value or (
+                isinstance(ctx_val, float)
+                and isinstance(value, float)
+                and abs(ctx_val - value) < 1e-10
+            ):
+                value_index = i
+                break
+
+        if value_index >= 0:
+            outlier_indices = detect_outliers(context_values)
+            if value_index in outlier_indices:
+                is_outlier = True
+                outlier_severity = MetricStats.compute_log_deviation(
+                    context_values, [value_index]
+                )
+
+    return ValidationResult(
+        is_valid=not (is_out_of_range),
+        is_out_of_range=is_out_of_range,
+        is_outlier=is_outlier,
+        outlier_severity=outlier_severity,
+        value_index=value_index,
+    )
+
+
+def format_metric_value(
+    value: Any, rule: MetricRule, validation: ValidationResult
+) -> str:
+    """Pure formatting - no validation logic"""
+    # Error cases - use actual string representation
+    if validation.is_nan or validation.is_inf or not validation.is_valid:
+        return f"❌ {str(value)}"
+
+    # Normal formatting
+    if isinstance(value, (int, bool)):
+        return f"{int(value):,}{rule.units}"
+    if isinstance(value, float):
+        return f"{value:.{rule.precision}f}{rule.units}"
+
+    return str(value)
 
 
 def detect_outliers(values: List[float]) -> List[int]:
@@ -310,28 +385,42 @@ class DisplayFormatter:
         self._rule_cache[metric_name] = DEFAULT_RULE
         return DEFAULT_RULE
 
-    def validate_and_format(self, metric_name: str, value: float) -> str:
-        """Format numeric value according to its metric type with precision and units."""
-        if np.isnan(value) or np.isinf(value):
-            text = f"❌ {str(value)}"
-            return self.format_text(text, COLORS.VERY_BAD)
-
+    def format_value(
+        self,
+        metric_name: str,
+        value: Any,
+        context_values: Optional[List[float]] = None,
+        validate_range: bool = True,
+        base_color: str = COLORS.NEUTRAL,
+    ) -> str:
+        """Format and style a metric value with validation and context-aware coloring."""
         rule = self.find_rule(metric_name)
+        validation = validate_metric_value(
+            value, rule, context_values if validate_range else None
+        )
+        formatted = format_metric_value(value, rule, validation)
 
-        if rule.metric_type == MetricType.COUNT:
-            if not (math.isfinite(value) and value >= 0 and value < 1e15):
-                return (
-                    self.format_text(f"{value:.0f}{rule.units}", COLORS.MODERATE)
-                    + " :warning:"
-                )
-            return f"{int(round(value)):,}{rule.units}"
-        return f"{value:.{rule.precision}f}{rule.units}"
+        # Determine color based on validation results
+        if (
+            validation.is_nan
+            or validation.is_inf
+            or (validate_range and validation.is_out_of_range)
+        ):
+            color = COLORS.VERY_BAD
+        elif validation.is_outlier:
+            color = rule.outlier_thresholds.get_value_for_threshold(
+                validation.outlier_severity
+            )
+        else:
+            color = base_color
+
+        return self.format_text(formatted, color)
 
     def get_pct_change_color(
         self, metric_name: str, delta: float, prev_value: Optional[float] = None
     ) -> str:
         """Return color code based on whether change represents improvement or regression."""
-        if np.isnan(delta) or np.isinf(delta):
+        if not math.isfinite(delta):
             return COLORS.SUBTLE
 
         rule = self.find_rule(metric_name)
@@ -349,44 +438,11 @@ class DisplayFormatter:
             return thresholds.get_value_for_threshold(abs_pct_change)
         return COLORS.VERY_GOOD if is_improvement else COLORS.VERY_BAD
 
-    def format_cell(
-        self,
-        metric_name: str,
-        value: float,
-        color: str = COLORS.NEUTRAL,
-        validate_range: bool = True,
-        context_values: Optional[List[float]] = None,
-    ) -> str:
-        """Apply Rich formatting to metric value for table display."""
-        if np.isnan(value) or np.isinf(value):
-            return self.validate_and_format(metric_name, value)
-
-        formatted_value = self.validate_and_format(metric_name, value)
-
-        if validate_range and not self.find_rule(metric_name).is_valid_value(value):
-            return self.format_text(formatted_value, COLORS.VERY_BAD)
-
-        if context_values and len(context_values) >= CONFIG.MIN_DATA_POINTS_REQUIRED:
-            try:
-                value_index = context_values.index(value)
-                outlier_indices = detect_outliers(context_values)
-                if value_index in outlier_indices:
-                    deviation = MetricStats.compute_log_deviation(
-                        context_values, [value_index]
-                    )
-                    color = self.find_rule(
-                        metric_name
-                    ).outlier_thresholds.get_value_for_threshold(deviation)
-            except ValueError:
-                pass
-
-        return self.format_text(formatted_value, color)
-
     def format_cv_cell(self, cv_value: float, thresholds: ThresholdSpec) -> str:
         """Format coefficient of variation percentage with threshold-based coloring."""
-        if np.isnan(cv_value) or np.isinf(cv_value):
-            text = f"❌ {str(cv_value)}"
-            return self.format_text(text, COLORS.VERY_BAD)
+        # Simple check for CV values - no need for full validation
+        if not math.isfinite(cv_value):
+            return self.format_text(f"❌ {str(cv_value)}", COLORS.VERY_BAD)
 
         return self.format_text(
             f"{cv_value:.1f}%", thresholds.get_value_for_threshold(cv_value)
@@ -502,17 +558,22 @@ class MetricStats:
         self._inf_indices: List[int] = []
         self._invalid_indices: List[int] = []
 
+        # Always use a rule - either specific or default
+        if metric_name and formatter:
+            rule = formatter.find_rule(metric_name)
+        else:
+            rule = DEFAULT_RULE
+
         for idx, value in enumerate(values):
-            if np.isnan(value):
+            validation = validate_metric_value(value, rule)
+            if validation.is_nan:
                 self._nan_indices.append(idx)
-            elif np.isinf(value):
+            elif validation.is_inf:
                 self._inf_indices.append(idx)
             else:
                 self._clean_values.append(value)
-                if metric_name and formatter:
-                    rule = formatter.find_rule(metric_name)
-                    if not rule.is_valid_value(value):
-                        self._invalid_indices.append(len(self._clean_values) - 1)
+                if validation.is_out_of_range:
+                    self._invalid_indices.append(len(self._clean_values) - 1)
 
         self._outlier_indices = None
         self._basic_stats = None
@@ -696,7 +757,7 @@ class ResultsDisplay:
         MetricType.PROGRESS,
         MetricType.LOSS,
         MetricType.PERFORMANCE,
-        MetricType.COUNT,
+        MetricType.DATASET,
         MetricType.TIME,
         MetricType.LOCAL_AGG,
         MetricType.GLOBAL_AGG,
@@ -1041,37 +1102,18 @@ class ResultsDisplay:
         computed_stats = stats.compute_stats()
         rule = self.formatter.find_rule(metric)
 
-        def _format_extreme(value: float) -> str:
-            base = self.formatter.validate_and_format(metric, value)
-            if not rule.is_valid_value(value):
-                return self.formatter.format_text(base, COLORS.VERY_BAD)
-            color = COLORS.NEUTRAL
-            if len(values) >= CONFIG.MIN_DATA_POINTS_REQUIRED:
-                try:
-                    idx = values.index(value)
-                except ValueError:
-                    idx = -1
-                if idx >= 0:
-                    outlier_indices = stats.outlier_indices
-                    if idx in outlier_indices:
-                        deviation = MetricStats.compute_log_deviation(values, [idx])
-                        color = rule.outlier_thresholds.get_value_for_threshold(
-                            deviation
-                        )
-            return self.formatter.format_text(base, color)
-
-        mean_str = self.formatter.format_cell(metric, computed_stats.mean)
+        mean_str = self.formatter.format_value(metric, computed_stats.mean)
 
         std_str = (
-            self.formatter.format_cell(
-                metric, computed_stats.std, COLORS.NEUTRAL, False
+            self.formatter.format_value(
+                metric, computed_stats.std, validate_range=False
             )
             if len(values) > 1
             else DIM_DASH
         )
 
-        min_str = _format_extreme(computed_stats.min_val)
-        max_str = _format_extreme(computed_stats.max_val)
+        min_str = self.formatter.format_value(metric, computed_stats.min_val, values)
+        max_str = self.formatter.format_value(metric, computed_stats.max_val, values)
 
         cv_str = (
             self.formatter.format_cv_cell(computed_stats.cv, rule.cv_thresholds)
@@ -1080,13 +1122,14 @@ class ResultsDisplay:
         )
 
         median_str = (
-            _format_extreme(computed_stats.median)
+            # _format_extreme(computed_stats.median)
+            self.formatter.format_value(metric, computed_stats.median, values)
             if rule.show_median and values
             else DIM_DASH
         )
 
         sum_str = (
-            self.formatter.format_cell(metric, sum(values))
+            self.formatter.format_value(metric, sum(values))
             if rule.show_sum and values
             else DIM_DASH
         )
@@ -1434,7 +1477,9 @@ class ResultsDisplay:
             if pos_values:
                 avg_value = sum(pos_values) / len(pos_values)
                 values.append(avg_value)
-                row_cells.append(self.formatter.validate_and_format(metric, avg_value))
+                row_cells.append(
+                    self.formatter.format_value(metric, avg_value, validate_range=False)
+                )
             else:
                 values.append(None)
                 row_cells.append(DIM_DASH)
