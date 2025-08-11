@@ -48,7 +48,7 @@ topology:
 # ─────────────────────────────────── FedAvg Overrides
 algorithm:
   local_lr: 0.005
-  max_epochs_per_round: 5
+  max_epochs_per_round: 3
 
 # ─────────────────────────────────── SimpleCNN Overrides
 model:
@@ -65,4 +65,4 @@ datamodule:
     batch_size: 128
 
 # ─────────────────────────────────── Engine Parameters
-global_rounds: 5 # see ./conf/base.yaml for all options
+global_rounds: 2 # see ./conf/base.yaml for all options

@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import warnings
 from concurrent import futures
 
 import grpc
@@ -242,7 +243,14 @@ class GrpcCommunicator(BaseCommunicator):
         # Apply aggregated results back to original message format
         return self._apply_tensordict_to_msg(msg, aggregated_tensordict)
 
-    def _extract_tensordict_from_msg(self, msg: BaseCommunicator.MsgT) -> dict:
+    def _extract_tensordict_from_msg(
+        self,
+        msg: BaseCommunicator.MsgT,
+        # TODO: Consider adding control arguments like utils.scale_params:
+        # requires_grad: Optional[bool] = None,
+        # include_buffers: bool = True,
+        # filter_fn: Optional[Callable[[str, torch.Tensor], bool]] = None
+    ) -> BaseCommunicator.MsgT:
         """
         Extract tensors from message for gRPC serialization.
 
@@ -253,18 +261,32 @@ class GrpcCommunicator(BaseCommunicator):
             Dictionary mapping parameter names to tensor values
         """
         if isinstance(msg, nn.Module):
-            return {
-                name: param.data
-                for name, param in msg.named_parameters()
-                if param.requires_grad
-            }
+            result = dict()
+            for name, param in msg.named_parameters():
+                if param.requires_grad:
+                    result[name] = param.data
+            # Include buffers (batch norm stats, etc.) - only floating-point buffers
+            for name, buffer in msg.named_buffers():
+                if buffer is None:  # type: ignore
+                    warnings.warn(f"Buffer '{name}' is None, skipping serialization")
+                    continue
+                if not buffer.dtype.is_floating_point:
+                    continue  # Skip integer buffers like num_batches_tracked
+                result[name] = buffer.data
+            return result
         elif isinstance(msg, dict):
             return msg
         else:
             return {"tensor": msg}
 
     def _apply_tensordict_to_msg(
-        self, msg: BaseCommunicator.MsgT, tensordict: dict
+        self,
+        msg: BaseCommunicator.MsgT,
+        tensordict: BaseCommunicator.MsgT,
+        # TODO: Consider adding control arguments like utils.scale_params:
+        # requires_grad: Optional[bool] = None,
+        # include_buffers: bool = True,
+        # filter_fn: Optional[Callable[[str, torch.Tensor], bool]] = None
     ) -> BaseCommunicator.MsgT:
         """
         Apply deserialized tensors back to original message format.
@@ -278,11 +300,26 @@ class GrpcCommunicator(BaseCommunicator):
         """
         if isinstance(msg, nn.Module):
             with torch.no_grad():
+                # Apply parameters
                 for name, param in msg.named_parameters():
                     if param.requires_grad and name in tensordict:
                         # Ensure tensor is on the same device as the parameter before copying
                         tensor = tensordict[name].to(param.device)
                         param.data.copy_(tensor)
+                # Apply buffers (batch norm stats, etc.) - only floating-point buffers
+                for name, buffer in msg.named_buffers():
+                    if buffer is None:  # type: ignore
+                        warnings.warn(
+                            f"Buffer '{name}' is None, skipping deserialization"
+                        )
+                        continue
+                    if not buffer.dtype.is_floating_point:
+                        continue  # Skip integer buffers like num_batches_tracked
+                    if name not in tensordict:
+                        continue  # Buffer not in received data
+                    # Ensure tensor is on the same device as the buffer before copying
+                    tensor = tensordict[name].to(buffer.device)
+                    buffer.data.copy_(tensor)
             return msg
         elif isinstance(msg, dict):
             return tensordict

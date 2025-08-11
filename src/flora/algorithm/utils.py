@@ -14,6 +14,7 @@
 
 import copy
 import hashlib
+import warnings
 from typing import Any, Callable, Dict, List, Optional
 
 import torch
@@ -148,9 +149,16 @@ def scale_params(
         if include_buffers:
             for name, buffer in model.named_buffers():
                 buffers_total += 1
-                if should_scale(name, buffer):
-                    buffer.mul_(scale_factor)
-                    buffers_scaled += 1
+                if not should_scale(name, buffer):
+                    continue
+                if buffer is None:  # type: ignore
+                    warnings.warn(f"Buffer '{name}' is None, skipping scaling")
+                    continue
+                if not buffer.dtype.is_floating_point:
+                    continue  # Skip integer buffers like num_batches_tracked
+                # Only scale floating-point buffers (running_mean, running_var)
+                buffer.mul_(scale_factor)
+                buffers_scaled += 1
         else:
             buffers_total = len(list(model.named_buffers()))
 
@@ -361,3 +369,27 @@ def hash_model_params(model: nn.Module) -> str:
 
     # Generate deterministic hash
     return hashlib.sha256(param_bytes).hexdigest()[:16]  # First 16 chars for brevity
+
+
+def hash_model_buffers(model: nn.Module) -> str:
+    """
+    Generate deterministic hash of model buffers (batch norm stats, etc.) for debugging.
+
+    Buffers include running statistics like batch norm running_mean and running_var
+    that affect model behavior but are not trainable parameters.
+
+    Args:
+        model: Model to compute buffer hash for
+
+    Returns:
+        Hexadecimal hash string representing current buffer state
+    """
+
+    # Concatenate all buffer tensors
+    buffer_bytes = b""
+    for name, buffer in model.named_buffers():
+        if buffer is not None:
+            buffer_bytes += buffer.data.cpu().numpy().tobytes()
+
+    # Generate deterministic hash
+    return hashlib.sha256(buffer_bytes).hexdigest()[:16]  # First 16 chars for brevity

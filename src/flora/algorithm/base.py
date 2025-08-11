@@ -17,6 +17,7 @@ import math
 import time
 import warnings
 from abc import abstractmethod
+from contextlib import contextmanager
 from functools import wraps
 from typing import Any, Callable, Dict, Optional
 
@@ -491,7 +492,7 @@ class BaseAlgorithm(RequiredSetup, LifecycleHooks, MetricLogger):
             return comm.aggregate(self.local_model, AggregationOp.SUM)
         """
         # Scale this client's model by its data proportion within the group
-        utils.scale_params(self.local_model, weight)
+        utils.scale_params(self.local_model, weight, include_buffers=True)
 
         # Aggregate weighted models across all clients in the group
         aggregated_model = comm.aggregate(
@@ -522,7 +523,7 @@ class BaseAlgorithm(RequiredSetup, LifecycleHooks, MetricLogger):
             Globally aggregated model after inter-group coordination
         """
         # Weight this group's model by its data proportion relative to all groups
-        utils.scale_params(self.local_model, weight)
+        utils.scale_params(self.local_model, weight, include_buffers=True)
 
         # Aggregate weighted group models across all groups
         aggregated_model = comm.aggregate(
@@ -549,7 +550,7 @@ class BaseAlgorithm(RequiredSetup, LifecycleHooks, MetricLogger):
         Synchronize communication interfaces for intra-group and inter-group operations.
         """
         # Phase 1: Intra-group aggregation via all-reduce
-        with self.log_duration("local_agg_time"):
+        with self.track_model_operation("local_agg"):
             # Calculate within-group sample totals and weights
             group_total_samples = self.local_comm.aggregate(
                 torch.tensor([self.__num_samples_trained], dtype=torch.float32),
@@ -574,7 +575,7 @@ class BaseAlgorithm(RequiredSetup, LifecycleHooks, MetricLogger):
 
         # Phase 2: Inter-group coordination (group servers only)
         if self.global_comm is not None:
-            with self.log_duration("global_agg_time"):
+            with self.track_model_operation("global_agg"):
                 # Calculate across-group sample totals and weights using group totals
                 global_total_samples = self.global_comm.aggregate(
                     torch.tensor([group_total_samples], dtype=torch.float32),
@@ -599,16 +600,16 @@ class BaseAlgorithm(RequiredSetup, LifecycleHooks, MetricLogger):
         # In cross-institutional/hierarchical FL: only group representatives participate in global_comm,
         # but all nodes need the final global model.
         # Check if any node in this local group participated in global aggregation.
-        with self.log_duration("local_bcast_time"):
-            needs_final_bcast = (
-                self.local_comm.aggregate(
-                    torch.tensor(1.0 if self.global_comm is not None else 0.0),
-                    AggregationOp.MAX,
-                )
-                > 0
+        needs_final_bcast = (
+            self.local_comm.aggregate(
+                torch.tensor(1.0 if self.global_comm is not None else 0.0),
+                AggregationOp.MAX,
             )
+            > 0
+        )
 
-            if needs_final_bcast:
+        if needs_final_bcast:
+            with self.track_model_operation("local_bcast"):
                 self.local_model = self.local_comm.broadcast(self.local_model)
 
     def __post_sync(self) -> None:
@@ -1077,82 +1078,89 @@ class BaseAlgorithm(RequiredSetup, LifecycleHooks, MetricLogger):
             f"Override _infer_batch_size() to handle your custom batch format."
         )
 
-    @staticmethod
-    def track_param_changes(func: Callable[..., Any]) -> Callable[..., Any]:
-        """
-        Decorator that logs model parameter changes and detects numerical issues.
+    @contextmanager
+    def track_model_operation(self, operation_name: str):
+        """Context manager to track model parameter and buffer changes during operations."""
+        before_norm = utils.get_param_norm(self.local_model)
+        before_param_hash = utils.hash_model_params(self.local_model)
+        before_buffer_hash = utils.hash_model_buffers(self.local_model)
 
-        # TODO: re-integrate this
+        # Log before metrics
+        self.log_metric(f"{operation_name}_norm_before", before_norm)
 
-        Useful for debugging aggregation problems, gradient explosion, or parameter
-        corruption. Prints before/after parameter norms and detects common issues.
-        """
-
-        @wraps(func)
-        def wrapper(algo: Any, *args: Any, **kwargs: Any) -> Any:
-            phase = func.__name__  # Automatically get the function name
-            before_norm = utils.get_param_norm(algo.local_model)
-            before_hash = utils.hash_model_params(algo.local_model)
-
-            # Fatal check: model must have valid parameters
-            if before_norm == 0.0:
-                raise RuntimeError(
-                    f"Model has zero parameters before {phase}(). All weights are zero."
-                )
-            if math.isnan(before_norm) or math.isinf(before_norm):
-                raise RuntimeError(
-                    f"Model has invalid parameters before {phase}(). Contains NaN or Inf."
-                )
-
-            # Execute the original function
-            result = func(algo, *args, **kwargs)
-
-            after_norm = utils.get_param_norm(algo.local_model)
-            after_hash = utils.hash_model_params(algo.local_model)
-
-            delta = after_norm - before_norm
-            changed = before_hash != after_hash
-
-            print(
-                f"{phase.upper()} local_model hash: {before_hash[:8]} → {after_hash[:8]} | "
-                f"norm: {before_norm:.4f} → {after_norm:.4f} (Δ={delta:.6f}) | "
-                f"{'CHANGED' if changed else 'UNCHANGED'}"
+        # Fatal check: model must have valid parameters
+        if before_norm == 0.0:
+            raise RuntimeError(
+                f"Model has zero parameters before {operation_name}(). All weights are zero."
+            )
+        if math.isnan(before_norm) or math.isinf(before_norm):
+            raise RuntimeError(
+                f"Model has invalid parameters before {operation_name}(). Contains NaN or Inf."
             )
 
-            # Fatal check: operation must not corrupt the model
-            if after_norm == 0.0:
-                raise RuntimeError(
-                    f"Operation {phase}() zeroed all parameters. Model is broken."
-                )
-            if math.isnan(after_norm) or math.isinf(after_norm):
-                raise RuntimeError(
-                    f"Operation {phase}() caused numerical instability. Parameters are NaN/Inf."
-                )
+        with self.log_duration(f"{operation_name}_time"):
+            yield
 
-            # Warnings for suspicious patterns
-            if phase == "_aggregate" and not changed:
-                warnings.warn(
-                    f"Aggregation {phase}() completed but parameters unchanged. "
-                    f"Check if nodes have training data and non-zero aggregation weights.",
-                    UserWarning,
-                )
+        after_norm = utils.get_param_norm(self.local_model)
+        after_param_hash = utils.hash_model_params(self.local_model)
+        after_buffer_hash = utils.hash_model_buffers(self.local_model)
 
-            if after_norm > before_norm * 10:
-                warnings.warn(
-                    f"Parameter explosion in {phase}(). "
-                    f"Norm increased {after_norm / before_norm:.1f}x from {before_norm:.4f} to {after_norm:.4f}. "
-                    f"Consider reducing learning rate or gradient clipping.",
-                    UserWarning,
-                )
+        delta = after_norm - before_norm
+        params_changed = before_param_hash != after_param_hash
+        buffers_changed = before_buffer_hash != after_buffer_hash
 
-            if after_norm < before_norm * 0.1:
-                warnings.warn(
-                    f"Parameter norm vanishing in {phase}(). "
-                    f"Norm decreased {before_norm / after_norm:.1f}x from {before_norm:.4f} to {after_norm:.4f}. "
-                    f"Check for vanishing gradients, excessive regularization, or scaling issues.",
-                    UserWarning,
-                )
+        # Log after metrics
+        self.log_metric(f"{operation_name}_norm_after", after_norm)
+        self.log_metric(f"{operation_name}_norm_delta", delta)
+        self.log_metric(
+            f"{operation_name}_params_changed", 1.0 if params_changed else 0.0
+        )
+        self.log_metric(
+            f"{operation_name}_buffers_changed", 1.0 if buffers_changed else 0.0
+        )
 
-            return result
+        print(
+            f"{operation_name.upper()} local_model params: {before_param_hash[:8]} → {after_param_hash[:8]} | "
+            f"buffers: {before_buffer_hash[:8]} → {after_buffer_hash[:8]} | "
+            f"norm: {before_norm:.4f} → {after_norm:.4f} (Δ={delta:.6f}) | "
+            f"P:{'CHG' if params_changed else 'SAME'} B:{'CHG' if buffers_changed else 'SAME'}"
+        )
 
-        return wrapper
+        # Warnings for suspicious patterns (before fatal checks)
+        if not params_changed:
+            warnings.warn(
+                f"Operation {operation_name} completed but parameters unchanged.",
+                UserWarning,
+            )
+
+        if not buffers_changed:
+            warnings.warn(
+                f"Operation {operation_name} completed but buffers unchanged.",
+                UserWarning,
+            )
+
+        # Fatal check: operation must not corrupt the model
+        if after_norm == 0.0:
+            raise RuntimeError(
+                f"Operation {operation_name}() zeroed all parameters. Model is broken."
+            )
+        if math.isnan(after_norm) or math.isinf(after_norm):
+            raise RuntimeError(
+                f"Operation {operation_name}() caused numerical instability. Parameters are NaN/Inf."
+            )
+
+        if after_norm > before_norm * 10:
+            warnings.warn(
+                f"Parameter explosion in {operation_name}(). "
+                f"Norm increased {after_norm / before_norm:.1f}x from {before_norm:.4f} to {after_norm:.4f}. "
+                f"Consider reducing learning rate or gradient clipping.",
+                UserWarning,
+            )
+
+        if after_norm < before_norm * 0.1:
+            warnings.warn(
+                f"Parameter norm vanishing in {operation_name}(). "
+                f"Norm decreased {before_norm / after_norm:.1f}x from {before_norm:.4f} to {after_norm:.4f}. "
+                f"Check for vanishing gradients, excessive regularization, or scaling issues.",
+                UserWarning,
+            )

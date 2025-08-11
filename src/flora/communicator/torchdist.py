@@ -13,6 +13,7 @@
 # limitations under the License.
 
 import datetime
+import warnings
 from enum import Enum
 
 import rich.repr
@@ -137,6 +138,10 @@ class TorchDistCommunicator(BaseCommunicator):
         self,
         msg: BaseCommunicator.MsgT,
         src: int = 0,
+        # TODO: Consider adding control arguments like utils.scale_params:
+        # requires_grad: Optional[bool] = None,
+        # include_buffers: bool = True,
+        # filter_fn: Optional[Callable[[str, torch.Tensor], bool]] = None
     ) -> BaseCommunicator.MsgT:
         """
         Broadcast message from source rank to all other ranks.
@@ -156,8 +161,17 @@ class TorchDistCommunicator(BaseCommunicator):
         if isinstance(msg, nn.Module):
             # Broadcast all trainable parameters
             for _, p in msg.named_parameters():
+                # Only broadcast trainable parameters (frozen params stay local)
                 if p.requires_grad:
                     dist.broadcast(p.data, src=src)
+            # Broadcast all buffers (batch norm stats, etc.) - only floating-point buffers
+            for name, buffer in msg.named_buffers():
+                if buffer is None:  # type: ignore
+                    warnings.warn(f"Buffer '{name}' is None, skipping broadcast")
+                    continue
+                if not buffer.dtype.is_floating_point:
+                    continue  # Skip integer buffers like num_batches_tracked
+                dist.broadcast(buffer.data, src=src)
         elif isinstance(msg, dict):
             # Broadcast each tensor in dictionary
             for tensor in msg.values():
@@ -171,6 +185,10 @@ class TorchDistCommunicator(BaseCommunicator):
         self,
         msg: BaseCommunicator.MsgT,
         reduction: AggregationOp,
+        # TODO: Consider adding control arguments like utils.scale_params:
+        # requires_grad: Optional[bool] = None,
+        # include_buffers: bool = True,
+        # filter_fn: Optional[Callable[[str, torch.Tensor], bool]] = None
     ) -> BaseCommunicator.MsgT:
         """
         Aggregate message across all ranks using PyTorch all-reduce collective.
@@ -204,6 +222,14 @@ class TorchDistCommunicator(BaseCommunicator):
             for _, p in msg.named_parameters():
                 if p.requires_grad:
                     dist.all_reduce(p.data, op=op)
+            # Aggregate all buffers (batch norm stats, etc.) - only floating-point buffers
+            for name, buffer in msg.named_buffers():
+                if buffer is None:  # type: ignore
+                    warnings.warn(f"Buffer '{name}' is None, skipping aggregation")
+                    continue
+                if not buffer.dtype.is_floating_point:
+                    continue  # Skip integer buffers like num_batches_tracked
+                dist.all_reduce(buffer.data, op=op)
         elif isinstance(msg, dict):
             # Aggregate each tensor in dictionary
             for tensor in msg.values():
