@@ -750,19 +750,23 @@ class BaseAlgorithm(RequiredSetup, LifecycleHooks, MetricLogger):
 
             # Data preparation: fetch and transfer batch
             batch = None
-            _t_batch_data_start = time.time()
             if self.epoch_idx < self.max_epochs_per_round:
                 try:
+                    _t_batch_data_start = time.time()
                     batch = next(dataloader_iter)
                     batch = self._transfer_batch_to_device(batch, device=device)
+                    _t_batch_data_end = time.time()
+                    self.log_metric(
+                        "batch_time_data",
+                        _t_batch_data_end - _t_batch_data_start,
+                    )
                 except StopIteration:
                     # Node has exhausted its data - continue with None batch for synchronization
                     pass
-            _t_batch_data_end = time.time()
 
             # Execute batch computation
-            _t_batch_compute_start = time.time()
             if batch is not None:
+                _t_batch_compute_start = time.time()
                 # Framework handles batch size inference first
                 batch_size = self._infer_batch_size(batch)
 
@@ -780,7 +784,11 @@ class BaseAlgorithm(RequiredSetup, LifecycleHooks, MetricLogger):
                 self.log_metric("epoch_total_samples", batch_size, MetricAggType.SUM)
                 self.log_metric("epoch_total_batches", 1, MetricAggType.SUM)
 
-            _t_batch_compute_end = time.time()
+                _t_batch_compute_end = time.time()
+                self.log_metric(
+                    "batch_time_compute",
+                    _t_batch_compute_end - _t_batch_compute_start,
+                )
 
             # Batch-level aggregation
             if self.schedules.aggregation.batch_end():
@@ -793,14 +801,7 @@ class BaseAlgorithm(RequiredSetup, LifecycleHooks, MetricLogger):
             _t_batch_end = time.time()
 
             # Add batch timing metrics to accumulator
-            self.log_metric(
-                "batch_time_data",
-                _t_batch_data_end - _t_batch_data_start,
-            )
-            self.log_metric(
-                "batch_time_compute",
-                _t_batch_compute_end - _t_batch_compute_start,
-            )
+
             self.log_metric(
                 "batch_time_total",
                 _t_batch_end - _t_batch_start,
@@ -1079,88 +1080,84 @@ class BaseAlgorithm(RequiredSetup, LifecycleHooks, MetricLogger):
         )
 
     @contextmanager
-    def track_model_operation(self, operation_name: str):
+    def track_model_operation(self, op_name: str):
         """Context manager to track model parameter and buffer changes during operations."""
-        before_norm = utils.get_param_norm(self.local_model)
+        before_param_norm = utils.get_param_norm(self.local_model)
         before_param_hash = utils.hash_model_params(self.local_model)
         before_buffer_hash = utils.hash_model_buffers(self.local_model)
 
         # Log before metrics
-        self.log_metric(f"{operation_name}_norm_before", before_norm)
+        self.log_metric(f"{op_name}_param_norm_before", before_param_norm)
 
         # Fatal check: model must have valid parameters
-        if before_norm == 0.0:
+        if before_param_norm == 0.0:
             raise RuntimeError(
-                f"Model has zero parameters before {operation_name}(). All weights are zero."
+                f"Model has zero parameters before {op_name}(). All weights are zero."
             )
-        if math.isnan(before_norm) or math.isinf(before_norm):
+        if math.isnan(before_param_norm) or math.isinf(before_param_norm):
             raise RuntimeError(
-                f"Model has invalid parameters before {operation_name}(). Contains NaN or Inf."
+                f"Model has invalid parameters before {op_name}(). Contains NaN or Inf."
             )
 
-        with self.log_duration(f"{operation_name}_time"):
+        with self.log_duration(f"{op_name}_time"):
             yield
 
-        after_norm = utils.get_param_norm(self.local_model)
+        after_param_norm = utils.get_param_norm(self.local_model)
         after_param_hash = utils.hash_model_params(self.local_model)
         after_buffer_hash = utils.hash_model_buffers(self.local_model)
 
-        delta = after_norm - before_norm
+        delta = after_param_norm - before_param_norm
         params_changed = before_param_hash != after_param_hash
         buffers_changed = before_buffer_hash != after_buffer_hash
 
         # Log after metrics
-        self.log_metric(f"{operation_name}_norm_after", after_norm)
-        self.log_metric(f"{operation_name}_norm_delta", delta)
-        self.log_metric(
-            f"{operation_name}_params_changed", 1.0 if params_changed else 0.0
-        )
-        self.log_metric(
-            f"{operation_name}_buffers_changed", 1.0 if buffers_changed else 0.0
-        )
+        self.log_metric(f"{op_name}_param_norm_after", after_param_norm)
+        self.log_metric(f"{op_name}_param_norm_delta", delta)
+        self.log_metric(f"{op_name}_params_changed", 1.0 if params_changed else 0.0)
+        self.log_metric(f"{op_name}_buffers_changed", 1.0 if buffers_changed else 0.0)
 
         print(
-            f"{operation_name.upper()} local_model params: {before_param_hash[:8]} → {after_param_hash[:8]} | "
+            f"{op_name.upper()} local_model params: {before_param_hash[:8]} → {after_param_hash[:8]} | "
             f"buffers: {before_buffer_hash[:8]} → {after_buffer_hash[:8]} | "
-            f"norm: {before_norm:.4f} → {after_norm:.4f} (Δ={delta:.6f}) | "
+            f"param_norm: {before_param_norm:.4f} → {after_param_norm:.4f} (Δ={delta:.6f}) | "
             f"P:{'CHG' if params_changed else 'SAME'} B:{'CHG' if buffers_changed else 'SAME'}"
         )
 
         # Warnings for suspicious patterns (before fatal checks)
         if not params_changed:
             warnings.warn(
-                f"Operation {operation_name} completed but parameters unchanged.",
+                f"Operation {op_name} completed but parameters unchanged.",
                 UserWarning,
             )
 
         if not buffers_changed:
             warnings.warn(
-                f"Operation {operation_name} completed but buffers unchanged.",
+                f"Operation {op_name} completed but buffers unchanged.",
                 UserWarning,
             )
 
         # Fatal check: operation must not corrupt the model
-        if after_norm == 0.0:
+        if after_param_norm == 0.0:
             raise RuntimeError(
-                f"Operation {operation_name}() zeroed all parameters. Model is broken."
+                f"Operation {op_name}() zeroed all parameters. Model is broken."
             )
-        if math.isnan(after_norm) or math.isinf(after_norm):
+        if math.isnan(after_param_norm) or math.isinf(after_param_norm):
             raise RuntimeError(
-                f"Operation {operation_name}() caused numerical instability. Parameters are NaN/Inf."
+                f"Operation {op_name}() caused numerical instability. Parameters are NaN/Inf."
             )
 
-        if after_norm > before_norm * 10:
+        if after_param_norm > before_param_norm * 10:
             warnings.warn(
-                f"Parameter explosion in {operation_name}(). "
-                f"Norm increased {after_norm / before_norm:.1f}x from {before_norm:.4f} to {after_norm:.4f}. "
+                f"Parameter explosion in {op_name}(). "
+                f"Norm increased {after_param_norm / before_param_norm:.1f}x from {before_param_norm:.4f} to {after_param_norm:.4f}. "
                 f"Consider reducing learning rate or gradient clipping.",
                 UserWarning,
             )
 
-        if after_norm < before_norm * 0.1:
+        if after_param_norm < before_param_norm * 0.1:
             warnings.warn(
-                f"Parameter norm vanishing in {operation_name}(). "
-                f"Norm decreased {before_norm / after_norm:.1f}x from {before_norm:.4f} to {after_norm:.4f}. "
+                f"Parameter norm vanishing in {op_name}(). "
+                f"Norm decreased {before_param_norm / after_param_norm:.1f}x from {before_param_norm:.4f} to {after_param_norm:.4f}. "
                 f"Check for vanishing gradients, excessive regularization, or scaling issues.",
                 UserWarning,
             )

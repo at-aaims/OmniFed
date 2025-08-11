@@ -46,6 +46,9 @@ class MetricType(Enum):
     TIME = "Timing"
     COUNT = "Dataset"
     PROGRESS = "Progress"
+    LOCAL_AGG = "Local Agg"
+    GLOBAL_AGG = "Global Agg"
+    LOCAL_BCAST = "Local Bcast"
     OTHER = "Other"
 
 
@@ -199,15 +202,6 @@ class MetricRule:
 
 METRIC_RULES = [
     MetricRule(
-        r"time",
-        precision=4,
-        units="s",
-        minimize=True,
-        emoji="",
-        metric_type=MetricType.TIME,
-        valid_range=(0.0, None),
-    ),
-    MetricRule(
         r"(loss|error|mse|mae|rmse)",
         precision=4,
         minimize=True,
@@ -234,14 +228,38 @@ METRIC_RULES = [
         show_sum=True,
     ),
     MetricRule(
-        r"grad",
+        r"time",
         precision=4,
-        emoji=":bar_chart:",
-        metric_type=MetricType.OTHER,
+        units="s",
+        minimize=True,
+        emoji="",
+        metric_type=MetricType.TIME,
+        valid_range=(0.0, None),
+    ),
+MetricRule(
+        r"local_agg",
+        precision=4,
+        emoji=":arrow_up:",
+        metric_type=MetricType.LOCAL_AGG,
+        show_cv=False,
+    ),
+    MetricRule(
+        r"global_agg",
+        precision=4,
+        emoji=":globe_with_meridians:",
+        metric_type=MetricType.GLOBAL_AGG,
+        show_cv=False,
+    ),
+    MetricRule(
+        r"local_bcast",
+        precision=4,
+        emoji=":arrow_down:",
+        metric_type=MetricType.LOCAL_BCAST,
+        show_cv=False,
     ),
     MetricRule(
         r"(progress|completion|percent)",
-        precision=2,
+        precision=1,
         units="%",
         emoji=":chart_increasing:",
         metric_type=MetricType.PROGRESS,
@@ -564,7 +582,7 @@ class Measurement:
     epoch_idx: Optional[int]
     batch_idx: Optional[int]
     node_id: int
-    metrics: Dict[str, Optional[float]]
+    metrics: Dict[str, Any]
 
     @staticmethod
     def from_raw(raw: Dict[str, Any], node_id: int) -> "Measurement":
@@ -680,6 +698,9 @@ class ResultsDisplay:
         MetricType.PERFORMANCE,
         MetricType.COUNT,
         MetricType.TIME,
+        MetricType.LOCAL_AGG,
+        MetricType.GLOBAL_AGG,
+        MetricType.LOCAL_BCAST,
         MetricType.OTHER,
     ]
 

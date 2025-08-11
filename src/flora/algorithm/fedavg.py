@@ -48,7 +48,9 @@ class FedAvg(BaseAlgorithm):
         """
         SGD optimizer for local updates.
         """
-        return torch.optim.SGD(self.local_model.parameters(), lr=local_lr)
+        return torch.optim.SGD(
+            self.local_model.parameters(), lr=local_lr, momentum=0.9, weight_decay=1e-4
+        )
 
     def _compute_loss(self, batch: Any) -> torch.Tensor:
         """
@@ -82,13 +84,22 @@ class FedAvg(BaseAlgorithm):
         # Essential metrics
         acc = accuracy(preds, targets, task=task, num_classes=num_classes)
         prec = precision(
-            preds, targets, task=task, num_classes=num_classes, average="macro"
+            preds,
+            targets,
+            task=task,
+            num_classes=num_classes,
         )
         rec = recall(
-            preds, targets, task=task, num_classes=num_classes, average="macro"
+            preds,
+            targets,
+            task=task,
+            num_classes=num_classes,
         )
         f1 = f1_score(
-            preds, targets, task=task, num_classes=num_classes, average="macro"
+            preds,
+            targets,
+            task=task,
+            num_classes=num_classes,
         )
 
         # Very common metrics
