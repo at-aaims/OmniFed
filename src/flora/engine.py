@@ -17,7 +17,7 @@ import os
 import pickle
 import time
 import warnings
-from dataclasses import asdict, dataclass, field
+from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
 import ray
@@ -26,7 +26,7 @@ from hydra.conf import HydraConf
 from hydra.core.config_store import ConfigStore
 from hydra.core.hydra_config import HydraConfig
 from hydra.utils import instantiate
-from omegaconf import MISSING, OmegaConf
+from omegaconf import MISSING
 from rich.pretty import pprint
 from tqdm.auto import tqdm
 
@@ -37,9 +37,8 @@ from .model import ModelConfig
 from .node import Node, NodeConfig
 from .topology import BaseTopology, BaseTopologyConfig
 from .utils import (
-    MetricFormatter,
     RequiredSetup,
-    ResultsDisplayManager,
+    ResultsDisplay,
     print,
     print_rule,
 )
@@ -173,8 +172,7 @@ class Engine(RequiredSetup):
         self.engine_dir: str = os.path.join(self.output_dir, "engine")
         self.results_dir: str = os.path.join(self.engine_dir, "node_results")
 
-        self._metric_formatter: MetricFormatter = MetricFormatter()
-        self._results_report: ResultsDisplayManager = ResultsDisplayManager()
+        self._results_display: ResultsDisplay = ResultsDisplay()
 
         self._ray_actor_refs: List[Node] = []
 
@@ -436,7 +434,7 @@ class Engine(RequiredSetup):
                 LOG_FLUSH_DELAY
             )  # Ensure async Ray logs complete before displaying results
 
-            self._results_report.show_experiment_results(
+            self._results_display.show_experiment_results(
                 results,
                 experiment_duration,
                 self.global_rounds,

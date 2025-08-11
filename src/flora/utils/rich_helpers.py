@@ -52,20 +52,39 @@ def _get_caller_prefix() -> str:
     return prefix
 
 
-def print_rule(msg: Optional[str] = None, characters: str = "═") -> None:
-    """Print a separator line with caller context."""
+def print_rule(msg: Optional[str] = None, characters: str = "━") -> None:
+    """Print a separator line with caller context.
+
+    Args:
+        msg: Optional message to display with the rule
+        characters: Characters to use for the rule
+    """
     prefix = _get_caller_prefix()
     color = _get_color_for_prefix(prefix.split("->")[0])
-    prefix = f"[bold {color}]{prefix}[/bold {color}]"
+    prefix_colored = f"[bold {color}]{prefix}[/bold {color}]"
 
     rich_print()
+
+    # Print prefix rule first (always center-aligned)
     rich_print(
         Rule(
-            f"[{prefix}] {msg}" if msg else prefix,
+            prefix_colored,
             style=color,
             characters=characters,
+            align="center",
         )
     )
+
+    # Print message below if provided
+    if msg:
+        rich_print(
+            Rule(
+                msg,
+                style=color,
+                characters=characters,
+                align="center",
+            )
+        )
 
 
 def print(*args, **kwargs) -> None:

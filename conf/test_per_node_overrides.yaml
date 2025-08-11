@@ -10,7 +10,7 @@ defaults:
 
 # ─────────────────────────────────── Topology Configuration
 topology:
-  num_clients: 2
+  num_clients: 3
   overrides: # Override settings per-rank
     # Rank 0 (server) - disable training by setting train dataloader to null
     0:

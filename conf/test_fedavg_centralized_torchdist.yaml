@@ -20,6 +20,10 @@ topology:
     _target_: src.flora.communicator.TorchDistCommunicator
     # master_addr: 127.0.0.1 # Default
     master_port: 29500
+  overrides:
+    0: # Rank 0 (server) - disable training by setting train dataloader to null
+      datamodule:
+        train: null
 
 # ─────────────────────────────────── Algorithm Overrides
 algorithm:

@@ -27,7 +27,7 @@ import pandas as pd
 import torch
 from torch.utils.tensorboard import SummaryWriter
 
-from .metric_format import MetricFormatter
+from .results_display import DisplayFormatter
 
 
 class MeanAccumulator:
@@ -153,7 +153,7 @@ class MetricLogger:
         self._agg_ctx_accumulators: Dict[str, Dict[MetricAggType, defaultdict]] = {}
         self._agg_ctx_csv_writers: Dict[str, csv.writer] = {}
         self._agg_ctx_csv_files: Dict[str, Any] = {}
-        self._formatter = MetricFormatter()
+        self._formatter = DisplayFormatter()
 
         atexit.register(self.close_metrics)
 
