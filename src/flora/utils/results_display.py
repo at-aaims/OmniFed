@@ -423,7 +423,7 @@ class DisplayFormatter:
         participation_info = self.format_participation_cell(
             complete_count, total_count, description="participants"
         )
-        return f"{participation_info} reported complete {context} metrics"
+        return f"{participation_info} reported all metrics in {context} context"
 
     def format_position_header(
         self, position: Tuple[Optional[int], Optional[int], Optional[int], int]
