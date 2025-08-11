@@ -164,6 +164,7 @@ class BaseAlgorithm(RequiredSetup, LifecycleHooks, MetricLogger):
         # Distributed training parameters (discovered during setup)
         self.__group_max_iters_per_epoch: Optional[int] = None
         self.__group_max_epochs_per_round: Optional[int] = None
+        self.__max_rounds: Optional[int] = None
 
     # =============================================================================
     # PROPERTIES
@@ -278,7 +279,7 @@ class BaseAlgorithm(RequiredSetup, LifecycleHooks, MetricLogger):
         self.__batch_idx = value
 
     @property
-    def global_max_iters_per_epoch(self) -> int:
+    def group_max_iters_per_epoch(self) -> int:
         """Global maximum iterations per epoch across all nodes.
 
         Used by training loops to synchronize all nodes for the same number of
@@ -286,12 +287,12 @@ class BaseAlgorithm(RequiredSetup, LifecycleHooks, MetricLogger):
         """
         if self.__group_max_iters_per_epoch is None:
             raise RuntimeError(
-                "global_max_iters_per_epoch accessed before setup() - call setup() first"
+                "group_max_iters_per_epoch accessed before setup() - call setup() first"
             )
         return self.__group_max_iters_per_epoch
 
     @property
-    def global_max_epochs_per_round(self) -> int:
+    def group_max_epochs_per_round(self) -> int:
         """Global maximum epochs per round across all nodes.
 
         Used by training loops to synchronize all nodes for the same number of
@@ -299,9 +300,88 @@ class BaseAlgorithm(RequiredSetup, LifecycleHooks, MetricLogger):
         """
         if self.__group_max_epochs_per_round is None:
             raise RuntimeError(
-                "global_max_epochs_per_round accessed before setup() - call setup() first"
+                "group_max_epochs_per_round accessed before setup() - call setup() first"
             )
         return self.__group_max_epochs_per_round
+
+    @property
+    def max_rounds(self) -> int:
+        """Total rounds in this federated learning experiment."""
+        if self.__max_rounds is None:
+            raise RuntimeError(
+                "max_rounds accessed before setup() - call setup() first"
+            )
+        return self.__max_rounds
+
+    @property
+    def global_epoch(self) -> int:
+        """Total epochs completed across entire experiment duration."""
+        return self.round_idx * self.group_max_epochs_per_round + self.epoch_idx
+
+    @property
+    def global_step(self) -> int:
+        """
+        Convert FL coordinates to linear step number for TensorBoard.
+
+        Maps (round, epoch, batch) position to a single increasing counter.
+        TensorBoard uses this for the x-axis when plotting metrics over time.
+
+        Returns:
+            Step number for current FL position
+        """
+        # Steps from completed rounds
+        completed_rounds_steps = (
+            self.round_idx
+            * self.group_max_epochs_per_round
+            * self.group_max_iters_per_epoch
+        )
+
+        # Steps from completed epochs in current round
+        completed_epochs_steps = self.epoch_idx * self.group_max_iters_per_epoch
+
+        # Steps from current batch position
+        current_batch_step = self.batch_idx
+
+        return completed_rounds_steps + completed_epochs_steps + current_batch_step
+
+    @property
+    def experiment_progress_percent(self) -> float:
+        """Percentage of experiment completion based on total expected steps."""
+        if self.max_rounds <= 0:
+            warnings.warn(
+                "Experiment progress cannot be calculated - max_rounds not set or invalid. "
+                "Ensure _setup() is called with valid max_rounds.",
+                UserWarning,
+            )
+            return 0.0
+
+        # Calculate total expected steps
+        total_steps = (
+            self.max_rounds
+            * self.group_max_epochs_per_round
+            * self.group_max_iters_per_epoch
+        )
+
+        if total_steps == 0:
+            warnings.warn(
+                "Total expected steps is zero for experiment progress calculation. "
+                "Check group_max_epochs_per_round and group_max_iters_per_epoch configuration.",
+                UserWarning,
+            )
+            return 0.0
+        return min(100.0, (self.global_step / total_steps) * 100.0)
+
+    @property
+    def round_progress_percent(self) -> float:
+        """Percentage of current round completion based on epochs in this round."""
+        if self.group_max_epochs_per_round == 0:
+            warnings.warn(
+                "Round progress cannot be calculated - max_epochs_per_round is zero. "
+                "Check distributed training configuration.",
+                UserWarning,
+            )
+            return 0.0
+        return min(100.0, (self.epoch_idx / self.max_epochs_per_round) * 100.0)
 
     # =============================================================================
     # SETUP
@@ -315,6 +395,7 @@ class BaseAlgorithm(RequiredSetup, LifecycleHooks, MetricLogger):
         datamodule: DataModule,
         group_max_iters_per_epoch: int,
         group_max_epochs_per_round: int,
+        max_rounds: int,
     ) -> None:
         """
         Setup algorithm with injected dependencies.
@@ -327,8 +408,9 @@ class BaseAlgorithm(RequiredSetup, LifecycleHooks, MetricLogger):
             global_comm: Optional global communication interface for cross-institutional/hierarchical FL
             model: ML model being trained
             datamodule: Data loading interface providing train/eval dataloaders
-            global_max_iters_per_epoch: Global maximum iterations per epoch across all nodes
-            global_max_epochs_per_round: Global maximum epochs per round across all nodes
+            group_max_iters_per_epoch: Global maximum iterations per epoch across all nodes
+            group_max_epochs_per_round: Global maximum epochs per round across all nodes
+            max_rounds: Total rounds in this experiment
         """
         # Store injected dependencies
         self.__local_comm = local_comm
@@ -339,6 +421,7 @@ class BaseAlgorithm(RequiredSetup, LifecycleHooks, MetricLogger):
         # Store distributed training parameters
         self.__group_max_iters_per_epoch = group_max_iters_per_epoch
         self.__group_max_epochs_per_round = group_max_epochs_per_round
+        self.__max_rounds = max_rounds
 
     # =============================================================================
     # MINIMAL OVERRIDES
@@ -596,8 +679,8 @@ class BaseAlgorithm(RequiredSetup, LifecycleHooks, MetricLogger):
 
         print(
             f"ROUND-START @ {self.progress_info_str} | "
-            f"global_max_epochs_per_round={self.global_max_epochs_per_round} | "
-            f"global_max_iters_per_epoch={self.global_max_iters_per_epoch}",
+            f"group_max_epochs_per_round={self.group_max_epochs_per_round} | "
+            f"group_max_iters_per_epoch={self.group_max_iters_per_epoch}",
             flush=True,
         )
 
@@ -608,7 +691,7 @@ class BaseAlgorithm(RequiredSetup, LifecycleHooks, MetricLogger):
         # All nodes enter synchronized epoch loop structure
         self.local_model.train()  # Future: .eval() for evaluation phases
 
-        for epoch_idx in range(self.global_max_epochs_per_round):
+        for epoch_idx in range(self.group_max_epochs_per_round):
             # Run epoch training (timing handled by decorator)
             self.__train_epoch(epoch_idx)
 
@@ -648,7 +731,7 @@ class BaseAlgorithm(RequiredSetup, LifecycleHooks, MetricLogger):
         device = next(self.local_model.parameters()).device
 
         # All nodes participate in synchronized batch loop
-        for batch_idx in range(self.global_max_iters_per_epoch):
+        for batch_idx in range(self.group_max_iters_per_epoch):
             # Set batch index and start batch processing
             self.batch_idx = batch_idx
             _t_batch_start = time.time()
@@ -725,6 +808,18 @@ class BaseAlgorithm(RequiredSetup, LifecycleHooks, MetricLogger):
 
         # Train epoch end hook
         self._train_epoch_end()
+
+        with self.metric_context("experiment"):
+            self.log_metric("global_step", self.global_step)
+            self.log_metric("global_epoch", self.global_epoch)
+            self.log_metric(
+                "round_progress_percent",
+                self.round_progress_percent,
+            )
+            self.log_metric(
+                "experiment_progress_percent",
+                self.experiment_progress_percent,
+            )
 
     @MetricLogger.context("eval", duration_key="epoch_time", print_progress=True)
     def __eval_epoch(self, model: nn.Module) -> None:
@@ -889,32 +984,6 @@ class BaseAlgorithm(RequiredSetup, LifecycleHooks, MetricLogger):
         Default implementation calls the optimizer's step() method.
         """
         self.local_optimizer.step()
-
-    @property
-    def global_step(self) -> int:
-        """
-        Convert FL coordinates to linear step number for TensorBoard.
-
-        Maps (round, epoch, batch) position to a single increasing counter.
-        TensorBoard uses this for the x-axis when plotting metrics over time.
-
-        Returns:
-            Step number for current FL position
-        """
-        # Steps from completed rounds
-        completed_rounds_steps = (
-            self.round_idx
-            * self.global_max_epochs_per_round
-            * self.global_max_iters_per_epoch
-        )
-
-        # Steps from completed epochs in current round
-        completed_epochs_steps = self.epoch_idx * self.global_max_iters_per_epoch
-
-        # Steps from current batch position
-        current_batch_step = self.batch_idx
-
-        return completed_rounds_steps + completed_epochs_steps + current_batch_step
 
     # =============================================================================
     # MISC UTILITY METHODS

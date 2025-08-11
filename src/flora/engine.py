@@ -300,7 +300,12 @@ class Engine(RequiredSetup):
         self._ray_actor_refs = self._init_ray_actors(gpus_per_actor)
 
         print(f"Calling setup() on {len(self._ray_actor_refs)} Nodes")
-        setup_futures = [node.setup.remote() for node in self._ray_actor_refs]
+        setup_futures = [
+            node.setup.remote(
+                total_rounds=self.global_rounds,
+            )
+            for node in self._ray_actor_refs
+        ]
         ray.get(setup_futures)
 
     def _init_ray_actors(self, gpus_per_actor: float = 1.0) -> List[Node]:
@@ -392,7 +397,7 @@ class Engine(RequiredSetup):
 
             node_results_futures = []
             for node in self._ray_actor_refs:
-                future = node.run_experiment.remote(self.global_rounds)
+                future = node.run_experiment.remote()
                 node_results_futures.append(future)
 
             print(

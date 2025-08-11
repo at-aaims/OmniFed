@@ -239,6 +239,8 @@ class Node(RequiredSetup):
         """
         super().__init__()
         self.name: str = name
+        os.environ["FLUX_NODE_NAME"] = name
+
         self.device_hint: str = device_hint
         self.log_dir: str = os.path.join(log_dir_base, name)
 
@@ -257,7 +259,7 @@ class Node(RequiredSetup):
         # Deferred instantiation
         self.__device: Optional[torch.device] = None
 
-    def _setup(self) -> None:
+    def _setup(self, total_rounds: int) -> None:
         """
         Instantiate remaining components and establish connections.
 
@@ -316,6 +318,7 @@ class Node(RequiredSetup):
             self.datamodule,
             int(group_max_epochs_and_iters["iters_per_epoch"].item()),
             int(group_max_epochs_and_iters["epochs_per_round"].item()),
+            total_rounds,
         )
 
         _t_init_total_end = time.time()
@@ -335,16 +338,13 @@ class Node(RequiredSetup):
             "comm_time/total", _t_init_total_end - _t_init_total_start
         )
 
-    def run_experiment(self, total_rounds: int) -> Dict[str, Any]:
+    def run_experiment(self) -> Dict[str, Any]:
         """
         Execute federated learning experiment autonomously.
 
         Runs the complete experiment lifecycle.
         Moves model to compute device, executes all FL rounds via the algorithm.
         Collects timeline data and restores model to original device afterward.
-
-        Args:
-            total_rounds: Number of federated learning rounds to execute
 
         Returns:
             Timeline data containing metrics with FL coordinates
@@ -353,7 +353,7 @@ class Node(RequiredSetup):
             raise RuntimeError("Node not ready - call setup() first")
 
         print(
-            f"Node starting {total_rounds} round experiment",
+            "Node starting experiment",
             flush=True,
         )
 
@@ -362,11 +362,11 @@ class Node(RequiredSetup):
         self.algorithm.local_model = self.algorithm.local_model.to(self.device)
 
         try:
-            for round_idx in range(total_rounds):
-                self.algorithm.round_exec(round_idx, total_rounds)
+            for round_idx in range(self.algorithm.max_rounds):
+                self.algorithm.round_exec(round_idx, self.algorithm.max_rounds)
 
             print(
-                f"Node completed {total_rounds} round experiment",
+                "Node completed experiment",
                 flush=True,
             )
 

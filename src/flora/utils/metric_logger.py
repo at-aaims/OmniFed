@@ -157,7 +157,7 @@ class MetricLogger:
         atexit.register(self.close_metrics)
 
     @contextmanager
-    def logging_context(
+    def metric_context(
         self,
         context_key: str,
         *,
@@ -253,7 +253,7 @@ class MetricLogger:
             @wraps(func)
             def wrapper(self, *args, **func_kwargs):
                 context_name = context_key or func.__name__
-                with self.logging_context(context_name, **kwargs):
+                with self.metric_context(context_name, **kwargs):
                     return func(self, *args, **func_kwargs)
 
             return wrapper
