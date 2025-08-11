@@ -12,11 +12,21 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import Any
+from typing import Any, Dict
 
 import rich.repr
 import torch
 from torch import nn
+from torchmetrics.functional import (
+    accuracy,
+    auroc,
+    average_precision,
+    calibration_error,
+    f1_score,
+    matthews_corrcoef,
+    precision,
+    recall,
+)
 
 from .base import BaseAlgorithm
 
@@ -48,3 +58,57 @@ class FedAvg(BaseAlgorithm):
         outputs = self.local_model(inputs)
         loss = nn.functional.cross_entropy(outputs, targets)
         return loss
+
+    def _eval_batch(self, batch: Any) -> Dict[str, float]:
+        """
+        Execute evaluation with comprehensive classification metrics.
+
+        Uses torchmetrics functional API for essential and very common metrics:
+        - Accuracy, Precision, Recall, F1-Score (essential)
+        - AUROC, Average Precision, Calibration Error, Matthews Correlation (very common)
+        """
+        inputs, targets = batch
+        outputs = self.local_model(inputs)
+        probs = torch.softmax(outputs, dim=1)
+        preds = torch.argmax(probs, dim=1)
+
+        # Determine number of classes and task type
+        num_classes = outputs.size(1)
+        task = "binary" if num_classes == 2 else "multiclass"
+
+        # Compute loss
+        loss = nn.functional.cross_entropy(outputs, targets)
+
+        # Essential metrics
+        acc = accuracy(preds, targets, task=task, num_classes=num_classes)
+        prec = precision(
+            preds, targets, task=task, num_classes=num_classes, average="macro"
+        )
+        rec = recall(
+            preds, targets, task=task, num_classes=num_classes, average="macro"
+        )
+        f1 = f1_score(
+            preds, targets, task=task, num_classes=num_classes, average="macro"
+        )
+
+        # Very common metrics
+        auc = auroc(probs, targets, task=task, num_classes=num_classes)
+        ap = average_precision(probs, targets, task=task, num_classes=num_classes)
+        cal_err = calibration_error(probs, targets, task=task, num_classes=num_classes)
+        mcc = matthews_corrcoef(preds, targets, task=task, num_classes=num_classes)
+
+        # Confidence metric
+        confidence = torch.max(probs, dim=1)[0].mean()
+
+        return {
+            "loss": loss.item(),
+            "accuracy": acc.item(),
+            "precision": prec.item(),
+            "recall": rec.item(),
+            "f1_score": f1.item(),
+            "auroc": auc.item(),
+            "average_precision": ap.item(),
+            "calibration_error": cal_err.item(),
+            "matthews_corrcoef": mcc.item(),
+            "avg_confidence": confidence.item(),
+        }

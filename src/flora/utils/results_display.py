@@ -45,8 +45,7 @@ class MetricType(Enum):
     PERFORMANCE = "Performance"
     TIME = "Timing"
     COUNT = "Dataset"
-    GRADIENT = "Gradients"
-    METADATA = "Metadata"
+    PROGRESS = "Progress"
     OTHER = "Other"
 
 
@@ -226,7 +225,7 @@ METRIC_RULES = [
         show_median=True,
     ),
     MetricRule(
-        r"(count|num_)",
+        r"(count|total|num_)",
         precision=0,
         emoji=":package:",
         metric_type=MetricType.COUNT,
@@ -238,13 +237,15 @@ METRIC_RULES = [
         r"grad",
         precision=4,
         emoji=":bar_chart:",
-        metric_type=MetricType.GRADIENT,
+        metric_type=MetricType.OTHER,
     ),
     MetricRule(
-        r"(batch_idx|epoch_idx|global_step|round_idx)",
-        precision=0,
-        emoji=":calendar:",
-        metric_type=MetricType.METADATA,
+        r"(progress|completion|percent)",
+        precision=2,
+        units="%",
+        emoji=":chart_increasing:",
+        metric_type=MetricType.PROGRESS,
+        valid_range=(0.0, 100.0),
         show_cv=False,
     ),
 ]
@@ -674,12 +675,11 @@ class ResultsDisplay:
     """Primary interface for formatting and displaying federated learning experiment results."""
 
     GROUP_PRIORITY = [
+        MetricType.PROGRESS,
         MetricType.LOSS,
         MetricType.PERFORMANCE,
-        MetricType.TIME,
         MetricType.COUNT,
-        MetricType.GRADIENT,
-        MetricType.METADATA,
+        MetricType.TIME,
         MetricType.OTHER,
     ]
 

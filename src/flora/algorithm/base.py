@@ -128,7 +128,7 @@ class BaseAlgorithm(RequiredSetup, LifecycleHooks, MetricLogger):
         MetricLogger.__init__(
             self,
             log_dir=log_dir,
-            global_step_fn=lambda: self.global_step,
+            global_step_fn=lambda: self.experiment_batch_idx,
             metadata_fields={
                 "round_idx": lambda: self.round_idx,
                 "epoch_idx": lambda: self.epoch_idx,
@@ -314,12 +314,12 @@ class BaseAlgorithm(RequiredSetup, LifecycleHooks, MetricLogger):
         return self.__max_rounds
 
     @property
-    def global_epoch(self) -> int:
+    def experiment_epoch_idx(self) -> int:
         """Total epochs completed across entire experiment duration."""
         return self.round_idx * self.group_max_epochs_per_round + self.epoch_idx
 
     @property
-    def global_step(self) -> int:
+    def experiment_batch_idx(self) -> int:
         """
         Convert FL coordinates to linear step number for TensorBoard.
 
@@ -329,23 +329,12 @@ class BaseAlgorithm(RequiredSetup, LifecycleHooks, MetricLogger):
         Returns:
             Step number for current FL position
         """
-        # Steps from completed rounds
-        completed_rounds_steps = (
-            self.round_idx
-            * self.group_max_epochs_per_round
-            * self.group_max_iters_per_epoch
+        return (
+            self.experiment_epoch_idx * self.group_max_iters_per_epoch + self.batch_idx
         )
 
-        # Steps from completed epochs in current round
-        completed_epochs_steps = self.epoch_idx * self.group_max_iters_per_epoch
-
-        # Steps from current batch position
-        current_batch_step = self.batch_idx
-
-        return completed_rounds_steps + completed_epochs_steps + current_batch_step
-
     @property
-    def experiment_completion_percent(self) -> float:
+    def experiment_progress_pct(self) -> float:
         """Percentage of experiment completion based on total expected steps."""
         if self.max_rounds <= 0:
             warnings.warn(
@@ -369,10 +358,10 @@ class BaseAlgorithm(RequiredSetup, LifecycleHooks, MetricLogger):
                 UserWarning,
             )
             return 0.0
-        return min(100.0, (self.global_step / total_steps) * 100.0)
+        return ((self.experiment_batch_idx + 1) / total_steps) * 100.0
 
     @property
-    def round_completion_percent(self) -> float:
+    def round_progress_pct(self) -> float:
         """Percentage of current round completion based on epochs in this round."""
         if self.group_max_epochs_per_round == 0:
             warnings.warn(
@@ -381,7 +370,7 @@ class BaseAlgorithm(RequiredSetup, LifecycleHooks, MetricLogger):
                 UserWarning,
             )
             return 0.0
-        return min(100.0, (self.epoch_idx / self.max_epochs_per_round) * 100.0)
+        return ((self.epoch_idx + 1) / self.max_epochs_per_round) * 100.0
 
     # =============================================================================
     # SETUP
@@ -546,31 +535,19 @@ class BaseAlgorithm(RequiredSetup, LifecycleHooks, MetricLogger):
     # =============================================================================
     # =============================================================================
 
-    @MetricLogger.context("sync", duration_key="total_time")
-    def __synchronize(self) -> None:
+    def __pre_sync(self) -> None:
         """
-        Coordinate federated model aggregation and evaluation.
-
-        Orchestrates the complete synchronization process across different FL topologies:
-        - Centralized: Only intra-group aggregation (global_comm=None)
-        - Hierarchical: Intra-group → inter-group → broadcast (global_comm present)
-
-        Called at different granularities based on schedules.aggregation configuration:
-        - round_end: After complete training rounds (most common FL pattern)
-        - epoch_end: After local training epochs (for frequent sync algorithms)
-        - batch_end: After individual training batches (for high-frequency sync)
-
-        Five-phase execution:
-        0. Pre-aggregation evaluation (current local model state)
-        1. Intra-group aggregation: All nodes aggregate within their group
-        2. Inter-group coordination: Group representatives aggregate globally
-        3. Conditional broadcast: Distribute global results if inter-group occurred
-        4. Post-aggregation evaluation (final aggregated model state)
+        Prepare for federated model aggregation and evaluation.
         """
         # Phase 0: Pre-aggregation evaluation (before any aggregation)
         if self.schedules.evaluation.pre_aggregation():
+            print("Starting evaluation epoch")
             self.__eval_epoch(self.local_model)
 
+    def __sync_comm(self) -> None:
+        """
+        Synchronize communication interfaces for intra-group and inter-group operations.
+        """
         # Phase 1: Intra-group aggregation via all-reduce
         with self.log_duration("local_agg_time"):
             # Calculate within-group sample totals and weights
@@ -634,9 +611,41 @@ class BaseAlgorithm(RequiredSetup, LifecycleHooks, MetricLogger):
             if needs_final_bcast:
                 self.local_model = self.local_comm.broadcast(self.local_model)
 
-        # Post-aggregation evaluation (global model)
+    def __post_sync(self) -> None:
+        """
+        Finalize federated model aggregation and evaluation.
+        """
+        # Phase 4: Post-aggregation evaluation (after all aggregation) - global model
         if self.schedules.evaluation.post_aggregation():
+            print("Starting evaluation epoch")
             self.__eval_epoch(self.local_model)
+
+    @MetricLogger.context("sync", duration_key="time_total")
+    def __sync(self) -> None:
+        """
+        Coordinate federated model aggregation and evaluation.
+
+        Orchestrates the complete synchronization process across different FL topologies:
+        - Centralized: Only intra-group aggregation (global_comm=None)
+        - Hierarchical: Intra-group → inter-group → broadcast (global_comm present)
+
+        Called at different granularities based on schedules.aggregation configuration:
+        - round_end: After complete training rounds (most common FL pattern)
+        - epoch_end: After local training epochs (for frequent sync algorithms)
+        - batch_end: After individual training batches (for high-frequency sync)
+
+        Five-phase execution:
+        0. Pre-aggregation evaluation (current local model state)
+        1. Intra-group aggregation: All nodes aggregate within their group
+        2. Inter-group coordination: Group representatives aggregate globally
+        3. Conditional broadcast: Distribute global results if inter-group occurred
+        4. Post-aggregation evaluation (final aggregated model state)
+        """
+        self.__pre_sync()
+
+        self.__sync_comm()
+
+        self.__post_sync()
 
         # Reset optimizer and sample counter after aggregation
         # After any aggregation (including broadcast), the model parameters have changed,
@@ -697,7 +706,7 @@ class BaseAlgorithm(RequiredSetup, LifecycleHooks, MetricLogger):
 
         # Round-level aggregation
         if self.schedules.aggregation.round_end():
-            self.__synchronize()
+            self.__sync()
 
         # Overridable hook for algorithm-specific logic
         self._round_end()
@@ -708,7 +717,7 @@ class BaseAlgorithm(RequiredSetup, LifecycleHooks, MetricLogger):
         if round_idx == max_rounds - 1 and self.schedules.evaluation.experiment_end():
             self.__eval_epoch(self.local_model)
 
-    @MetricLogger.context("train", duration_key="epoch_time", print_progress=True)
+    @MetricLogger.context("train", duration_key="epoch_time_total", print_progress=True)
     def __train_epoch(
         self,
         epoch_idx: int,
@@ -767,14 +776,14 @@ class BaseAlgorithm(RequiredSetup, LifecycleHooks, MetricLogger):
                     self.log_metric(metric_name, metric_value)
 
                 # Framework adds automatic metrics
-                self.log_metric("num_samples", batch_size, MetricAggType.SUM)
-                self.log_metric("num_batches", 1, MetricAggType.SUM)
+                self.log_metric("epoch_total_samples", batch_size, MetricAggType.SUM)
+                self.log_metric("epoch_total_batches", 1, MetricAggType.SUM)
 
             _t_batch_compute_end = time.time()
 
             # Batch-level aggregation
             if self.schedules.aggregation.batch_end():
-                self.__synchronize()
+                self.__sync()
 
             # Overridable hook for algorithm-specific logic
             self._train_batch_end()
@@ -784,15 +793,15 @@ class BaseAlgorithm(RequiredSetup, LifecycleHooks, MetricLogger):
 
             # Add batch timing metrics to accumulator
             self.log_metric(
-                "batch_data_time",
+                "batch_time_data",
                 _t_batch_data_end - _t_batch_data_start,
             )
             self.log_metric(
-                "batch_compute_time",
+                "batch_time_compute",
                 _t_batch_compute_end - _t_batch_compute_start,
             )
             self.log_metric(
-                "batch_time",
+                "batch_time_total",
                 _t_batch_end - _t_batch_start,
             )
 
@@ -804,24 +813,17 @@ class BaseAlgorithm(RequiredSetup, LifecycleHooks, MetricLogger):
 
         # Epoch-level aggregation
         if self.schedules.aggregation.epoch_end():
-            self.__synchronize()
+            self.__sync()
 
         # Train epoch end hook
         self._train_epoch_end()
 
-        with self.metric_context("progress"):
-            self.log_metric("global_step", self.global_step)
-            self.log_metric("global_epoch", self.global_epoch)
-            self.log_metric(
-                "round_completion_percent",
-                self.round_completion_percent,
-            )
-            self.log_metric(
-                "experiment_completion_percent",
-                self.experiment_completion_percent,
-            )
+        self.log_metric("experiment_batch_idx", self.experiment_batch_idx)
+        self.log_metric("experiment_epoch_idx", self.experiment_epoch_idx)
+        self.log_metric("round_progress_pct", self.round_progress_pct)
+        self.log_metric("experiment_progress_pct", self.experiment_progress_pct)
 
-    @MetricLogger.context("eval", duration_key="epoch_time", print_progress=True)
+    @MetricLogger.context("eval", duration_key="epoch_time_total", print_progress=True)
     def __eval_epoch(self, model: nn.Module) -> None:
         """
         Evaluate the model on this client's test data.
@@ -878,8 +880,8 @@ class BaseAlgorithm(RequiredSetup, LifecycleHooks, MetricLogger):
                     self.log_metric(metric_name, metric_value)
 
                 # Framework adds automatic metrics
-                self.log_metric("num_samples", batch_size, MetricAggType.SUM)
-                self.log_metric("num_batches", 1, MetricAggType.SUM)
+                self.log_metric("epoch_total_samples", batch_size, MetricAggType.SUM)
+                self.log_metric("epoch_total_batches", 1, MetricAggType.SUM)
 
                 _t_batch_compute_end = time.time()
 
@@ -891,15 +893,15 @@ class BaseAlgorithm(RequiredSetup, LifecycleHooks, MetricLogger):
 
                 # Add batch timing metrics to accumulator
                 self.log_metric(
-                    "batch_data_time",
+                    "batch_time_data",
                     _t_batch_data_end - _t_batch_data_start,
                 )
                 self.log_metric(
-                    "batch_compute_time",
+                    "batch_time_compute",
                     _t_batch_compute_end - _t_batch_compute_start,
                 )
                 self.log_metric(
-                    "batch_time",
+                    "batch_time_total",
                     _t_batch_end - _t_batch_start,
                 )
 

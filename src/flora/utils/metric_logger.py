@@ -27,7 +27,7 @@ import pandas as pd
 import torch
 from torch.utils.tensorboard import SummaryWriter
 
-from .results_display import DisplayFormatter
+# from .rich_helpers import print
 
 
 class MeanAccumulator:
@@ -162,7 +162,7 @@ class MetricLogger:
         context_key: str,
         *,
         log_duration: bool = True,
-        duration_key: str = "time",
+        duration_key: str = "time_total",
         print_progress: bool = True,
     ):
         """Create a metric context for organized logging (context manager only).
@@ -190,7 +190,7 @@ class MetricLogger:
 
         if print_progress:
             print(
-                f"[{context_key}] START @ {self.progress_info_str}",
+                f"Start {context_key} context @ {self.progress_info_str}",
                 flush=True,
             )
 
@@ -219,12 +219,19 @@ class MetricLogger:
                 warnings.warn(
                     f"Failed to flush metrics for context '{context_key}': {e}"
                 )
-                flushed_metrics = "<flush failed>"
+                flushed_metrics = {}
 
             # Print progress if enabled
             if print_progress:
+                flushed_metrics = {
+                    key: f"{val:.4f}" if isinstance(val, float) else val
+                    for key, val in flushed_metrics.items()
+                }
+                flushed_metrics = "; ".join(
+                    f"{key}={val}" for key, val in flushed_metrics.items()
+                )
                 print(
-                    f"[{context_key}] END @ {self.progress_info_str} | {flushed_metrics}",
+                    f"End {context_key} context @ {self.progress_info_str} | {flushed_metrics}",
                     flush=True,
                 )
 
@@ -343,7 +350,7 @@ class MetricLogger:
                 run_validation()
         """
         if print_progress:
-            print(f"[{key}] START @ {self.progress_info_str}", flush=True)
+            print(f"Start timing: {key} @ {self.progress_info_str}", flush=True)
 
         start_time = time.time()
         try:
@@ -360,7 +367,7 @@ class MetricLogger:
 
             if print_progress:
                 print(
-                    f"[{key}] END @ {self.progress_info_str} | duration={duration:.3f}s",
+                    f"End timing: {key} @ {self.progress_info_str} | duration={duration:.3f}s",
                     flush=True,
                 )
 
