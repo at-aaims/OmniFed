@@ -345,7 +345,7 @@ class BaseAlgorithm(RequiredSetup, LifecycleHooks, MetricLogger):
         return completed_rounds_steps + completed_epochs_steps + current_batch_step
 
     @property
-    def experiment_progress_percent(self) -> float:
+    def experiment_completion_percent(self) -> float:
         """Percentage of experiment completion based on total expected steps."""
         if self.max_rounds <= 0:
             warnings.warn(
@@ -372,7 +372,7 @@ class BaseAlgorithm(RequiredSetup, LifecycleHooks, MetricLogger):
         return min(100.0, (self.global_step / total_steps) * 100.0)
 
     @property
-    def round_progress_percent(self) -> float:
+    def round_completion_percent(self) -> float:
         """Percentage of current round completion based on epochs in this round."""
         if self.group_max_epochs_per_round == 0:
             warnings.warn(
@@ -809,16 +809,16 @@ class BaseAlgorithm(RequiredSetup, LifecycleHooks, MetricLogger):
         # Train epoch end hook
         self._train_epoch_end()
 
-        with self.metric_context("experiment"):
+        with self.metric_context("progress"):
             self.log_metric("global_step", self.global_step)
             self.log_metric("global_epoch", self.global_epoch)
             self.log_metric(
-                "round_progress_percent",
-                self.round_progress_percent,
+                "round_completion_percent",
+                self.round_completion_percent,
             )
             self.log_metric(
-                "experiment_progress_percent",
-                self.experiment_progress_percent,
+                "experiment_completion_percent",
+                self.experiment_completion_percent,
             )
 
     @MetricLogger.context("eval", duration_key="epoch_time", print_progress=True)
