@@ -33,8 +33,8 @@ train:
           size: 32
           padding: 4
         - _target_: torchvision.transforms.Normalize
-          mean: [0.5071, 0.4865, 0.4409] # CIFAR-100 specific mean
-          std: [0.2673, 0.2564, 0.2762] # CIFAR-100 specific std
+          mean: [0.50707516, 0.48654887, 0.44091784] # CIFAR-100 specific mean
+          std: [0.26733429, 0.25643846, 0.27615047] # CIFAR-100 specific std
 
 # ─────────────────────────────────────────
 # Evaluation Data
@@ -51,5 +51,5 @@ eval:
       transforms:
         - _target_: torchvision.transforms.ToTensor
         - _target_: torchvision.transforms.Normalize
-          mean: [0.5071, 0.4865, 0.4409] # CIFAR-100 specific mean
-          std: [0.2673, 0.2564, 0.2762] # CIFAR-100 specific std
+          mean: [0.50707516, 0.48654887, 0.44091784] # CIFAR-100 specific mean
+          std: [0.26733429, 0.25643846, 0.27615047] # CIFAR-100 specific std
