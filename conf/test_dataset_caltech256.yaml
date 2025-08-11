@@ -8,8 +8,8 @@ defaults:
   - base # Base framework configuration
   - override topology: centralized # see ./conf/topology/centralized.yaml
   - override algorithm: fedavg # see ./conf/algorithm/fedavg.yaml
-  - override datamodule: caltech256 # see ./conf/datamodule/caltech256.yaml
   - override model: resnet50 # see ./conf/model/resnet50.yaml
+  - override datamodule: caltech256 # see ./conf/datamodule/caltech256.yaml
   - _self_
 
 # ─────────────────────────────────── Topology Overrides
