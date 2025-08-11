@@ -9,17 +9,20 @@ defaults:
     - base
 
 # ─────────────────────────────────────────
-experiment_start: false
-experiment_end: false
+experiment_start:
+    enabled: false
+
+experiment_end:
+    enabled: false
 
 # ─────────────────────────────────────────
-pre_aggregation: false
-# pre_aggregation:         # Selective pre-aggregation evaluation
-#   every: 2               # Before every 2nd aggregation
-#   at: [0, 1, 5, 10]      # Before specific aggregations
+pre_aggregation:
+    enabled: false
+    # every: 2 # Before every 2nd aggregation
+    # at: [0, 1, 5, 10] # Before specific aggregations
 
 # ─────────────────────────────────────────
-post_aggregation: false
-# post_aggregation:        # Selective post-aggregation evaluation
-#   every: 2               # After every 2nd aggregation
-#   at: [0, 1, 5, 10]      # After specific aggregations
+post_aggregation:
+    enabled: false
+    # every: 2 # After every 2nd aggregation
+    # at: [0, 1, 5, 10] # After specific aggregations

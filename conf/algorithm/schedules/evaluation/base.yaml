@@ -10,20 +10,22 @@
 _target_: src.flora.algorithm.EvaluationTriggers
 
 # Required evaluation timing parameters - override in specific configs:
-experiment_start: ???
-experiment_end: ???
+experiment_start:
+    _target_: src.flora.algorithm._schedules.Trigger
+    enabled: ???
 
-pre_aggregation: ???
-# pre_aggregation:         # Selective pre-aggregation evaluation
-#   every: 2               # Before every 2nd aggregation
-#   at: [0, 1, 5, 10]      # Before specific aggregations
+experiment_end:
+    _target_: src.flora.algorithm._schedules.Trigger
+    enabled: ???
 
-post_aggregation: ???
-# post_aggregation:        # Selective post-aggregation evaluation
-#   every: 2               # After every 2nd aggregation
-#   at: [0, 1, 5, 10]      # After specific aggregations
+pre_aggregation:
+    _target_: src.flora.algorithm._schedules.Trigger
+    enabled: ???
+    # every: 2               # Before every 2nd aggregation
+    # at: [0, 1, 5, 10]      # Before specific aggregations
 
-# Examples for specific configs:
-# experiment_start: true/false
-# pre_aggregation: true/false or {every: 2} or {at: [0, 1, 5, 10]}
-# post_aggregation: true/false or {every: 2} or {at: [0, 1, 5, 10]}
+post_aggregation:
+    _target_: src.flora.algorithm._schedules.Trigger
+    enabled: ???
+    # every: 2               # After every 2nd aggregation
+    # at: [0, 1, 5, 10]      # After specific aggregations

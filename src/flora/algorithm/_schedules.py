@@ -12,13 +12,15 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import Optional, List, Union
+from typing import List, Optional, Union
 
+import rich.repr
 from typeguard import typechecked
 
 # ======================================================================================
 
 
+@rich.repr.auto
 class Trigger:
     """
     Controls when FL operations execute during training.
@@ -30,15 +32,19 @@ class Trigger:
     ```
     """
 
-    def __init__(self, every: Optional[int] = None, at: Optional[List[int]] = None):
+    def __init__(
+        self, enabled: bool, every: Optional[int] = 1, at: Optional[List[int]] = None
+    ):
         """
         Args:
+            enabled: Whether this trigger is active
             every: Fire every N calls (None/0 = never)
             at: Fire at these exact call numbers
         """
-        self.every = every
-        self.at = at or []
-        self._step_counter = 0
+        self.enabled: bool = enabled
+        self.every: Optional[int] = every
+        self.at: List[int] = at or []
+        self._step_counter: int = 0
 
         if self.every is not None and self.every < 0:
             raise ValueError(f"'every' must be non-negative, got {self.every}")
@@ -56,6 +62,8 @@ class Trigger:
 
     def _should_run(self, step: int) -> bool:
         """Check firing condition without advancing counter."""
+        if not self.enabled:
+            return False
         if self.every is None and not self.at:
             return False
         if self.every is not None:
@@ -65,37 +73,20 @@ class Trigger:
         return step in self.at
 
     def __repr__(self):
-        return f"Trigger(every={self.every}, at={self.at})"
+        return f"Trigger(enabled={self.enabled}, every={self.every}, at={self.at})"
 
     @classmethod
     def always(cls) -> "Trigger":
         """Create trigger that fires every step."""
-        return cls(every=1)
+        return cls(enabled=True, every=1)
 
     @classmethod
     def never(cls) -> "Trigger":
         """Create trigger that never fires."""
-        return cls()
+        return cls(enabled=False)
 
 
-@typechecked
-def resolve_trigger(val: Union[Trigger, bool, None]) -> Trigger:
-    """
-    Convert config shorthand to Trigger objects.
-
-    Args:
-        val: True=always, False/None=never, Trigger=passthrough
-
-    Returns:
-        Corresponding Trigger instance
-    """
-    if val is None or val is False:
-        return Trigger.never()
-    if val is True:
-        return Trigger.always()
-    return val
-
-
+@rich.repr.auto
 class AggregationTriggers:
     """
     Controls when nodes share model updates during FL training.
@@ -105,9 +96,9 @@ class AggregationTriggers:
 
     def __init__(
         self,
-        round_end: Union[Trigger, bool, None] = True,
-        epoch_end: Union[Trigger, bool, None] = True,
-        batch_end: Union[Trigger, bool, None] = True,
+        round_end: Trigger,
+        epoch_end: Trigger,
+        batch_end: Trigger,
     ):
         """
         Args:
@@ -115,11 +106,12 @@ class AggregationTriggers:
             epoch_end: Aggregate after each local epoch
             batch_end: Aggregate after each mini-batch (expensive)
         """
-        self.round_end: Trigger = resolve_trigger(round_end)
-        self.epoch_end: Trigger = resolve_trigger(epoch_end)
-        self.batch_end: Trigger = resolve_trigger(batch_end)
+        self.round_end: Trigger = round_end
+        self.epoch_end: Trigger = epoch_end
+        self.batch_end: Trigger = batch_end
 
 
+@rich.repr.auto
 class EvaluationTriggers:
     """
     Controls when nodes evaluate their models on test/validation data.
@@ -129,10 +121,10 @@ class EvaluationTriggers:
 
     def __init__(
         self,
-        experiment_start: Union[Trigger, bool, None] = True,
-        experiment_end: Union[Trigger, bool, None] = False,
-        pre_aggregation: Union[Trigger, bool, None] = False,
-        post_aggregation: Union[Trigger, bool, None] = False,
+        experiment_start: Trigger,
+        experiment_end: Trigger,
+        pre_aggregation: Trigger,
+        post_aggregation: Trigger,
     ):
         """
         Args:
@@ -141,12 +133,13 @@ class EvaluationTriggers:
             pre_aggregation: Evaluate before sharing updates
             post_aggregation: Evaluate after receiving aggregated model
         """
-        self.experiment_start: Trigger = resolve_trigger(experiment_start)
-        self.experiment_end: Trigger = resolve_trigger(experiment_end)
-        self.pre_aggregation: Trigger = resolve_trigger(pre_aggregation)
-        self.post_aggregation: Trigger = resolve_trigger(post_aggregation)
+        self.experiment_start: Trigger = experiment_start
+        self.experiment_end: Trigger = experiment_end
+        self.pre_aggregation: Trigger = pre_aggregation
+        self.post_aggregation: Trigger = post_aggregation
 
 
+@rich.repr.auto
 class ExecutionSchedules:
     """
     Combined aggregation and evaluation scheduling for FL algorithms.
@@ -156,13 +149,13 @@ class ExecutionSchedules:
 
     def __init__(
         self,
-        aggregation: Optional[AggregationTriggers] = None,
-        evaluation: Optional[EvaluationTriggers] = None,
+        aggregation: AggregationTriggers,
+        evaluation: EvaluationTriggers,
     ):
         """
         Args:
             aggregation: When to share model updates
             evaluation: When to run model evaluation
         """
-        self.aggregation: AggregationTriggers = aggregation or AggregationTriggers()
-        self.evaluation: EvaluationTriggers = evaluation or EvaluationTriggers()
+        self.aggregation: AggregationTriggers = aggregation
+        self.evaluation: EvaluationTriggers = evaluation
