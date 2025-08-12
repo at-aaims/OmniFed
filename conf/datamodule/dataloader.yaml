@@ -20,4 +20,4 @@ batch_size: ??? # Required: Batch size for training/evaluation
 shuffle: ??? # Required: Whether to shuffle data (true for train, false for eval)
 num_workers: 2 # Number of worker processes for data loading
 pin_memory: True # Pin memory for faster GPU transfer
-persistent_workers: False # Keep workers alive between epochs
+persistent_workers: True # Keep workers alive between epochs

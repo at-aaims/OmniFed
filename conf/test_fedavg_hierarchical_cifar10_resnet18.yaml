@@ -12,7 +12,7 @@ defaults:
     - override datamodule: cifar10 # see ./conf/datamodule/mnist.yaml
     - override topology: hierarchical # see ./conf/topology/hierarchical.yaml
     - override algorithm: fedavg # see ./conf/algorithm/fedavg.yaml
-    - override algorithm/schedules/aggregation: batch_end # Override aggregation schedule
+    - override algorithm/schedules/aggregation: epoch_end # Override aggregation schedule
     - _self_ # Everything below is merged on top of the above defaults
 
 # ─────────────────────────────────── Hierarchical Topology Overrides
@@ -53,8 +53,12 @@ algorithm:
     max_epochs_per_round: 200
     schedules:
         aggregation:
-            batch_end:
-                every: 100
+            # round_end:
+            # every: 1
+            epoch_end:
+                every: 5
+            # batch_end:
+            #     every: 100
 
 # ─────────────────────────────────── SimpleCNN Overrides
 model:
