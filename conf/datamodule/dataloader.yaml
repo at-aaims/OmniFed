@@ -18,6 +18,6 @@ dataset: ??? # Required: Dataset implementation (e.g., torchvision.datasets.MNIS
 # ─────────────────────────────────────────
 batch_size: ??? # Required: Batch size for training/evaluation
 shuffle: ??? # Required: Whether to shuffle data (true for train, false for eval)
-num_workers: 2 # Number of worker processes for data loading
-pin_memory: true # Pin memory for faster GPU transfer
-persistent_workers: true # Keep workers alive between epochs
+num_workers: 0 # Number of worker processes for data loading
+pin_memory: False # Pin memory for faster GPU transfer
+persistent_workers: False # Keep workers alive between epochs

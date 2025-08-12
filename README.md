@@ -1,13 +1,20 @@
 # FLUX
 
-A federated learning framework built on Ray and Hydra. FLUX scales from local experiments to HPC clusters and cross-institutional scenarios with 11 built-in algorithms and extensible architecture.
+A federated learning framework built on [Ray](https://ray.io/) and [Hydra](https://hydra.cc/). FLUX scales from local experiments to HPC clusters and cross-institutional scenarios with 11 built-in algorithms and extensible architecture.
+
+## Key Features
+
+- **🧩 Modular**: Mix and match 11 single-file algorithm implementations, topologies, and communication protocols
+- **📊 Flexible**: Local, HPC, and cross-network deployments with multiple communication backends
+- **⚙️ Extensible**: Custom algorithms, communicators, and topologies with minimal code requirements
+- **🔬 Research-Friendly**: Easy experimentation with lifecycle hooks and [PyTorch](https://pytorch.org/) compatibility
+- **🚀 Scalable**: [Ray](https://ray.io/)-powered distributed coordination from laptops to HPC clusters
 
 ## Quick Start
 
 ```bash
 # Clone and install
 git clone <repository-url>
-
 cd FLUX
 pip install -r requirements.txt
 
@@ -15,94 +22,121 @@ pip install -r requirements.txt
 ./main.sh --config-name test_fedavg_centralized_torchdist
 ```
 
-This trains a neural network across 3 simulated clients using the MNIST dataset.
+This configures a federated learning experiment with multiple nodes using the CIFAR-10 dataset. You'll see:
 
-## Key Features
+- **Setup phase**: Ray cluster initialization, node actor creation, and model broadcasting
+- **Training progress**: Loss, accuracy, and other metrics logged per batch/epoch  
+- **Communication logs**: Model aggregation and synchronization between nodes
+- **Results**: Final metrics saved to timestamped output directory
 
-**Architecture & Extensibility**
-- **Modular Composability**: Mix and match algorithms, topologies, and communication protocols
-- **Extensible Interface**: Implement custom algorithms by overriding just two core methods
-- **Research-Friendly Design**: Lifecycle hooks inject custom logic at round, epoch, and batch boundaries
-- **Flexible Scaling**: Ray-based distributed coordination from local testing to HPC clusters
-
-**Research & Experimentation**
-- **Fully Configurable**: Configure algorithms, models, data, and parameters through type-safe Hydra files
-- **11 Algorithm Implementations**: Includes FedAvg, SCAFFOLD, MOON, FedProx, DiLoCo, and six others
-- **Native PyTorch Support**: Works with existing PyTorch models, optimizers, and training patterns
-
-## Installation
-
-**Requirements**: Python 3.10+
-
-```bash
-# Install dependencies
-pip install -r requirements.txt
-
-# Verify installation
-python main.py --help
-```
-
-## Basic Usage
-
-### Run Experiments
+## Running Experiments
 
 **Different deployment types:**
 
 ```bash
-# Local/HPC (PyTorch distributed)
+# Local/HPC clusters (PyTorch distributed communication)
 ./main.sh --config-name test_fedavg_centralized_torchdist
 
-# Cross-network (gRPC)
+# Cross-network deployment (gRPC communication)
 ./main.sh --config-name test_fedavg_centralized_grpc
 
-# Hierarchical (multi-level)
+# Multi-tier hierarchical setup
 ./main.sh --config-name test_fedavg_hierarchical
 ```
 
-**Parameter scaling:**
+**Customize parameters:**
 
 ```bash
-# More clients, rounds, epochs
-./main.sh --config-name test_fedavg_centralized_torchdist topology.num_clients=10
-./main.sh --config-name test_fedavg_centralized_torchdist global_rounds=10
-./main.sh --config-name test_fedavg_centralized_torchdist algorithm.max_epochs_per_round=8
+# Override any parameter
+./main.sh --config-name test_fedavg_centralized_torchdist topology.num_clients=10 global_rounds=10 algorithm.max_epochs_per_round=8
 ```
 
-### Configuration
+## Configuration
+
+**Explore available configurations:**
 
 ```bash
-# View available configuration groups
+# See all available experiment configs
 python main.py --help
+```
 
-# Show final composed configuration
+**Inspect configurations:**
+
+```bash
+# Preview full configuration before running
 python main.py --config-name test_fedavg_centralized_torchdist --cfg job
 
-# Override any parameter
-./main.sh --config-name test_fedavg_centralized_torchdist global_rounds=10 algorithm.local_lr=0.001
+# Show resolved configuration (with interpolations)
+python main.py --config-name test_fedavg_centralized_torchdist --cfg job --resolve
+
+# Focus on specific config sections
+python main.py --config-name test_fedavg_centralized_torchdist --cfg job --package algorithm
 ```
+
+**Troubleshooting:**
+
+```bash
+# Get detailed Hydra system information
+python main.py --info
+```
+
+See [Hydra's command line flags](https://hydra.cc/docs/advanced/hydra-command-line-flags/) for more configuration options.
 
 ## How FLUX Works
 
-FLUX coordinates training through these components:
+FLUX orchestrates federated learning experiments through a modular architecture:
 
-- **Algorithm**: The FL method (FedAvg, SCAFFOLD, etc.)
-- **Topology**: How devices are connected (centralized server, hierarchical groups)
-- **Communication**: How messages are sent (PyTorch distributed or gRPC)
-- **Data**: Each device's private dataset
+**Core Components:**
 
-FLUX handles device coordination, model aggregation, and distributed execution automatically.
+- **Algorithm**: Defines the federated learning strategy (e.g., FedAvg for simple averaging, SCAFFOLD for drift correction, MOON for contrastive learning)
+- **Topology**: Specifies the network structure and client-server relationships (centralized for star topology, hierarchical for multi-tier deployments)
+- **Communicator**: Handles message passing between nodes (PyTorch distributed for HPC clusters, gRPC for cross-network scenarios)
+- **DataModule**: Manages data loading, partitioning, and distribution across clients
+- **Model**: Any PyTorch nn.Module with seamless integration
+
+**Execution Flow:**
+
+1. **Initialization**: Ray spawns distributed actors based on topology configuration
+2. **Local Training**: Each client trains on private data for specified epochs/batches
+3. **Model Exchange**: Clients send updates to aggregators via the communicator
+4. **Aggregation**: Server combines updates using the algorithm's aggregation strategy
+5. **Model Distribution**: Updated global model is broadcast back to clients
+6. **Evaluation**: Periodic validation on local and/or global test sets
+
+**Additional Capabilities:**
+
+- **Flexible Scheduling**: Control when aggregation and evaluation occur
+- **Metric Tracking**: Built-in logging system for training loss and custom metrics
+- **Stateful Algorithms**: Support for momentum, control variates, and personalized models
 
 ## Project Structure
 
 ```
 FLUX/
 ├── src/flora/              # Main framework code
-│   ├── algorithm/          # FL algorithms (FedAvg, SCAFFOLD, etc.)
-│   ├── communicator/       # Communication protocols (TorchDist, gRPC)
-│   ├── topology/           # Network structures (centralized, hierarchical)
-│   ├── model/              # Neural network components
+│   ├── algorithm/          # Federated learning algorithms
+│   │   ├── base.py         # Base algorithm class
+│   │   ├── fedavg.py       # FedAvg
+│   │   └── ...             # 10 more algorithms (SCAFFOLD, MOON, FedProx, etc.)
+│   ├── communicator/       # Communication protocols
+│   │   ├── base.py         # Base communicator class
+│   │   ├── torchdist.py    # PyTorch distributed backend
+│   │   ├── grpc.py         # gRPC backend
+│   │   └── ...             # gRPC server/client implementations
+│   ├── topology/           # Network structures
+│   │   ├── base.py         # Base topology class
+│   │   ├── centralized.py  # Centralized topology
+│   │   ├── hierarchical.py # Hierarchical topology
+│   │   └── ...
+│   ├── model/              # Built-in model examples and reusable components
+│   │   └── ...
 │   ├── data/               # Data loading and partitioning
-│   ├── utils/              # Logging, metrics, and utilities
+│   │   ├── datamodule.py   # DataModule class
+│   │   └── ...
+│   ├── utils/              # Utilities and helpers
+│   │   ├── metric_logger.py    # Metrics tracking and logging
+│   │   ├── results_display.py  # Results visualization
+│   │   └── ...
 │   ├── engine.py           # Ray orchestration and coordination
 │   └── node.py             # Federated learning participant actors
 ├── conf/                   # Hydra configuration files
@@ -111,9 +145,6 @@ FLUX/
 │   ├── model/              # Model architecture configs
 │   ├── topology/           # Network topology configs
 │   └── test_*.yaml         # Example experiment configurations
-├── wiki/                   # Documentation and guides
-├── outputs/                # Experiment results and logs
-├── scripts/                # Utility and test scripts
 ├── main.py                 # Python entry point
 ├── main.sh                 # Development script with setup handling
 └── requirements.txt        # Dependencies
