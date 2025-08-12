@@ -1,0 +1,27 @@
+# ================================================================================
+# Batch-End Aggregation Configuration
+#
+# Very high-frequency aggregation pattern.
+# Aggregate model updates at the end of each batch during local training.
+# Warning: This creates significant communication overhead.
+# ================================================================================
+
+# NOTE: Check constructor signature for complete parameter list, defaults, types, and docs.
+_target_: src.flora.algorithm.AggregationTriggers
+
+# ─────────────────────────────────────────
+round_end:
+    _target_: src.flora.algorithm._schedules.Trigger
+    enabled: false
+
+# ─────────────────────────────────────────
+epoch_end:
+    _target_: src.flora.algorithm._schedules.Trigger
+    enabled: false
+
+# ─────────────────────────────────────────
+batch_end: # Aggregate after each batch
+    _target_: src.flora.algorithm._schedules.Trigger
+    enabled: true
+    every: 1
+    # at: [50, 100, 200] # Aggregate at specific batches

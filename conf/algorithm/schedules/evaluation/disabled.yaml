@@ -1,0 +1,28 @@
+# ================================================================================
+# No Evaluation Configuration
+#
+# Disables all evaluation for maximum training speed.
+# Use this when you only care about training performance, not model accuracy.
+# ================================================================================
+
+defaults:
+    - base
+
+# ─────────────────────────────────────────
+experiment_start:
+    enabled: false
+
+experiment_end:
+    enabled: false
+
+# ─────────────────────────────────────────
+pre_aggregation:
+    enabled: false
+    # every: 2 # Before every 2nd aggregation
+    # at: [0, 1, 5, 10] # Before specific aggregations
+
+# ─────────────────────────────────────────
+post_aggregation:
+    enabled: false
+    # every: 2 # After every 2nd aggregation
+    # at: [0, 1, 5, 10] # After specific aggregations

@@ -1,0 +1,26 @@
+# ================================================================================
+# Round-End Aggregation Configuration
+#
+# Standard federated learning aggregation pattern.
+# Aggregate model updates at the end of each round after all clients complete training.
+# ================================================================================
+
+# NOTE: Check constructor signature for complete parameter list, defaults, types, and docs.
+_target_: src.flora.algorithm.AggregationTriggers
+
+# ─────────────────────────────────────────
+round_end: # Aggregate after each round
+    _target_: src.flora.algorithm._schedules.Trigger
+    enabled: true
+    every: 1
+    # at: [0, 1, 5, 10] # Aggregate only at specific rounds
+
+# ─────────────────────────────────────────
+epoch_end:
+    _target_: src.flora.algorithm._schedules.Trigger
+    enabled: false
+
+# ─────────────────────────────────────────
+batch_end:
+    _target_: src.flora.algorithm._schedules.Trigger
+    enabled: false

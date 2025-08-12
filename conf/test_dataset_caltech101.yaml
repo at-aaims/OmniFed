@@ -1,0 +1,44 @@
+# ================================================================================
+# Caltech-101 Test Configuration
+# Tests Caltech-101 dataset using FedAvg centralized setup with ResNet34.
+# Uses RGB images with 102 object categories (101 + background).
+# ================================================================================
+
+defaults:
+  - base # Base framework configuration
+  - override topology: centralized # see ./conf/topology/centralized.yaml
+  - override algorithm: fedavg # see ./conf/algorithm/fedavg.yaml
+  - override model: resnet34 # see ./conf/model/resnet34.yaml
+  - override datamodule: caltech101 # see ./conf/datamodule/caltech101.yaml
+  - _self_
+
+# ─────────────────────────────────── Topology Overrides
+topology:
+  num_clients: 3
+  local_comm:
+    _target_: src.flora.communicator.TorchDistCommunicator
+    # master_addr: 127.0.0.1 # Default
+    master_port: 29500
+  overrides:
+    0: # Rank 0 (server) - disable training by setting train dataloader to null
+      datamodule:
+        train: null
+
+# ─────────────────────────────────── Algorithm Overrides
+algorithm:
+  local_lr: 0.001
+  max_epochs_per_round: 4
+
+# ─────────────────────────────────── Model Overrides
+model:
+  num_classes: 102 # 101 object classes + 1 background class
+
+# ─────────────────────────────────── DataModule Overrides
+datamodule:
+  train:
+    batch_size: 128
+  eval:
+    batch_size: 128
+
+# ─────────────────────────────────── Engine Parameters
+global_rounds: 3 # see ./conf/base.yaml for all options
