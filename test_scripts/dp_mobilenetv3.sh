@@ -35,9 +35,13 @@ epochs=80
 #delta=1e-5
 #gamma=0.01
 
-epsilon=10.0
-delta=1e-5
-gamma=0.01
+#epsilon=10.0
+#delta=1e-5
+#gamma=0.01
+
+epsilon=5.0
+delta=1e-4
+gamma=0.1
 
 for val in $(seq 1 $worldsize)
 do
