@@ -48,7 +48,8 @@ class HybridTrainer(object):
 
         if torch.cuda.is_available():
             # self.device = torch.device("cuda:" + str(self.global_rank))
-            self.device = self.global_rank % 7
+            dev_id = self.global_rank % 7
+            self.device = torch.device("cuda:" + str(dev_id))
         else:
             self.device = torch.device("cpu")
 
@@ -74,6 +75,7 @@ class HybridTrainer(object):
 
         logging.info("initialized model object...")
         self.model = self.model_obj.get_model()
+        self.model = self.model.to(self.device)
         self.loss_fn = self.model_obj.get_loss()
         self.optimizer = self.model_obj.get_optim()
         self.lr_scheduler = self.model_obj.get_lrscheduler()
