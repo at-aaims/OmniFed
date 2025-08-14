@@ -11,17 +11,17 @@ _target_: src.omnifed.algorithm.AggregationTriggers
 
 # ─────────────────────────────────────────
 round_end:
-    _target_: src.omnifed.algorithm._schedules.Trigger
-    enabled: false
+  _target_: src.omnifed.algorithm._schedules.Trigger
+  enabled: false
 
 # ─────────────────────────────────────────
 epoch_end:
-    _target_: src.omnifed.algorithm._schedules.Trigger
-    enabled: false
+  _target_: src.omnifed.algorithm._schedules.Trigger
+  enabled: false
 
 # ─────────────────────────────────────────
 batch_end: # Aggregate after each batch
-    _target_: src.omnifed.algorithm._schedules.Trigger
-    enabled: true
-    every: 1
-    # at: [50, 100, 200] # Aggregate at specific batches
+  _target_: src.omnifed.algorithm._schedules.Trigger
+  enabled: true
+  every: 1
+  # at: [50, 100, 200] # Aggregate at specific batches

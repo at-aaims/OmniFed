@@ -45,19 +45,19 @@ topology:
           datamodule:
             train: null
 
-# ─────────────────────────────────── FedAvg Overrides
+# ─────────────────────────────────── Algorithm Overrides
 algorithm:
   local_lr: 0.005
   max_epochs_per_round: 3
 
-# ─────────────────────────────────── SimpleCNN Overrides
+# ─────────────────────────────────── Model Overrides
 model:
   backbone:
     in_channels: 1 # MNIST grayscale
   head:
     num_classes: 10 # MNIST digits
 
-# ─────────────────────────────────── MNIST DataModule Overrides
+# ─────────────────────────────────── DataModule Overrides
 datamodule:
   train:
     batch_size: 128

@@ -11,21 +11,21 @@ _target_: src.omnifed.algorithm.EvaluationTriggers
 
 # Required evaluation timing parameters - override in specific configs:
 experiment_start:
-    _target_: src.omnifed.algorithm._schedules.Trigger
-    enabled: ???
+  _target_: src.omnifed.algorithm._schedules.Trigger
+  enabled: ???
 
 experiment_end:
-    _target_: src.omnifed.algorithm._schedules.Trigger
-    enabled: ???
+  _target_: src.omnifed.algorithm._schedules.Trigger
+  enabled: ???
 
 pre_aggregation:
-    _target_: src.omnifed.algorithm._schedules.Trigger
-    enabled: ???
-    # every: 2               # Before every 2nd aggregation
-    # at: [0, 1, 5, 10]      # Before specific aggregations
+  _target_: src.omnifed.algorithm._schedules.Trigger
+  enabled: ???
+  # every: 2               # Before every 2nd aggregation
+  # at: [0, 1, 5, 10]      # Before specific aggregations
 
 post_aggregation:
-    _target_: src.omnifed.algorithm._schedules.Trigger
-    enabled: ???
-    # every: 2               # After every 2nd aggregation
-    # at: [0, 1, 5, 10]      # After specific aggregations
+  _target_: src.omnifed.algorithm._schedules.Trigger
+  enabled: ???
+  # every: 2               # After every 2nd aggregation
+  # at: [0, 1, 5, 10]      # After specific aggregations
