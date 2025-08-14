@@ -12,4 +12,4 @@ defaults:
   - aggregation: round_end
   - evaluation: standard
 
-_target_: src.flora.algorithm.ExecutionSchedules
+_target_: src.omnifed.algorithm.ExecutionSchedules

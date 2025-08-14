@@ -6,8 +6,8 @@
 # ================================================================================
 
 defaults:
-    - base
-    - _self_
+  - base
+  - _self_
 
 # NOTE: Check constructor signature for complete parameter list, defaults, types, and docs.
-_target_: src.flora.algorithm.FedBN
+_target_: src.omnifed.algorithm.FedBN

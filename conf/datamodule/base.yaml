@@ -2,7 +2,7 @@
 # Base DataModule Configuration
 #
 # Template for data module configurations with train/eval data loaders.
-# Works with src.flora.data.DataModule.
+# Works with src.omnifed.data.DataModule.
 # Compose this base in specific datamodule configs (like mnist.yaml) with "- base" in their defaults list.
 # Override defaults and add the dataset-specific parameters your chosen datasets need.
 # ================================================================================
@@ -12,7 +12,7 @@ defaults:
   - dataloader@eval # Use dataloader config group and assign to 'eval' field
   - _self_
 
-_target_: src.flora.data.DataModule
+_target_: src.omnifed.data.DataModule
 
 # Default data loader settings:
 train:

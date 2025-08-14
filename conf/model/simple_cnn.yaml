@@ -11,14 +11,14 @@ defaults:
   - _self_
 
 # NOTE: Check constructor signature for complete parameter list, defaults, types, and docs.
-_target_: src.flora.model.ComposableModel
+_target_: src.omnifed.model.ComposableModel
 
 # ─────────────────────────────────────────
 # Feature Extraction Backbone
 # ─────────────────────────────────────────
 backbone:
   # NOTE: Check constructor signature for complete parameter list, defaults, types, and docs.
-  _target_: src.flora.model.SimpleCNNBackbone
+  _target_: src.omnifed.model.SimpleCNNBackbone
   in_channels: ??? # Input channels: 1 for grayscale, 3 for RGB
   hidden_channels: [32, 64] # Channel progression through conv layers
   out_channels: 128 # Final feature channels for head input
@@ -30,6 +30,6 @@ backbone:
 # ─────────────────────────────────────────
 head:
   # NOTE: Check constructor signature for complete parameter list, defaults, types, and docs.
-  _target_: src.flora.model.ClassificationHead
+  _target_: src.omnifed.model.ClassificationHead
   in_channels: 128 # Must match backbone output
   num_classes: ??? # Number of target classes

@@ -3,7 +3,7 @@
 import grpc
 import warnings
 
-from src.flora.communicator import grpc_pb2 as src_dot_flora_dot_communicator_dot_grpc__pb2
+from src.omnifed.communicator import grpc_pb2 as src_dot_omnifed_dot_communicator_dot_grpc__pb2
 
 GRPC_GENERATED_VERSION = '1.71.2'
 GRPC_VERSION = grpc.__version__
@@ -18,7 +18,7 @@ except ImportError:
 if _version_not_supported:
     raise RuntimeError(
         f'The grpc package installed is at version {GRPC_VERSION},'
-        + f' but the generated code in src/flora/communicator/grpc_pb2_grpc.py depends on'
+        + f' but the generated code in src/omnifed/communicator/grpc_pb2_grpc.py depends on'
         + f' grpcio>={GRPC_GENERATED_VERSION}.'
         + f' Please upgrade your grpc module to grpcio>={GRPC_GENERATED_VERSION}'
         + f' or downgrade your generated code using grpcio-tools<={GRPC_VERSION}.'
@@ -36,24 +36,24 @@ class GrpcServerStub(object):
             channel: A grpc.Channel.
         """
         self.GetBroadcastState = channel.unary_unary(
-                '/src.flora.communicator.GrpcServer/GetBroadcastState',
-                request_serializer=src_dot_flora_dot_communicator_dot_grpc__pb2.ClientInfo.SerializeToString,
-                response_deserializer=src_dot_flora_dot_communicator_dot_grpc__pb2.OperationResponse.FromString,
+                '/src.omnifed.communicator.GrpcServer/GetBroadcastState',
+                request_serializer=src_dot_omnifed_dot_communicator_dot_grpc__pb2.ClientInfo.SerializeToString,
+                response_deserializer=src_dot_omnifed_dot_communicator_dot_grpc__pb2.OperationResponse.FromString,
                 _registered_method=True)
         self.SubmitForAggregation = channel.unary_unary(
-                '/src.flora.communicator.GrpcServer/SubmitForAggregation',
-                request_serializer=src_dot_flora_dot_communicator_dot_grpc__pb2.AggregationRequest.SerializeToString,
-                response_deserializer=src_dot_flora_dot_communicator_dot_grpc__pb2.StatusResponse.FromString,
+                '/src.omnifed.communicator.GrpcServer/SubmitForAggregation',
+                request_serializer=src_dot_omnifed_dot_communicator_dot_grpc__pb2.AggregationRequest.SerializeToString,
+                response_deserializer=src_dot_omnifed_dot_communicator_dot_grpc__pb2.StatusResponse.FromString,
                 _registered_method=True)
         self.GetAggregationResult = channel.unary_unary(
-                '/src.flora.communicator.GrpcServer/GetAggregationResult',
-                request_serializer=src_dot_flora_dot_communicator_dot_grpc__pb2.ClientInfo.SerializeToString,
-                response_deserializer=src_dot_flora_dot_communicator_dot_grpc__pb2.OperationResponse.FromString,
+                '/src.omnifed.communicator.GrpcServer/GetAggregationResult',
+                request_serializer=src_dot_omnifed_dot_communicator_dot_grpc__pb2.ClientInfo.SerializeToString,
+                response_deserializer=src_dot_omnifed_dot_communicator_dot_grpc__pb2.OperationResponse.FromString,
                 _registered_method=True)
         self.RegisterClient = channel.unary_unary(
-                '/src.flora.communicator.GrpcServer/RegisterClient',
-                request_serializer=src_dot_flora_dot_communicator_dot_grpc__pb2.ClientInfo.SerializeToString,
-                response_deserializer=src_dot_flora_dot_communicator_dot_grpc__pb2.StatusResponse.FromString,
+                '/src.omnifed.communicator.GrpcServer/RegisterClient',
+                request_serializer=src_dot_omnifed_dot_communicator_dot_grpc__pb2.ClientInfo.SerializeToString,
+                response_deserializer=src_dot_omnifed_dot_communicator_dot_grpc__pb2.StatusResponse.FromString,
                 _registered_method=True)
 
 
@@ -94,29 +94,29 @@ def add_GrpcServerServicer_to_server(servicer, server):
     rpc_method_handlers = {
             'GetBroadcastState': grpc.unary_unary_rpc_method_handler(
                     servicer.GetBroadcastState,
-                    request_deserializer=src_dot_flora_dot_communicator_dot_grpc__pb2.ClientInfo.FromString,
-                    response_serializer=src_dot_flora_dot_communicator_dot_grpc__pb2.OperationResponse.SerializeToString,
+                    request_deserializer=src_dot_omnifed_dot_communicator_dot_grpc__pb2.ClientInfo.FromString,
+                    response_serializer=src_dot_omnifed_dot_communicator_dot_grpc__pb2.OperationResponse.SerializeToString,
             ),
             'SubmitForAggregation': grpc.unary_unary_rpc_method_handler(
                     servicer.SubmitForAggregation,
-                    request_deserializer=src_dot_flora_dot_communicator_dot_grpc__pb2.AggregationRequest.FromString,
-                    response_serializer=src_dot_flora_dot_communicator_dot_grpc__pb2.StatusResponse.SerializeToString,
+                    request_deserializer=src_dot_omnifed_dot_communicator_dot_grpc__pb2.AggregationRequest.FromString,
+                    response_serializer=src_dot_omnifed_dot_communicator_dot_grpc__pb2.StatusResponse.SerializeToString,
             ),
             'GetAggregationResult': grpc.unary_unary_rpc_method_handler(
                     servicer.GetAggregationResult,
-                    request_deserializer=src_dot_flora_dot_communicator_dot_grpc__pb2.ClientInfo.FromString,
-                    response_serializer=src_dot_flora_dot_communicator_dot_grpc__pb2.OperationResponse.SerializeToString,
+                    request_deserializer=src_dot_omnifed_dot_communicator_dot_grpc__pb2.ClientInfo.FromString,
+                    response_serializer=src_dot_omnifed_dot_communicator_dot_grpc__pb2.OperationResponse.SerializeToString,
             ),
             'RegisterClient': grpc.unary_unary_rpc_method_handler(
                     servicer.RegisterClient,
-                    request_deserializer=src_dot_flora_dot_communicator_dot_grpc__pb2.ClientInfo.FromString,
-                    response_serializer=src_dot_flora_dot_communicator_dot_grpc__pb2.StatusResponse.SerializeToString,
+                    request_deserializer=src_dot_omnifed_dot_communicator_dot_grpc__pb2.ClientInfo.FromString,
+                    response_serializer=src_dot_omnifed_dot_communicator_dot_grpc__pb2.StatusResponse.SerializeToString,
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
-            'src.flora.communicator.GrpcServer', rpc_method_handlers)
+            'src.omnifed.communicator.GrpcServer', rpc_method_handlers)
     server.add_generic_rpc_handlers((generic_handler,))
-    server.add_registered_method_handlers('src.flora.communicator.GrpcServer', rpc_method_handlers)
+    server.add_registered_method_handlers('src.omnifed.communicator.GrpcServer', rpc_method_handlers)
 
 
  # This class is part of an EXPERIMENTAL API.
@@ -138,9 +138,9 @@ class GrpcServer(object):
         return grpc.experimental.unary_unary(
             request,
             target,
-            '/src.flora.communicator.GrpcServer/GetBroadcastState',
-            src_dot_flora_dot_communicator_dot_grpc__pb2.ClientInfo.SerializeToString,
-            src_dot_flora_dot_communicator_dot_grpc__pb2.OperationResponse.FromString,
+            '/src.omnifed.communicator.GrpcServer/GetBroadcastState',
+            src_dot_omnifed_dot_communicator_dot_grpc__pb2.ClientInfo.SerializeToString,
+            src_dot_omnifed_dot_communicator_dot_grpc__pb2.OperationResponse.FromString,
             options,
             channel_credentials,
             insecure,
@@ -165,9 +165,9 @@ class GrpcServer(object):
         return grpc.experimental.unary_unary(
             request,
             target,
-            '/src.flora.communicator.GrpcServer/SubmitForAggregation',
-            src_dot_flora_dot_communicator_dot_grpc__pb2.AggregationRequest.SerializeToString,
-            src_dot_flora_dot_communicator_dot_grpc__pb2.StatusResponse.FromString,
+            '/src.omnifed.communicator.GrpcServer/SubmitForAggregation',
+            src_dot_omnifed_dot_communicator_dot_grpc__pb2.AggregationRequest.SerializeToString,
+            src_dot_omnifed_dot_communicator_dot_grpc__pb2.StatusResponse.FromString,
             options,
             channel_credentials,
             insecure,
@@ -192,9 +192,9 @@ class GrpcServer(object):
         return grpc.experimental.unary_unary(
             request,
             target,
-            '/src.flora.communicator.GrpcServer/GetAggregationResult',
-            src_dot_flora_dot_communicator_dot_grpc__pb2.ClientInfo.SerializeToString,
-            src_dot_flora_dot_communicator_dot_grpc__pb2.OperationResponse.FromString,
+            '/src.omnifed.communicator.GrpcServer/GetAggregationResult',
+            src_dot_omnifed_dot_communicator_dot_grpc__pb2.ClientInfo.SerializeToString,
+            src_dot_omnifed_dot_communicator_dot_grpc__pb2.OperationResponse.FromString,
             options,
             channel_credentials,
             insecure,
@@ -219,9 +219,9 @@ class GrpcServer(object):
         return grpc.experimental.unary_unary(
             request,
             target,
-            '/src.flora.communicator.GrpcServer/RegisterClient',
-            src_dot_flora_dot_communicator_dot_grpc__pb2.ClientInfo.SerializeToString,
-            src_dot_flora_dot_communicator_dot_grpc__pb2.StatusResponse.FromString,
+            '/src.omnifed.communicator.GrpcServer/RegisterClient',
+            src_dot_omnifed_dot_communicator_dot_grpc__pb2.ClientInfo.SerializeToString,
+            src_dot_omnifed_dot_communicator_dot_grpc__pb2.StatusResponse.FromString,
             options,
             channel_credentials,
             insecure,

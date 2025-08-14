@@ -7,69 +7,69 @@
 # ================================================================================
 
 defaults:
-    - base # Base framework configuration
-    - override model: resnet18 # see ./conf/model/simple_cnn.yaml
-    - override datamodule: cifar10 # see ./conf/datamodule/mnist.yaml
-    - override topology: hierarchical # see ./conf/topology/hierarchical.yaml
-    - override algorithm: fedavg # see ./conf/algorithm/fedavg.yaml
-    - override algorithm/schedules/aggregation: epoch_end # Override aggregation schedule
-    - _self_ # Everything below is merged on top of the above defaults
+  - base # Base framework configuration
+  - override model: resnet18 # see ./conf/model/resnet18.yaml
+  - override datamodule: cifar10 # see ./conf/datamodule/cifar10.yaml
+  - override topology: hierarchical # see ./conf/topology/hierarchical.yaml
+  - override algorithm: fedavg # see ./conf/algorithm/fedavg.yaml
+  - override algorithm/schedules/aggregation: epoch_end # Override aggregation schedule
+  - _self_ # Everything below is merged on top of the above defaults
 
 # ─────────────────────────────────── Hierarchical Topology Overrides
 topology:
-    global_comm: # Inter-group Communication
-        _target_: src.flora.communicator.GrpcCommunicator
+  global_comm: # Inter-group Communication
+    _target_: src.omnifed.communicator.GrpcCommunicator
+    # master_addr: 127.0.0.1 # Default
+    master_port: 50051
+  groups:
+    # ──────────────────────────────── Group 1
+    - _target_: src.omnifed.topology.CentralizedTopology
+      num_clients: 3
+      local_comm:
+        _target_: src.omnifed.communicator.TorchDistCommunicator
         # master_addr: 127.0.0.1 # Default
-        master_port: 50051
-    groups:
-        # ──────────────────────────────── Group 1
-        - _target_: src.flora.topology.CentralizedTopology
-          num_clients: 3
-          local_comm:
-              _target_: src.flora.communicator.TorchDistCommunicator
-              # master_addr: 127.0.0.1 # Default
-              master_port: 29500
-          overrides:
-              0: # Rank 0 (server) - disable training by setting train dataloader to null
-                  datamodule:
-                      train: null
+        master_port: 29500
+      overrides:
+        0: # Rank 0 (server) - disable training by setting train dataloader to null
+          datamodule:
+            train: null
 
-        # ──────────────────────────────── Group 2
-        - _target_: src.flora.topology.CentralizedTopology
-          num_clients: 3
-          local_comm:
-              _target_: src.flora.communicator.TorchDistCommunicator
-              # master_addr: 127.0.0.1 # Default
-              master_port: 29501
-          overrides:
-              0: # Rank 0 (server) - disable training by setting train dataloader to null
-                  datamodule:
-                      train: null
+    # ──────────────────────────────── Group 2
+    - _target_: src.omnifed.topology.CentralizedTopology
+      num_clients: 3
+      local_comm:
+        _target_: src.omnifed.communicator.TorchDistCommunicator
+        # master_addr: 127.0.0.1 # Default
+        master_port: 29501
+      overrides:
+        0: # Rank 0 (server) - disable training by setting train dataloader to null
+          datamodule:
+            train: null
 
-# ─────────────────────────────────── FedAvg Overrides
+# ─────────────────────────────────── Algorithm Overrides
 algorithm:
-    _target_: src.flora.algorithm.FedAvgCustom
-    local_lr: 0.01
-    max_epochs_per_round: 200
-    schedules:
-        aggregation:
-            # round_end:
-            # every: 1
-            epoch_end:
-                every: 5
-            # batch_end:
-            #     every: 100
+  _target_: src.omnifed.algorithm.FedAvgCustom
+  local_lr: 0.01
+  max_epochs_per_round: 200
+  schedules:
+    aggregation:
+      # round_end:
+      # every: 1
+      epoch_end:
+        every: 5
+      # batch_end:
+      #     every: 100
 
-# ─────────────────────────────────── SimpleCNN Overrides
+# ─────────────────────────────────── Model Overrides
 model:
-    num_classes: 10
+  num_classes: 10
 
-# ─────────────────────────────────── MNIST DataModule Overrides
+# ─────────────────────────────────── DataModule Overrides
 datamodule:
-    train:
-        batch_size: 128
-    eval:
-        batch_size: 128
+  train:
+    batch_size: 128
+  eval:
+    batch_size: 128
 
 # ─────────────────────────────────── Engine Parameters
 global_rounds: 1 # see ./conf/base.yaml for all options

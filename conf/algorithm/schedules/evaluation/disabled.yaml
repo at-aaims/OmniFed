@@ -6,23 +6,23 @@
 # ================================================================================
 
 defaults:
-    - base
+  - base
 
 # ─────────────────────────────────────────
 experiment_start:
-    enabled: false
+  enabled: false
 
 experiment_end:
-    enabled: false
+  enabled: false
 
 # ─────────────────────────────────────────
 pre_aggregation:
-    enabled: false
-    # every: 2 # Before every 2nd aggregation
-    # at: [0, 1, 5, 10] # Before specific aggregations
+  enabled: false
+  # every: 2 # Before every 2nd aggregation
+  # at: [0, 1, 5, 10] # Before specific aggregations
 
 # ─────────────────────────────────────────
 post_aggregation:
-    enabled: false
-    # every: 2 # After every 2nd aggregation
-    # at: [0, 1, 5, 10] # After specific aggregations
+  enabled: false
+  # every: 2 # After every 2nd aggregation
+  # at: [0, 1, 5, 10] # After specific aggregations

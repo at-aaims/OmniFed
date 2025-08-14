@@ -44,10 +44,10 @@ class CentralizedTopology(BaseTopology):
     Example config:
     ```yaml
     topology:
-      _target_: src.flora.topology.CentralizedTopology
+      _target_: src.omnifed.topology.CentralizedTopology
       num_clients: N
       local_comm:
-        _target_: src.flora.communicator.TorchDistCommunicator
+        _target_: src.omnifed.communicator.TorchDistCommunicator
         backend: "gloo"
     ```
 

@@ -6,11 +6,11 @@
 # ================================================================================
 
 defaults:
-    - base
-    - _self_
+  - base
+  - _self_
 
 # NOTE: Check constructor signature for complete parameter list, defaults, types, and docs.
-_target_: src.flora.algorithm.MOON
+_target_: src.omnifed.algorithm.MOON
 
 mu: 1.0 # Contrastive loss weight coefficient
 temperature: 0.5 # Temperature parameter for softmax in contrastive loss

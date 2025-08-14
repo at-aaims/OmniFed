@@ -10,7 +10,7 @@ defaults:
   - _self_
 
 # NOTE: Check constructor signature for complete parameter list, defaults, types, and docs.
-_target_: src.flora.topology.CentralizedTopology
+_target_: src.omnifed.topology.CentralizedTopology
 
 # ─────────────────────────────────────────
 
@@ -20,7 +20,7 @@ local_comm: ???
 # Example communicator configuration:
 # local_comm:
 #   # NOTE: Check constructor signature for complete parameter list, defaults, types, and docs.
-#   _target_: src.flora.communicator.TorchDistCommunicator
+#   _target_: src.omnifed.communicator.TorchDistCommunicator
 #   # backend: gloo            # CPU backend (default)
 #   # backend: nccl            # GPU backend
 #   # master_addr: "127.0.0.1" # Localhost for single-node setups

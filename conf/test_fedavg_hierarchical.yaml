@@ -17,15 +17,15 @@ defaults:
 # ─────────────────────────────────── Hierarchical Topology Overrides
 topology:
   global_comm: # Inter-group Communication
-    _target_: src.flora.communicator.GrpcCommunicator
+    _target_: src.omnifed.communicator.GrpcCommunicator
     # master_addr: 127.0.0.1 # Default
     master_port: 50051
   groups:
     # ──────────────────────────────── Group 1
-    - _target_: src.flora.topology.CentralizedTopology
+    - _target_: src.omnifed.topology.CentralizedTopology
       num_clients: 3
       local_comm:
-        _target_: src.flora.communicator.TorchDistCommunicator
+        _target_: src.omnifed.communicator.TorchDistCommunicator
         # master_addr: 127.0.0.1 # Default
         master_port: 29500
       overrides:
@@ -34,10 +34,10 @@ topology:
             train: null
 
     # ──────────────────────────────── Group 2
-    - _target_: src.flora.topology.CentralizedTopology
+    - _target_: src.omnifed.topology.CentralizedTopology
       num_clients: 3
       local_comm:
-        _target_: src.flora.communicator.TorchDistCommunicator
+        _target_: src.omnifed.communicator.TorchDistCommunicator
         # master_addr: 127.0.0.1 # Default
         master_port: 29501
       overrides:
@@ -45,19 +45,19 @@ topology:
           datamodule:
             train: null
 
-# ─────────────────────────────────── FedAvg Overrides
+# ─────────────────────────────────── Algorithm Overrides
 algorithm:
   local_lr: 0.005
   max_epochs_per_round: 3
 
-# ─────────────────────────────────── SimpleCNN Overrides
+# ─────────────────────────────────── Model Overrides
 model:
   backbone:
     in_channels: 1 # MNIST grayscale
   head:
     num_classes: 10 # MNIST digits
 
-# ─────────────────────────────────── MNIST DataModule Overrides
+# ─────────────────────────────────── DataModule Overrides
 datamodule:
   train:
     batch_size: 128
