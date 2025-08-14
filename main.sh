@@ -11,7 +11,7 @@ set -x            # Print each command before executing it (for debugging)
 
 # =========================================
 
-export OMNIFED_DEBUG=1 # Enable debug mode (extra printing)
+export OMNIFED_DEBUG=1 # NOTE: currently unused
 
 export PYTHONUNBUFFERED=1 # Immediate Python output
 export HYDRA_FULL_ERROR=1 # Full Hydra error traces
@@ -22,7 +22,7 @@ export RAY_DEDUP_LOGS=0   # Show all FL node logs
 # =========================================
 
 # Compile gRPC protocol buffers
-python -m grpc_tools.protoc -I. --python_out=. --grpc_python_out=. ./src/flora/communicator/grpc.proto
+python -m grpc_tools.protoc -I. --python_out=. --grpc_python_out=. ./src/omnifed/communicator/grpc.proto
 
 # Run the main script
 # NOTE: additional arguments passed to the `main.sh` script are forwarded to the Python script
