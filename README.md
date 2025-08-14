@@ -1,10 +1,10 @@
 # OmniFed
 
-A federated learning framework built on [Ray](https://ray.io/) and [Hydra](https://hydra.cc/). OmniFed scales from local experiments to HPC clusters and cross-institutional scenarios with 11 built-in algorithms and extensible architecture.
+A federated learning framework built on [Ray](https://ray.io/) and [Hydra](https://hydra.cc/). OmniFed scales from local experiments to HPC clusters and cross-institutional scenarios with 10+ built-in algorithms and extensible architecture.
 
 ## Key Features
 
-- **🧩 Modular**: Mix and match 11 single-file algorithm implementations, topologies, and communication protocols
+- **🧩 Modular**: Mix and match 10+ single-file algorithm implementations, topologies, and communication protocols
 - **📊 Flexible**: Local, HPC, and cross-network deployments with multiple communication backends
 - **⚙️ Extensible**: Custom algorithms, communicators, and topologies with minimal code requirements
 - **🔬 Research-Friendly**: Easy experimentation with lifecycle hooks and [PyTorch](https://pytorch.org/) compatibility
