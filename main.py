@@ -20,7 +20,7 @@ from hydra.utils import get_original_cwd
 from omegaconf import OmegaConf
 from rich.pretty import pprint
 
-from src.flora import Engine, EngineConfig, utils
+from src.omnifed import Engine, EngineConfig, utils
 
 # =============================================================================
 
@@ -33,7 +33,7 @@ def main(cfg: EngineConfig) -> None:
     # NOTE: migrate to logging soon (this is currently unused)
     logger = logging.getLogger(__name__)
 
-    utils.print_rule("FLUX")
+    utils.print_rule("OmniFed")
 
     print(f"Current working directory : {os.getcwd()}")
     print(f"Orig working directory    : {get_original_cwd()}")

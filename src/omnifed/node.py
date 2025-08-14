@@ -239,7 +239,7 @@ class Node(RequiredSetup):
         """
         super().__init__()
         self.name: str = name
-        os.environ["FLUX_NODE_NAME"] = name
+        os.environ["OMNIFED_NODE_NAME"] = name
 
         self.device_hint: str = device_hint
         self.log_dir: str = os.path.join(log_dir_base, name)

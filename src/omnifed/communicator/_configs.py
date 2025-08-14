@@ -22,7 +22,7 @@ from .torchdist import InitMethod
 class BaseCommunicatorConfig:
     """Base configuration for all communicator types with shared parameters."""
 
-    _target_: str = "src.flora.communicator.BaseCommunicator"
+    _target_: str = "src.omnifed.communicator.BaseCommunicator"
 
     # Core distributed parameters
     rank: int = MISSING
@@ -37,7 +37,7 @@ class BaseCommunicatorConfig:
 class TorchDistCommunicatorConfig(BaseCommunicatorConfig):
     """Configuration for TorchDistCommunicator."""
 
-    _target_: str = "src.flora.communicator.TorchDistCommunicator"
+    _target_: str = "src.omnifed.communicator.TorchDistCommunicator"
 
     # Initialization and backend settings
     init_method: InitMethod = InitMethod.TCP
@@ -55,7 +55,7 @@ class TorchDistCommunicatorConfig(BaseCommunicatorConfig):
 class GrpcCommunicatorConfig(BaseCommunicatorConfig):
     """Configuration for GrpcCommunicator."""
 
-    _target_: str = "src.flora.communicator.GrpcCommunicator"
+    _target_: str = "src.omnifed.communicator.GrpcCommunicator"
 
     # gRPC server configuration
     max_workers: int = 10

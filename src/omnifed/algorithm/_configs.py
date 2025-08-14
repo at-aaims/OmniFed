@@ -27,7 +27,7 @@ class TriggerConfig:
     or specific timing conditions.
     """
 
-    _target_: str = "src.flora.algorithm.Trigger"
+    _target_: str = "src.omnifed.algorithm.Trigger"
 
     every: Optional[int] = None  # Execute every N calls
     at: Optional[List[int]] = None  # Execute at specific call numbers
@@ -42,7 +42,7 @@ class AggregationTriggersConfig:
     during different phases of federated learning.
     """
 
-    _target_: str = "src.flora.algorithm.AggregationTriggers"
+    _target_: str = "src.omnifed.algorithm.AggregationTriggers"
 
     round_end: Union[TriggerConfig, bool, None] = True
     epoch_end: Union[TriggerConfig, bool, None] = True
@@ -58,7 +58,7 @@ class EvaluationTriggersConfig:
     during different phases of federated learning.
     """
 
-    _target_: str = "src.flora.algorithm.EvaluationTriggers"
+    _target_: str = "src.omnifed.algorithm.EvaluationTriggers"
 
     experiment_start: Union[TriggerConfig, bool, None] = True
     experiment_end: Union[TriggerConfig, bool, None] = False
@@ -74,7 +74,7 @@ class ExecutionSchedulesConfig:
     Combines aggregation and evaluation schedules into unified configuration.
     """
 
-    _target_: str = "src.flora.algorithm.ExecutionSchedules"
+    _target_: str = "src.omnifed.algorithm.ExecutionSchedules"
 
     aggregation: Optional[AggregationTriggersConfig] = None
     evaluation: Optional[EvaluationTriggersConfig] = None
@@ -89,7 +89,7 @@ class ExecutionMetricsConfig:
     during federated learning execution.
     """
 
-    _target_: str = "src.flora.algorithm.ExecutionMetrics.ExecutionMetrics"
+    _target_: str = "src.omnifed.algorithm.ExecutionMetrics.ExecutionMetrics"
 
     log_dir: str = MISSING  # Directory for TensorBoard and CSV output
 
@@ -109,14 +109,14 @@ class BaseAlgorithmConfig:
 class FedAvgConfig(BaseAlgorithmConfig):
     """Configuration for FedAvg algorithm."""
 
-    _target_: str = "src.flora.algorithm.FedAvg"
+    _target_: str = "src.omnifed.algorithm.FedAvg"
 
 
 @dataclass
 class FedProxConfig(BaseAlgorithmConfig):
     """Configuration for FedProx algorithm."""
 
-    _target_: str = "src.flora.algorithm.FedProx"
+    _target_: str = "src.omnifed.algorithm.FedProx"
 
     # FedProx-specific parameters
     mu: float = 0.01  # Proximal term coefficient
@@ -126,14 +126,14 @@ class FedProxConfig(BaseAlgorithmConfig):
 class ScaffoldConfig(BaseAlgorithmConfig):
     """Configuration for Scaffold algorithm."""
 
-    _target_: str = "src.flora.algorithm.Scaffold"
+    _target_: str = "src.omnifed.algorithm.Scaffold"
 
 
 @dataclass
 class FedNovaConfig(BaseAlgorithmConfig):
     """Configuration for FedNova algorithm."""
 
-    _target_: str = "src.flora.algorithm.FedNova"
+    _target_: str = "src.omnifed.algorithm.FedNova"
 
     # FedNova-specific parameters
     weight_decay: float = 0.0  # Weight decay parameter
@@ -143,14 +143,14 @@ class FedNovaConfig(BaseAlgorithmConfig):
 class FedBNConfig(BaseAlgorithmConfig):
     """Configuration for FedBN algorithm."""
 
-    _target_: str = "src.flora.algorithm.FedBN"
+    _target_: str = "src.omnifed.algorithm.FedBN"
 
 
 @dataclass
 class MoonConfig(BaseAlgorithmConfig):
     """Configuration for Moon algorithm."""
 
-    _target_: str = "src.flora.algorithm.MOON"
+    _target_: str = "src.omnifed.algorithm.MOON"
 
     # Moon-specific parameters
     mu: float = 1.0  # Contrastive loss weight
@@ -162,7 +162,7 @@ class MoonConfig(BaseAlgorithmConfig):
 class FedPerConfig(BaseAlgorithmConfig):
     """Configuration for FedPer algorithm."""
 
-    _target_: str = "src.flora.algorithm.FedPer"
+    _target_: str = "src.omnifed.algorithm.FedPer"
 
     # FedPer-specific parameters
     personal_layers: Optional[List[str]] = None  # Layer names for personalization
@@ -172,7 +172,7 @@ class FedPerConfig(BaseAlgorithmConfig):
 class FedMomConfig(BaseAlgorithmConfig):
     """Configuration for FedMom algorithm."""
 
-    _target_: str = "src.flora.algorithm.FedMom"
+    _target_: str = "src.omnifed.algorithm.FedMom"
 
     # FedMom-specific parameters
     momentum: float = 0.9  # Momentum parameter
@@ -182,7 +182,7 @@ class FedMomConfig(BaseAlgorithmConfig):
 class FedDynConfig(BaseAlgorithmConfig):
     """Configuration for FedDyn algorithm."""
 
-    _target_: str = "src.flora.algorithm.FedDyn"
+    _target_: str = "src.omnifed.algorithm.FedDyn"
 
     # FedDyn-specific parameters
     alpha: float = 0.1  # Regularization parameter
@@ -192,7 +192,7 @@ class FedDynConfig(BaseAlgorithmConfig):
 class DittoConfig(BaseAlgorithmConfig):
     """Configuration for Ditto algorithm."""
 
-    _target_: str = "src.flora.algorithm.Ditto"
+    _target_: str = "src.omnifed.algorithm.Ditto"
 
     # Ditto-specific parameters
     global_lr: float = 0.01  # Global learning rate
@@ -203,7 +203,7 @@ class DittoConfig(BaseAlgorithmConfig):
 class DilocoConfig(BaseAlgorithmConfig):
     """Configuration for Diloco algorithm."""
 
-    _target_: str = "src.flora.algorithm.DiLoCo"
+    _target_: str = "src.omnifed.algorithm.DiLoCo"
 
     # Diloco-specific parameters
     outer_lr: float = 0.7  # Outer learning rate

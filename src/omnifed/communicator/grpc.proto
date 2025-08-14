@@ -14,7 +14,7 @@
 
 syntax = "proto3";
 
-package src.flora.communicator;
+package src.omnifed.communicator;
 
 // Service definition for central aggregation server
 service GrpcServer {

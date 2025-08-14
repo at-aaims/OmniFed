@@ -10,7 +10,7 @@ defaults:
   - _self_
 
 # NOTE: Check constructor signature for complete parameter list, defaults, types, and docs.
-_target_: src.flora.algorithm.DiLoCo
+_target_: src.omnifed.algorithm.DiLoCo
 
 outer_lr: 0.7 # Learning rate for server-side outer optimizer
 outer_momentum: 0.9 # Momentum coefficient for server-side outer optimizer

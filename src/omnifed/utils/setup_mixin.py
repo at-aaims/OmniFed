@@ -20,7 +20,7 @@ class RequiredSetup(ABC):
     """
     Template Method pattern for deferred component initialization.
 
-    Provides consistent setup/teardown lifecycle for FLUX components that need
+    Provides consistent setup/teardown lifecycle for OmniFed components that need
     runtime initialization (device placement, network connections, etc.).
 
     Pattern enforces clean separation:
@@ -51,7 +51,7 @@ class RequiredSetup(ABC):
     def setup_result(self) -> Any:
         """
         Get the result from the setup() call.
-        
+
         Raises:
             RuntimeError: If setup() has not been called yet
         """
@@ -71,7 +71,7 @@ class RequiredSetup(ABC):
         Args:
             *args: Positional arguments passed to _setup()
             **kwargs: Keyword arguments passed to _setup()
-            
+
         Returns:
             Result from _setup() method
         """
@@ -95,7 +95,7 @@ class RequiredSetup(ABC):
         Args:
             *args: Setup arguments (component-specific)
             **kwargs: Setup keyword arguments (component-specific)
-            
+
         Returns:
             Component-specific result (can be None for components that don't return anything)
         """

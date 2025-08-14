@@ -21,12 +21,12 @@ from omegaconf import MISSING
 class DataModuleConfig:
     """
     Structured config for FL data loading and preprocessing.
-    
+
     Both train and eval DataLoaders are optional to support different
     FL scenarios (some nodes only train, others only evaluate).
     """
-    
-    _target_: str = "src.flora.data.DataModule.DataModule"
-    
+
+    _target_: str = "src.omnifed.data.DataModule.DataModule"
+
     train: Optional[Any] = None  # DataLoader config for training data
-    eval: Optional[Any] = None   # DataLoader config for evaluation data
+    eval: Optional[Any] = None  # DataLoader config for evaluation data

@@ -1,7 +1,7 @@
 # ================================================================================
 # Caltech-256 Dataset Configuration
 #
-# Configures FLUX DataModule for Caltech-256 object classification.
+# Configures OmniFed DataModule for Caltech-256 object classification.
 # Uses torchvision dataset with appropriate transforms for variable-sized images.
 #
 # Docs:
@@ -19,7 +19,7 @@ defaults:
 train:
   dataset:
     _target_: torchvision.datasets.Caltech256
-    root: ${oc.env:FLUX_DATA_DIR,/tmp}/caltech256
+    root: ${oc.env:OMNIFED_DATA_DIR,/tmp}/caltech256
     # target_transform: null  # Optional transform for targets
     download: true
     transform:
@@ -47,7 +47,7 @@ train:
 eval:
   dataset:
     _target_: torchvision.datasets.Caltech256
-    root: ${oc.env:FLUX_DATA_DIR,/tmp}/caltech256
+    root: ${oc.env:OMNIFED_DATA_DIR,/tmp}/caltech256
     # target_transform: null  # Optional transform for targets
     download: true
     transform:

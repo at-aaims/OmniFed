@@ -1,7 +1,7 @@
 # ================================================================================
 # CIFAR-10 Dataset Configuration
 #
-# Configures FLUX DataModule for CIFAR-10 object classification.
+# Configures OmniFed DataModule for CIFAR-10 object classification.
 # Uses torchvision dataset with standard normalization and data augmentation.
 #
 # Docs:
@@ -19,7 +19,7 @@ defaults:
 train:
   dataset:
     _target_: torchvision.datasets.CIFAR10
-    root: ${oc.env:FLUX_DATA_DIR,/tmp}/cifar10
+    root: ${oc.env:OMNIFED_DATA_DIR,/tmp}/cifar10
     train: true # Use training set
     # target_transform: null  # Optional transform for targets
     download: true
@@ -42,7 +42,7 @@ train:
 eval:
   dataset:
     _target_: torchvision.datasets.CIFAR10
-    root: ${oc.env:FLUX_DATA_DIR,/tmp}/cifar10
+    root: ${oc.env:OMNIFED_DATA_DIR,/tmp}/cifar10
     train: false # Use test set
     # target_transform: null  # Optional transform for targets
     download: true

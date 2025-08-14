@@ -47,14 +47,14 @@ class HierarchicalTopology(BaseTopology):
     Example config:
     ```yaml
     topology:
-      _target_: src.flora.topology.MultiGroupTopology
+      _target_: src.omnifed.topology.MultiGroupTopology
       groups:
-        - _target_: src.flora.topology.CentralizedTopology
+        - _target_: src.omnifed.topology.CentralizedTopology
           num_clients: N
-        - _target_: src.flora.topology.CentralizedTopology
+        - _target_: src.omnifed.topology.CentralizedTopology
           num_clients: M
       global_comm:
-        _target_: src.flora.communicator.GrpcCommunicator
+        _target_: src.omnifed.communicator.GrpcCommunicator
     ```
 
     Example with 2 groups, N and M clients each:

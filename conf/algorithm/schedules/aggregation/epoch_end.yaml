@@ -6,21 +6,21 @@
 # ================================================================================
 
 # NOTE: Check constructor signature for complete parameter list, defaults, types, and docs.
-_target_: src.flora.algorithm.AggregationTriggers
+_target_: src.omnifed.algorithm.AggregationTriggers
 
 # ─────────────────────────────────────────
 round_end:
-    _target_: src.flora.algorithm._schedules.Trigger
+    _target_: src.omnifed.algorithm._schedules.Trigger
     enabled: false
 
 # ─────────────────────────────────────────
 epoch_end: # Aggregate after each epoch
-    _target_: src.flora.algorithm._schedules.Trigger
+    _target_: src.omnifed.algorithm._schedules.Trigger
     enabled: true
     every: 1
     # at: [1, 3, 5, 10] # Aggregate at specific epochs
 
 # ─────────────────────────────────────────
 batch_end:
-    _target_: src.flora.algorithm._schedules.Trigger
+    _target_: src.omnifed.algorithm._schedules.Trigger
     enabled: false

@@ -1,7 +1,7 @@
 # ================================================================================
 # MNIST Dataset Configuration
 #
-# Configures FLUX DataModule for MNIST handwritten digits.
+# Configures OmniFed DataModule for MNIST handwritten digits.
 # Uses torchvision dataset with standard normalization.
 #
 # Docs:
@@ -18,7 +18,7 @@ defaults:
 train:
   dataset:
     _target_: torchvision.datasets.MNIST
-    root: ${oc.env:FLUX_DATA_DIR,/tmp}/torchvision-mnist
+    root: ${oc.env:OMNIFED_DATA_DIR,/tmp}/torchvision-mnist
     train: true
     download: true
     transform:
@@ -35,7 +35,7 @@ train:
 eval:
   dataset:
     _target_: torchvision.datasets.MNIST
-    root: ${oc.env:FLUX_DATA_DIR,/tmp}/torchvision-mnist
+    root: ${oc.env:OMNIFED_DATA_DIR,/tmp}/torchvision-mnist
     train: false
     download: true
     transform:

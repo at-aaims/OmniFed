@@ -1,6 +1,6 @@
-# FLUX
+# OmniFed
 
-A federated learning framework built on [Ray](https://ray.io/) and [Hydra](https://hydra.cc/). FLUX scales from local experiments to HPC clusters and cross-institutional scenarios with 11 built-in algorithms and extensible architecture.
+A federated learning framework built on [Ray](https://ray.io/) and [Hydra](https://hydra.cc/). OmniFed scales from local experiments to HPC clusters and cross-institutional scenarios with 11 built-in algorithms and extensible architecture.
 
 ## Key Features
 
@@ -15,7 +15,7 @@ A federated learning framework built on [Ray](https://ray.io/) and [Hydra](https
 ```bash
 # Clone and install
 git clone <repository-url>
-cd FLUX
+cd OmniFed
 pip install -r requirements.txt
 
 # Run basic federated learning experiment
@@ -82,9 +82,9 @@ python main.py --info
 
 See [Hydra's command line flags](https://hydra.cc/docs/advanced/hydra-command-line-flags/) for more configuration options.
 
-## How FLUX Works
+## How OmniFed Works
 
-FLUX orchestrates federated learning experiments through a modular architecture:
+OmniFed orchestrates federated learning experiments through a modular architecture:
 
 **Core Components:**
 
@@ -112,7 +112,7 @@ FLUX orchestrates federated learning experiments through a modular architecture:
 ## Project Structure
 
 ```
-FLUX/
+OmniFed/
 ├── src/flora/              # Main framework code
 │   ├── algorithm/          # Federated learning algorithms
 │   │   ├── base.py         # Base algorithm class
@@ -160,8 +160,8 @@ FLUX/
 ## Citation
 
 ```bibtex
-@inproceedings{flux2025,
-  title={FLUX: A Modular Federated Learning Framework},
+@inproceedings{omnifed2025,
+  title={OmniFed: A Modular Federated Learning Framework},
   author={Authors},
   year={2025}
 }
