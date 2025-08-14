@@ -33,7 +33,7 @@ epochs=100
 #delta=1e-5
 #gamma=0.01
 
-epsilon=50.0
+epsilon=30.0
 delta=1e-5
 gamma=0.1
 
