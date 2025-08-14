@@ -47,7 +47,8 @@ class HybridTrainer(object):
         self.mpi2_port = 28290
 
         if torch.cuda.is_available():
-            self.device = torch.device("cuda:" + str(self.global_rank))
+            # self.device = torch.device("cuda:" + str(self.global_rank))
+            self.device = self.global_rank % 7
         else:
             self.device = torch.device("cpu")
 
