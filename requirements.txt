@@ -17,11 +17,14 @@ requests==2.32.3
 rich==14.1.0
 ruff==0.11.12
 setuptools==58.0.4
+tensorboard==2.20.0
 torch==2.6.0
 torchaudio==2.6.0
+torchmetrics==1.8.2
 torchtext==0.18.0
 torchvision==0.21.0
 tqdm==4.67.1
+typeguard==4.4.4
 typing-extensions==4.12.2
 urllib3==2.3.0
 wcwidth==0.2.13

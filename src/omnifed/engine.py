@@ -285,6 +285,7 @@ class Engine(RequiredSetup):
         is_single_node = len(ray_nodes_alive) == 1
 
         available_gpus = ray_available_resources.get("GPU", 0)
+        print(f"Available GPUs: {available_gpus}")
 
         total_actors = len(self.topology)
 
@@ -293,7 +294,9 @@ class Engine(RequiredSetup):
             is_single_node and total_actors > available_gpus and available_gpus > 0
         )
 
-        gpus_per_actor = available_gpus / total_actors if use_fractional_gpu else 1.0
+        # gpus_per_actor = available_gpus / total_actors if use_fractional_gpu else 1.0
+        # Enable CPU-only training
+        gpus_per_actor = available_gpus / total_actors if use_fractional_gpu else 0.0
 
         print(f"Launching {len(list(self.topology))} Ray Actors")
 
@@ -319,9 +322,10 @@ class Engine(RequiredSetup):
             )
 
             # Configure GPU allocation
-            if node_config.ray_actor_options.num_gpus is None and gpus_per_actor > 0:
+            if node_config.ray_actor_options.num_gpus is None and gpus_per_actor >= 0:
                 # Single-node with GPU shortage: use fractional allocation
                 # Multi-node or sufficient GPUs: request 1 GPU per actor
+                # if no GPU is present, use only CPU for training
                 node_config.ray_actor_options.num_gpus = gpus_per_actor
 
             print_rule()
