@@ -9,6 +9,9 @@ echo
 set -euo pipefail # Exit on error, undefined variable, or failed command in a pipeline
 set -x            # Print each command before executing it (for debugging)
 
+# to kill test job on mac:  kill -9 $(ps aux | grep main.py | grep -v grep | awk '{print $2}')
+# to kill test job on linux systems: kill -s 9 `ps -ef | grep main.py |grep -v grep | awk '{print $2}'`
+
 # =========================================
 
 export OMNIFED_DEBUG=1 # NOTE: currently unused
