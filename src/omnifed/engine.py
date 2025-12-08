@@ -42,6 +42,9 @@ from .utils import (
     print,
     print_rule,
 )
+# from dataclasses import asdict
+from dataclasses import asdict, is_dataclass
+from omegaconf import OmegaConf
 
 LOG_FLUSH_DELAY = 2.0
 
@@ -255,7 +258,44 @@ class Engine(RequiredSetup):
         )
 
         # Initialize Ray cluster
-        ray.init(**self.ray_cfg)
+        # ray.init(**self.ray_cfg)
+        # rcfg = asdict(self.ray_cfg)  # convert dataclass to a plain dict
+        # addr = rcfg.get("address")
+
+        # # If attaching to an existing cluster, strip disallowed args
+        # if addr not in (None, "", "local"):
+        #     for k in ("num_cpus", "num_gpus", "resources", "object_store_memory",
+        #             "include_dashboard", "dashboard_host", "dashboard_port"):
+        #         rcfg.pop(k, None)
+
+        # ray.init(**rcfg)
+        # Convert Ray config to a plain dict (supports dataclass, DictConfig, or dict)
+        if is_dataclass(self.ray_cfg):
+            rcfg = asdict(self.ray_cfg)
+        else:
+            # OmegaConf DictConfig -> dict, or leave dict as-is
+            try:
+                rcfg = OmegaConf.to_container(self.ray_cfg, resolve=True)
+            except Exception:
+                rcfg = dict(self.ray_cfg)
+
+        addr = rcfg.get("address")
+
+        # If attaching to an existing cluster, Ray forbids resource/allocation args.
+        if addr not in (None, "", "local"):
+            for k in (
+                "num_cpus",
+                "num_gpus",
+                "resources",
+                "object_store_memory",
+                "include_dashboard",
+                "dashboard_host",
+                "dashboard_port",
+                "runtime_env",   # safe to drop on attach
+            ):
+                rcfg.pop(k, None)
+
+        ray.init(**rcfg)
 
         # Smart GPU allocation: detect single-node vs multi-node scenarios
         ray_available_resources = ray.available_resources()
@@ -296,8 +336,15 @@ class Engine(RequiredSetup):
 
         # gpus_per_actor = available_gpus / total_actors if use_fractional_gpu else 1.0
         # Enable CPU-only training
-        gpus_per_actor = available_gpus / total_actors if use_fractional_gpu else 0.0
-
+        #gpus_per_actor = available_gpus / total_actors if use_fractional_gpu else 0.0
+        if available_gpus == 0:
+            gpus_per_actor = 0.0
+        elif total_actors <= available_gpus:
+            gpus_per_actor = 1.0
+        else:
+            # allow fractional even in multi-node
+            gpus_per_actor = max(available_gpus / total_actors, 0.25)
+            
         print(f"Launching {len(list(self.topology))} Ray Actors")
 
         self._ray_actor_refs = self._init_ray_actors(gpus_per_actor)
