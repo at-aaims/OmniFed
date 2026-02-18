@@ -273,6 +273,9 @@ class Node(RequiredSetup):
         self.local_comm.setup()
         if self.global_comm:
             self.global_comm.setup()
+        
+        self.original_device = next(model.parameters()).device
+        model = model.to(self.device)
 
         # Standard federated learning setup: broadcast initial model from server
         # In hierarchical topologies: global comm first, then local comm
@@ -301,10 +304,12 @@ class Node(RequiredSetup):
                 iters_per_epoch=torch.tensor(
                     local_iters_per_epoch,
                     dtype=torch.int,
+                    device = self.device,
                 ),
                 epochs_per_round=torch.tensor(
                     self.algorithm.max_epochs_per_round,
                     dtype=torch.int,
+                    device = self.device
                 ),
             ),
             AggregationOp.MAX,
@@ -358,7 +363,7 @@ class Node(RequiredSetup):
         )
 
         # Device management for experiment execution
-        original_device = next(self.algorithm.local_model.parameters()).device
+        # original_device = next(self.algorithm.local_model.parameters()).device
         self.algorithm.local_model = self.algorithm.local_model.to(self.device)
 
         try:
@@ -372,9 +377,9 @@ class Node(RequiredSetup):
 
         finally:
             # Restore original device placement
-            self.algorithm.local_model = self.algorithm.local_model.to(original_device)
+            self.algorithm.local_model = self.algorithm.local_model.to(self.original_device)
             print(
-                f"Model restored to original device: {original_device}",
+                f"Model restored to original device: {self.original_device}",
                 flush=True,
             )
 
@@ -389,10 +394,16 @@ class Node(RequiredSetup):
     @property
     def device(self) -> torch.device:
         """Compute device with automatic GPU assignment based on rank."""
+        backend = getattr(self.local_comm, "backend", "gloo").lower()
+        use_cuda = (backend == "nccl") and torch.cuda.is_available()
         if self.__device is None:
-            self.__device = self.__resolve_device(
-                self.device_hint, rank=self.local_comm.rank
-            )
+            if use_cuda:
+                self.__device = self.__resolve_device(
+                    self.device_hint, rank=self.local_comm.rank
+                )
+            else:
+                self.__device = torch.device("cpu")
+
         return self.__device
 
     @staticmethod
