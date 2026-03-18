@@ -26,6 +26,7 @@ class SlurmConfig:
     gres: Optional[str] = None
     gpus_per_node: int = 0
     gpus_per_task: Optional[int] = None   # if you want Slurm to bind GPUs per task
+    gpu_bind: str = "closest"
     job_name: str = "omnifed"
     constraint: Optional[str] = None
     reservation: Optional[str] = None
