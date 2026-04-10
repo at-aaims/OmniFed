@@ -56,7 +56,7 @@ class TorchDistCommunicator(BaseCommunicator):
         init_method: InitMethod = InitMethod.TCP,
         backend: str = "gloo",
         sharedfile: str = "sharedfile",
-        timeout: int = 60,
+        timeout: int = 600,
         max_retries: int = 5,
     ) -> None:
         """
@@ -135,6 +135,10 @@ class TorchDistCommunicator(BaseCommunicator):
                 raise ValueError(
                     f"Unknown init_method: {self.init_method}. Supported: {[m.value for m in InitMethod]}"
                 )
+        
+        print(f"[TorchDistCommunicator->_setup] init complete rank={self.rank}")
+        dist.barrier()
+        print(f"[TorchDistCommunicator->_setup] barrier complete rank={self.rank}")
 
     def broadcast(
         self,
@@ -222,6 +226,8 @@ class TorchDistCommunicator(BaseCommunicator):
 
         op = reduction_ops[reduction]
 
+        print(f"[aggregate] BEFORE all_reduce rank={self.rank}")
+
 
         if isinstance(msg, nn.Module):
             # Aggregate all trainable parameters
@@ -243,6 +249,8 @@ class TorchDistCommunicator(BaseCommunicator):
         else:
             # Aggregate single tensor
             dist.all_reduce(msg, op=op)
+
+        print(f"[aggregate] AFTER all_reduce rank={self.rank}")
 
         return msg
 

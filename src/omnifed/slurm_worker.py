@@ -140,10 +140,38 @@ def main():
     world = int(os.environ.get("SLURM_NTASKS", "1"))
     local_rank = int(os.environ.get("LOCAL_RANK", os.environ.get("SLURM_LOCALID", "0")))
 
-    os.environ.setdefault("MASTER_ADDR", _first_host_from_nodelist())
-    os.environ.setdefault("MASTER_PORT", str(cfg.topology.local_comm.master_port))
-    os.environ.setdefault("RANK", str(rank))
-    os.environ.setdefault("WORLD_SIZE", str(world))
+    # os.environ.setdefault("MASTER_ADDR", _first_host_from_nodelist())
+    # os.environ.setdefault("MASTER_PORT", str(cfg.topology.local_comm.master_port))
+    # os.environ.setdefault("RANK", str(rank))
+    # os.environ.setdefault("WORLD_SIZE", str(world))
+
+    master_addr = _first_host_from_nodelist()
+    master_port = str(cfg.topology.local_comm.master_port)
+
+    os.environ["MASTER_ADDR"] = master_addr
+    os.environ["MASTER_PORT"] = master_port
+    os.environ["RANK"] = str(rank)
+    os.environ["WORLD_SIZE"] = str(world)
+
+    # Patch communicator config so it does not keep localhost/127.0.0.1
+    if hasattr(cfg.topology, "local_comm") and cfg.topology.local_comm is not None:
+        if "master_addr" in cfg.topology.local_comm:
+            cfg.topology.local_comm["master_addr"] = master_addr
+        if "master_port" in cfg.topology.local_comm:
+            cfg.topology.local_comm["master_port"] = master_port
+
+    if hasattr(cfg.topology, "global_comm") and cfg.topology.global_comm is not None:
+        if "master_addr" in cfg.topology.global_comm:
+            cfg.topology.global_comm["master_addr"] = master_addr
+        if "master_port" in cfg.topology.global_comm:
+            cfg.topology.global_comm["master_port"] = master_port
+
+    print(
+        f"[main] patched communicator config: "
+        f"local_comm.master_addr={cfg.topology.local_comm.master_addr} "
+        f"local_comm.master_port={cfg.topology.local_comm.master_port}",
+        flush=True,
+    )
 
     print(f"[main]  rank={rank} world={world} MASTER_ADDR={os.environ['MASTER_ADDR']} PORT={os.environ['MASTER_PORT']}", flush=True)
     _gpu_probe(prefix=f"[rank{rank}]")

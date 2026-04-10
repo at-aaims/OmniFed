@@ -269,8 +269,7 @@ class Engine(RequiredSetup):
         if mode == "slurm":
             if "SLURM_JOB_ID" not in os.environ:
                 # 1) Freeze run description once (write to SHARED path)
-                outputs_root = os.path.dirname(os.path.dirname(self.output_dir))  # .../OmniFed/outputs
-                # cfg_json_shared = os.path.join(outputs_root, "engine_frozen.json")
+                outputs_root = os.path.dirname(os.path.dirname(self.output_dir))
                 cfg_json_shared = os.path.abspath(os.path.join(outputs_root, "engine_frozen.json"))
                 ckpt_dir = getattr(self.cfg.slurm, "checkpoint_dir", None) or os.path.join(self.engine_dir, "ckpt")
 
@@ -283,28 +282,69 @@ class Engine(RequiredSetup):
                 with open(cfg_json_shared, "w") as f:
                     json.dump(frozen, f, indent=2)
 
-                # 2) Build Slurm config dataclass (don’t mutate Hydra DictConfig)
+                # 2) Build Slurm config dataclass
                 slurm_dict = OmegaConf.to_container(self.cfg.slurm, resolve=True)
                 sconf = SlurmConfig(**slurm_dict)
 
                 # 3) Runtime fields
-                # sconf.work_dir      = os.getcwd()  # repo root so 'src/' is present on all nodes
                 repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
                 sconf.work_dir = repo_root
                 sconf.cfg_json_path = cfg_json_shared
-                sconf.ntasks        = len(list(self.topology))  # world size == topology length
+                sconf.ntasks = len(list(self.topology))
 
-                # If user gave ntasks_per_node, ensure nodes is enough
                 if sconf.ntasks_per_node and sconf.ntasks_per_node > 0:
                     needed_nodes = (sconf.ntasks + sconf.ntasks_per_node - 1) // sconf.ntasks_per_node
                     sconf.nodes = max(sconf.nodes, needed_nodes)
 
-                # Optional: route Slurm stdio into this run’s directory
                 sconf.stdout = os.path.join(self.hydra_cfg.runtime.output_dir, "slurm-%j.out")
                 sconf.stderr = os.path.join(self.hydra_cfg.runtime.output_dir, "slurm-%j.err")
 
-                # Use the same Python that launched the job
-                sconf.pyexe = sys.executable
+                # IMPORTANT: this python is only used before setup_lines runs
+                sconf.pyexe = "python"
+
+                # 4) Frontier environment setup
+                sconf.setup_lines = [
+                    "module load PrgEnv-gnu/8.6.0",
+                    "module load rocm/6.4.1",
+                    "module load craype-accel-amd-gfx90a",
+                    'export OMNIFED_DATA_DIR="/ccs/home/sabiha/OmniFed/datasets"',
+                    'echo "[setup] OMNIFED_DATA_DIR=$OMNIFED_DATA_DIR"',
+                    "",
+                    'export ENV_TARBALL="/ccs/home/sabiha/omnifed.tar.gz"',
+                    'export ENV_ROOT="/mnt/bb/${USER}/omnifed_env"',
+                    'export ENV_BASE="/mnt/bb/${USER}"',
+                    'export ENV_COPY="/mnt/bb/${USER}/omnifed.tar.gz"',
+                    "",
+                    'echo "[setup] hostname=$(hostname)"',
+                    'echo "[setup] ENV_TARBALL=$ENV_TARBALL"',
+                    'echo "[setup] ENV_BASE=$ENV_BASE"',
+                    'echo "[setup] ENV_ROOT=$ENV_ROOT"',
+                    'echo "[setup] ENV_COPY=$ENV_COPY"',
+                    'ls -lh "$ENV_TARBALL"',
+                    "",
+                    'echo "[setup] Broadcasting packed env to compute nodes"',
+                    'srun --ntasks-per-node=1 bash -lc \'mkdir -p "$ENV_BASE"\'',
+                    'sbcast -pf "$ENV_TARBALL" "$ENV_COPY"',
+                    'echo "[setup] sbcast finished"',
+                    'srun --ntasks-per-node=1 bash -lc \'ls -lh "$ENV_COPY"\'',
+                    "",
+                    'echo "[setup] starting unpack..."',
+                    'srun --ntasks-per-node=1 bash -lc \'mkdir -p "$ENV_ROOT" && tar -xzf "$ENV_COPY" -C "$ENV_ROOT"\'',
+                    'echo "[setup] unpack finished"',
+                    'srun --ntasks-per-node=1 bash -lc \'ls -lh "$ENV_ROOT/bin/python"\'',
+                    'srun --ntasks-per-node=1 bash -lc \'ls -lh "$ENV_ROOT/bin/activate"\'',
+                    "",
+                    'if [ ! -f "$ENV_ROOT/bin/python" ]; then echo "[setup] ERROR: python missing at $ENV_ROOT/bin/python"; exit 1; fi',
+                    'if [ ! -f "$ENV_ROOT/bin/activate" ]; then echo "[setup] ERROR: activate missing at $ENV_ROOT/bin/activate"; exit 1; fi',
+                    "",
+                    'echo "[setup] running conda-unpack..."',
+                    'srun --ntasks-per-node=1 bash -lc \'source "$ENV_ROOT/bin/activate" && conda-unpack\'',
+                    'echo "[setup] conda-unpack finished"',
+                    "",
+                    'export PYEXE="$ENV_ROOT/bin/python"',
+                    'echo "[setup] PYEXE=$PYEXE"',
+                    '"$PYEXE" --version',
+                ]
 
                 # Submit & exit parent; Slurm tasks will run slurm_worker.py
                 SlurmOnlyLauncher.submit_or_exit(sconf)
@@ -312,6 +352,7 @@ class Engine(RequiredSetup):
             else:
                 print("[Engine] Inside Slurm allocation; slurm_worker.py handles execution.")
                 raise SystemExit(0)
+        
 
         else:
             # Initialize Ray cluster

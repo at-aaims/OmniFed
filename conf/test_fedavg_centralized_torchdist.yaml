@@ -27,7 +27,7 @@ topology:
     #backend: nccl
     master_addr: ${oc.env:MASTER_ADDR,127.0.0.1}
     master_port: ${oc.env:MASTER_PORT,29500}
-    master_port: ${oc.env:MASTER_PORT,29500}
+    #master_port: ${oc.env:MASTER_PORT,29500}
   overrides:
     0: # Rank 0 (server) - disable training by setting train dataloader to null
       datamodule:
