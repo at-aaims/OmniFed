@@ -202,6 +202,14 @@ def main():
     datamodule  = instantiate(cfg.datamodule)
     algorithm   = instantiate(node_cfg.algorithm, log_dir=node_log_dir)
 
+    # ---------- Device selection ----------
+    # If communicator backend is NCCL, we must put tensors on CUDA before collectives.
+    backend = getattr(local_comm, "backend", "gloo").lower()
+    use_cuda = (backend == "nccl") and torch.cuda.is_available()
+    device = _resolve_device_auto(local_rank) if use_cuda else torch.device("cpu")
+    original_device = next(model.parameters()).device
+    model = model.to(device, non_blocking=True)
+
     # ---------- Init process group via communicator ----------
     local_comm.setup()
     if global_comm:
@@ -210,11 +218,11 @@ def main():
 
     # ---------- Device selection ----------
     # If communicator backend is NCCL, we must put tensors on CUDA before collectives.
-    backend = getattr(local_comm, "backend", "gloo").lower()
-    use_cuda = (backend == "nccl") and torch.cuda.is_available()
-    device = _resolve_device_auto(local_rank) if use_cuda else torch.device("cpu")
-    original_device = next(model.parameters()).device
-    model = model.to(device, non_blocking=True)
+    # backend = getattr(local_comm, "backend", "gloo").lower()
+    # use_cuda = (backend == "nccl") and torch.cuda.is_available()
+    # device = _resolve_device_auto(local_rank) if use_cuda else torch.device("cpu")
+    # original_device = next(model.parameters()).device
+    # model = model.to(device, non_blocking=True)
 
     # backend = getattr(local_comm, "backend", "gloo")
     # device = _resolve_device_auto(local_rank if backend == "nccl" else None)
