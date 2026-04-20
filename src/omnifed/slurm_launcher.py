@@ -134,13 +134,13 @@ class SlurmOnlyLauncher:
             f'echo "Requested PYEXE={pyexe}"',
             "",
             # Ensure the JSON directory exists on every node
-            f'srun --ntasks-per-node=1 bash -lc {shlex.quote(f"mkdir -p {cfg_dir}")}',
+            f'srun -N "$SLURM_JOB_NUM_NODES" -n "$SLURM_JOB_NUM_NODES" --ntasks-per-node=1 bash -lc {shlex.quote(f"mkdir -p {cfg_dir}")}',
             "",
             # Write identical JSON file on each node by decoding embedded base64
             f'export OMNIFED_CFG_B64="{payload_b64}"',
-            'srun --ntasks-per-node=1 bash -lc ' +
+            'srun -N "$SLURM_JOB_NUM_NODES" -n "$SLURM_JOB_NUM_NODES" --ntasks-per-node=1 bash -lc ' +
             shlex.quote(f'echo "$OMNIFED_CFG_B64" | base64 -d > {sconf.cfg_json_path}'),
-            'srun --ntasks-per-node=1 bash -lc ' +
+            'srun -N "$SLURM_JOB_NUM_NODES" -n "$SLURM_JOB_NUM_NODES" --ntasks-per-node=1 bash -lc ' +
             shlex.quote(
                 f'echo "[$(hostname)] wrote {sconf.cfg_json_path}; size=$(stat -c%s {sconf.cfg_json_path}) bytes"'
             ),
