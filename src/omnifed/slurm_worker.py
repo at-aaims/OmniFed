@@ -15,6 +15,8 @@ import torch.distributed as dist
 from src.omnifed.communicator import AggregationOp
 from src.omnifed.utils import print  # pretty printer used elsewhere
 
+import threading
+from datetime import datetime
 
 def _first_host_from_nodelist() -> str:
     out = subprocess.check_output(
@@ -121,6 +123,78 @@ def _to_jsonable(obj):
         return _to_jsonable(vars(obj))
     return str(obj)
 
+
+def start_gpu_memory_logger(rank: int, log_dir: str, interval_sec: float = 5.0):
+    """
+    Periodically log GPU memory usage for rank 0 only.
+    Works on ROCm through torch.cuda APIs.
+    """
+    if rank != 0:
+        return None
+
+    os.makedirs(log_dir, exist_ok=True)
+    log_path = os.path.join(log_dir, "rank0_gpu_memory.log")
+    stop_event = threading.Event()
+
+    def _logger():
+        header_needed = not os.path.exists(log_path) or os.path.getsize(log_path) == 0
+        with open(log_path, "a", buffering=1) as f:
+            if header_needed:
+                f.write(
+                    "timestamp,rank,device,allocated_mb,reserved_mb,"
+                    "max_allocated_mb,max_reserved_mb\n"
+                )
+
+            while not stop_event.is_set():
+                try:
+                    if torch.cuda.is_available():
+                        device_idx = torch.cuda.current_device()
+                        allocated = torch.cuda.memory_allocated(device_idx) / (1024 ** 2)
+                        reserved = torch.cuda.memory_reserved(device_idx) / (1024 ** 2)
+                        max_allocated = torch.cuda.max_memory_allocated(device_idx) / (1024 ** 2)
+                        max_reserved = torch.cuda.max_memory_reserved(device_idx) / (1024 ** 2)
+
+                        f.write(
+                            f"{datetime.now().isoformat()},{rank},{device_idx},"
+                            f"{allocated:.2f},{reserved:.2f},"
+                            f"{max_allocated:.2f},{max_reserved:.2f}\n"
+                        )
+                    else:
+                        f.write(f"{datetime.now().isoformat()},{rank},NA,NA,NA,NA,NA\n")
+                except Exception as e:
+                    f.write(f"{datetime.now().isoformat()},{rank},ERROR,{str(e)},,,\n")
+
+                stop_event.wait(interval_sec)
+
+    t = threading.Thread(target=_logger, daemon=True)
+    t.start()
+    return stop_event, log_path
+
+
+def log_gpu_memory_snapshot(rank: int, log_path: str, tag: str):
+    """
+    Write one on-demand GPU memory snapshot for rank 0 only.
+    """
+    if rank != 0 or not torch.cuda.is_available():
+        return
+
+    try:
+        device_idx = torch.cuda.current_device()
+        allocated = torch.cuda.memory_allocated(device_idx) / (1024 ** 2)
+        reserved = torch.cuda.memory_reserved(device_idx) / (1024 ** 2)
+        max_allocated = torch.cuda.max_memory_allocated(device_idx) / (1024 ** 2)
+        max_reserved = torch.cuda.max_memory_reserved(device_idx) / (1024 ** 2)
+
+        with open(log_path, "a", buffering=1) as f:
+            f.write(
+                f"{datetime.now().isoformat()},{rank},{device_idx},"
+                f"{allocated:.2f},{reserved:.2f},"
+                f"{max_allocated:.2f},{max_reserved:.2f},tag={tag}\n"
+            )
+    except Exception:
+        pass
+
+
 def main():
     # ---------- args & frozen config ----------
     p = argparse.ArgumentParser()
@@ -210,6 +284,20 @@ def main():
     original_device = next(model.parameters()).device
     model = model.to(device, non_blocking=True)
 
+    mem_logger = start_gpu_memory_logger(
+        rank=rank,
+        log_dir=os.path.join(hydra_out_dir, "engine"),
+        interval_sec=10.0,
+    )
+
+    if mem_logger is not None:
+        mem_stop_event, mem_log_path = mem_logger
+        print(f"[main] rank 0 GPU memory log -> {mem_log_path}", flush=True)
+        log_gpu_memory_snapshot(rank, mem_log_path, "after_model_to_device")
+    else:
+        mem_stop_event = None
+        mem_log_path = ""
+
     # ---------- Init process group via communicator ----------
     local_comm.setup()
     if global_comm:
@@ -286,6 +374,10 @@ def main():
         for r in range(algorithm.max_rounds):
             algorithm.round_exec(r, algorithm.max_rounds)
     finally:
+        log_gpu_memory_snapshot(rank, mem_log_path, "finally_before_restore")
+
+        if mem_stop_event is not None:
+            mem_stop_event.set()
         # Best-effort teardown
         # Restore original device placement
         algorithm.local_model = algorithm.local_model.to(original_device)
