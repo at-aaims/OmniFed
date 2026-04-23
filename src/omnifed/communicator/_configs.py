@@ -42,6 +42,7 @@ class TorchDistCommunicatorConfig(BaseCommunicatorConfig):
     # Initialization and backend settings
     init_method: InitMethod = InitMethod.TCP
     backend: str = "gloo"
+    #backend: str = "nccl"
     sharedfile: str = "sharedfile"
 
     # Connection settings

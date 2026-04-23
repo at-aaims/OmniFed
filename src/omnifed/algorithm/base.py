@@ -549,11 +549,12 @@ class BaseAlgorithm(RequiredSetup, LifecycleHooks, MetricLogger):
         """
         Synchronize communication interfaces for intra-group and inter-group operations.
         """
+        dev = next(self.local_model.parameters()).device
         # Phase 1: Intra-group aggregation via all-reduce
         with self.track_model_operation("local_agg"):
             # Calculate within-group sample totals and weights
             group_total_samples = self.local_comm.aggregate(
-                torch.tensor([self.__num_samples_trained], dtype=torch.float32),
+                torch.tensor([self.__num_samples_trained], dtype=torch.float32, device=dev),
                 reduction=AggregationOp.SUM,
             ).item()
 
@@ -578,7 +579,7 @@ class BaseAlgorithm(RequiredSetup, LifecycleHooks, MetricLogger):
             with self.track_model_operation("global_agg"):
                 # Calculate across-group sample totals and weights using group totals
                 global_total_samples = self.global_comm.aggregate(
-                    torch.tensor([group_total_samples], dtype=torch.float32),
+                    torch.tensor([group_total_samples], dtype=torch.float32, device=dev),
                     reduction=AggregationOp.SUM,
                 ).item()
 
@@ -602,7 +603,7 @@ class BaseAlgorithm(RequiredSetup, LifecycleHooks, MetricLogger):
         # Check if any node in this local group participated in global aggregation.
         needs_final_bcast = (
             self.local_comm.aggregate(
-                torch.tensor(1.0 if self.global_comm is not None else 0.0),
+                torch.tensor(1.0 if self.global_comm is not None else 0.0, device=dev),
                 AggregationOp.MAX,
             )
             > 0
@@ -739,6 +740,7 @@ class BaseAlgorithm(RequiredSetup, LifecycleHooks, MetricLogger):
         dataloader_iter = iter(self.datamodule.train or [])
 
         device = next(self.local_model.parameters()).device
+        print(f"Inside algorithm base {device}")
 
         # All nodes participate in synchronized batch loop
         for batch_idx in range(self.group_max_iters_per_epoch):
@@ -810,7 +812,7 @@ class BaseAlgorithm(RequiredSetup, LifecycleHooks, MetricLogger):
         # ---
         # Epoch boundary synchronization
         with self.log_duration("epoch_heartbeat_time"):
-            sync_signal = torch.tensor([1.0])
+            sync_signal = torch.tensor([1.0], device=device)
             total_signals = self.local_comm.aggregate(sync_signal, AggregationOp.SUM)
 
         # Epoch-level aggregation

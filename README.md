@@ -12,6 +12,14 @@ A federated learning framework built on [Ray](https://ray.io/) and [Hydra](https
 
 ## Quick Start
 
+### Omnifed with SLURM
+```bash
+
+# Run basic federated learning experiment with SLURM
+./main.sh --config-name test_fedavg_centralized_torchdist   engine.mode=slurm   slurm.enabled=true   slurm.partition=debug   slurm.nodes=2   slurm.ntasks_per_node=1   slurm.time=02:00:00   slurm.gres="gpu:1"
+
+```
+
 ```bash
 # Clone and install
 git clone <repository-url>

@@ -126,3 +126,38 @@ hydra:
     # dir: outputs/${now:%Y-%m-%d}/${now:%H-%M-%S}              # Group by date/time
     # dir: outputs/${hydra.job.name}/${now:%Y-%m-%d_%H-%M-%S}   # Group by job name
     # dir: outputs/${algorithm._target_}/${now:%Y-%m-%d}        # Group by algorithm
+
+# ─────────────────────────────────────────
+# Slurm Cluster Configuration
+# ─────────────────────────────────────────
+# Controls distributed compute infrastructure for federated learning
+# Docs: https://slurm.schedmd.com/overview.html
+
+slurm:
+  enabled: false
+  account: null
+  partition: debug
+  qos: null
+  time: "02:00:00"
+  nodes: 2
+  ntasks_per_node: 1
+  cpus_per_task: 8
+  gpus_per_node: 1
+  gpus_per_task: 1
+  gres: gpu:1
+  job_name: "omnifed"
+  constraint: null
+  reservation: null
+  setup_lines:
+    # site modules/env (edit for Frontier/site)
+    - 'module load cray-python || true'
+    - 'export OMP_NUM_THREADS=8'
+  checkpoint_dir: null
+  preempt_signal: "USR1"
+  preempt_notice_sec: 180
+  # When resuming a previous run:
+  resume_from: null
+
+
+engine:
+  mode: ray   # one of: ray, slurm
