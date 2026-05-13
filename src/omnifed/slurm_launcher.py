@@ -57,7 +57,6 @@ class SlurmConfig:
             f"#SBATCH --cpus-per-task={self.cpus_per_task}",
             f"#SBATCH --time={self.time}",
             f"#SBATCH --signal=B:{self.preempt_signal}@{self.preempt_notice_sec}",
-            f"#SBATCH -C nvme",
         ]
 
         if self.ntasks:
