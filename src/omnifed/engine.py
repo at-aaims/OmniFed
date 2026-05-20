@@ -47,6 +47,7 @@ from dataclasses import asdict, is_dataclass
 from omegaconf import OmegaConf
 
 from .slurm_launcher import SlurmConfig, SlurmOnlyLauncher
+from .engine_communication import communication_mode, resolve_slurm_ntasks
 import sys
 
 LOG_FLUSH_DELAY = 2.0
@@ -131,7 +132,10 @@ class EngineConfig:
     # Infrastructure configurations
     ray: RayConfig = field(default_factory=RayConfig)
     slurm: SlurmConfig = field(default_factory=SlurmConfig)
-    engine: Dict[str, str] = field(default_factory=lambda: {"mode": "ray"})  # 'ray' or 'slurm'
+    # mode: ray | slurm; communication_mode: classic | hybrid (Slurm + conf_hybrid layout).
+    engine: Dict[str, Any] = field(
+        default_factory=lambda: {"mode": "ray", "communication_mode": "classic"}
+    )
 
 
 # Register the config with Hydra's ConfigStore for structured configs
@@ -262,9 +266,15 @@ class Engine(RequiredSetup):
             default_datamodule_cfg=self.cfg.datamodule,
         )
 
-        mode = (self.cfg.engine or {}).get("mode", "ray").lower()
+        mode = str(OmegaConf.select(self.cfg, "engine.mode", default="ray")).lower()
         if mode not in ("ray", "slurm"):
             raise ValueError(f"engine.mode must be 'ray' or 'slurm', got {mode!r}")
+
+        comm = communication_mode(self.cfg)
+        if comm == "hybrid" and mode != "slurm":
+            raise ValueError(
+                "engine.communication_mode=hybrid is only valid with engine.mode=slurm (Phase B)."
+            )
 
         if mode == "slurm":
             if "SLURM_JOB_ID" not in os.environ:
@@ -290,7 +300,15 @@ class Engine(RequiredSetup):
                 repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
                 sconf.work_dir = repo_root
                 sconf.cfg_json_path = cfg_json_shared
-                sconf.ntasks = len(list(self.topology))
+                topo_nodes = len(list(self.topology))
+                sconf.ntasks = resolve_slurm_ntasks(self.cfg, topo_nodes)
+                if comm == "hybrid":
+                    print(
+                        f"[Engine] communication_mode=hybrid: Slurm --ntasks={sconf.ntasks} "
+                        f"(matches conf_hybrid {OmegaConf.select(self.cfg, 'engine.hybrid.topology_config')!r} "
+                        f"and len(topology)={topo_nodes}).",
+                        flush=True,
+                    )
 
                 if sconf.ntasks_per_node and sconf.ntasks_per_node > 0:
                     needed_nodes = (sconf.ntasks + sconf.ntasks_per_node - 1) // sconf.ntasks_per_node

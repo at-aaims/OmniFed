@@ -37,6 +37,7 @@ class GrpcCommunicator(Communicator):
         master_addr: str = "127.0.0.1",
         master_port: int = 50051,
         accumulate_updates: bool = True,
+        daemon_server: bool = False,
     ):
         super().__init__(protocol_type="RPC")
         self.id = id
@@ -44,6 +45,7 @@ class GrpcCommunicator(Communicator):
         self.total_clients = total_clients - 1
         self.master_port = master_port
         self.accumulate_updates = accumulate_updates
+        self.server = None
 
         # id 0 corresponds to central server...later change this to local_id for central server nodes
         # to enable dual communication protocols
@@ -72,6 +74,9 @@ class GrpcCommunicator(Communicator):
             print(f"Compatible Scalable Parameter server starting on {listen_addr}")
             self.server.start()
 
+            if daemon_server:
+                return
+
             try:
                 while True:
                     time.sleep(86400)
@@ -86,6 +91,12 @@ class GrpcCommunicator(Communicator):
                 master_addr=master_addr,
                 master_port=self.master_port,
             )
+
+    def grpc_shutdown(self) -> None:
+        """Stop the gRPC server if this rank started one (``id == 0``)."""
+        if self.server is not None:
+            self.server.stop(grace=5)
+            self.server = None
 
     def aggregate(
         self,

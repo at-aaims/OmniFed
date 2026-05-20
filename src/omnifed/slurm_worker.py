@@ -12,6 +12,7 @@ from omegaconf import OmegaConf
 import torch
 import torch.distributed as dist
 
+from src.omnifed.engine_communication import communication_mode
 from src.omnifed.communicator import AggregationOp
 from src.omnifed.utils import print  # pretty printer used elsewhere
 
@@ -208,6 +209,12 @@ def main():
     hydra_out_dir = raw["hydra_output_dir"]
     ckpt_dir = raw.get("slurm_checkpoint_dir") or os.path.join(hydra_out_dir, "engine", "ckpt")
     os.makedirs(ckpt_dir, exist_ok=True)
+
+    if communication_mode(cfg) == "hybrid":
+        from src.omnifed.hybrid.slurm_hybrid_runner import run_hybrid_training
+
+        run_hybrid_training(cfg, hydra_out_dir, ckpt_dir)
+        raise SystemExit(0)
 
     # ---------- Slurm sizing & env ----------
     rank  = int(os.environ.get("SLURM_PROCID", "0"))

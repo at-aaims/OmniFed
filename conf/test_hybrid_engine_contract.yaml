@@ -1,0 +1,27 @@
+# ================================================================================
+# Phase B Step 6 — Engine contract only (hybrid communication_mode).
+#
+# * Login node: Engine computes Slurm --ntasks from conf_hybrid world_size and
+#   checks len(topology) matches (here: built_symmetric_2x3 → 7 tasks; centralized
+#   num_clients=6 → 7 nodes including FedAvg server).
+# * Compute: slurm_worker exits immediately until Phase B step 7 (expect job success
+#   with a stub message in slurm *.out).
+#
+# Example (Frontier): same slurm.* overrides as test_fedavg_centralized_torchdist;
+# use slurm.nodes / slurm.ntasks_per_node so ntasks >= 7 (e.g. 1 node × 8 tasks).
+# ================================================================================
+
+defaults:
+  - test_fedavg_centralized_torchdist
+  - _self_
+
+engine:
+  mode: slurm
+  communication_mode: hybrid
+  hybrid:
+    topology_config: built_symmetric_2x3.yaml
+
+topology:
+  num_clients: 6
+
+global_rounds: 1

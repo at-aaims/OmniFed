@@ -1,7 +1,7 @@
 import argparse
 
 import src.flora.helper as helper
-from src.flora.test.hydra_hybrid_config import load_hybrid_cfg
+from src.omnifed.hybrid.hydra_loader import load_hybrid_cfg
 from src.flora.test.omega_train_hybrid_comm import HybridTrainer
 
 
@@ -33,6 +33,12 @@ if __name__ == "__main__":
     parser.add_argument("--dataset", type=str, default="cifar10")
     parser.add_argument("--determinism", type=int, default=0)
     parser.add_argument("--epochs", type=int, default=1000)
+    parser.add_argument(
+        "--max-steps",
+        type=int,
+        default=None,
+        help="Stop after this many training steps per non-server rank (None = run full epochs).",
+    )
     parser.add_argument("--momentum", type=float, default=0.9)
     parser.add_argument("--weight-decay", type=float, default=1e-4)
     parser.add_argument("--gamma", type=float, default=0.1)

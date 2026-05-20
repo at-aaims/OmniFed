@@ -14,7 +14,6 @@
 
 import datetime
 from typing import Dict
-import tenseal as ts
 
 import torch
 import torch.distributed as dist

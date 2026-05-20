@@ -109,18 +109,18 @@ class GrpcClient:
                 layer_name = layer.layer_name
                 if name == layer_name:
                     if communicate_params:
-                        param.data = torch.tensor(
-                            np.array(layer.param_update).reshape(
-                                tuple(layer.param_shape)
-                            ),
-                            dtype=torch.float32,
+                        arr = np.array(layer.param_update).reshape(
+                            tuple(layer.param_shape)
+                        )
+                        param.data = torch.as_tensor(
+                            arr, dtype=param.dtype, device=param.device
                         )
                     else:
-                        param.grad = torch.tensor(
-                            np.array(layer.param_update).reshape(
-                                tuple(layer.param_shape)
-                            ),
-                            dtype=torch.float32,
+                        arr = np.array(layer.param_update).reshape(
+                            tuple(layer.param_shape)
+                        )
+                        param.grad = torch.as_tensor(
+                            arr, dtype=param.dtype, device=param.device
                         )
 
         return model

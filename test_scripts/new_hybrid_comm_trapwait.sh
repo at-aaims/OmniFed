@@ -24,6 +24,12 @@ dataset="cifar10"
 # adding config from yaml
 config="${REPO_ROOT}/config/try1_hybrid_topo.yaml"
 
+EPOCHS="${EPOCHS:-}"
+MAX_STEPS="${MAX_STEPS:-}"
+extra_args=()
+[[ -n "${EPOCHS}" ]] && extra_args+=(--epochs="${EPOCHS}")
+[[ -n "${MAX_STEPS}" ]] && extra_args+=(--max-steps="${MAX_STEPS}")
+
 # -----------------------
 # Cleanup handling
 # -----------------------
@@ -63,13 +69,17 @@ for ((globalrank=0; globalrank<worldsize; globalrank++)); do
 
   echo "###### launching global_rank=${globalrank}"
 
+  mkdir -p "${dir}/g${globalrank}"
+  logf="${dir}/g${globalrank}/stdout.log"
+
   python3 -u -m src.flora.test.omega_launch_hybridcomm \
     --config="${config}" \
     --dir="${dir}" --bsz="${bsz}" --global-rank="${globalrank}" \
     --comm-freq="${commfreq}" --backend="${backend}" \
     --model="${model}" --dataset="${dataset}" \
     --train-dir="${dir}" --test-dir="${dir}" \
-    2>&1 | tee "${dir}/g${globalrank}/stdout.log" &
+    "${extra_args[@]}" \
+    >>"${logf}" 2>&1 &
     
 #> "${dir}/g${globalrank}/stdout.log" 2>&1 &
 

@@ -40,6 +40,7 @@ class HybridTrainer(object):
         self.backend = args.backend
         self.epochs = args.epochs
         self.comm_freq = args.comm_freq
+        self.max_steps: Optional[int] = getattr(args, "max_steps", None)
 
         # CPU-only (as you requested)
         self.device = torch.device("cpu")
@@ -163,6 +164,17 @@ class HybridTrainer(object):
         logging.info(f"training/job specific parameters: {args}")
 
     def start_training(self):
+        if self.train_dataloader is None:
+            logging.info("Rank %s: no dataloader; exiting (e.g. gRPC-only server).", self.global_rank)
+            return
+
+        try:
+            self._training_loop()
+        finally:
+            if self.mpi_comm is not None and torch.distributed.is_initialized():
+                torch.distributed.destroy_process_group()
+
+    def _training_loop(self) -> None:
         for epoch in range(self.epochs):
             for inputs, labels in self.train_dataloader:
                 init_time = perf_counter_ns()
@@ -240,4 +252,15 @@ class HybridTrainer(object):
                     f"training_metrics local_step: {self.local_step} compute_time {compute_time} ms "
                     f"mpi_sync_time: {mpi_sync_time} ms rpc_sync_time: {rpc_sync_time} ms"
                 )
+
+                if self.max_steps is not None and self.local_step >= self.max_steps:
+                    logging.info(
+                        "Reached max_steps=%s (epoch=%s); exiting training loop.",
+                        self.max_steps,
+                        epoch,
+                    )
+                    return
+
+            if self.max_steps is not None and self.local_step >= self.max_steps:
+                return
 

@@ -1,6 +1,6 @@
 import argparse
 
-from src.flora.test.hydra_hybrid_config import load_hybrid_cfg
+from src.omnifed.hybrid.hydra_loader import load_hybrid_cfg
 
 
 if __name__ == "__main__":

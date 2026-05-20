@@ -161,3 +161,11 @@ slurm:
 
 engine:
   mode: ray   # one of: ray, slurm
+  # Slurm-only (Phase B): classic = one process group (TorchDist); hybrid = conf_hybrid layout + step 7 worker.
+  communication_mode: classic
+  hybrid:
+    # Set when communication_mode=hybrid, e.g. built_symmetric_2x3.yaml (must live under conf_hybrid/topology/).
+    topology_config: null
+    # Hybrid Slurm RPC server (rank 0) lifetime: extra startup wait + estimated seconds per FedAvg round.
+    server_run_extra_sec: 120
+    server_sec_per_round: 300

@@ -1,0 +1,14 @@
+# Same rank pattern as conf_hybrid/topology/asym_hybrid_topo.yaml (2 + 8 MPI ranks).
+layout:
+  num_facilities: 2
+  mpi_ranks_per_facility: [2, 8]
+  dedicated_rpc_server: true
+  rpc_addr: "127.0.0.1"
+  rpc_port: 50051
+  facility_mpi_addr: "127.0.0.1"
+  facility_mpi_base_port: 28250
+  facility_mpi_port_stride: 40
+  facility_name_prefix: "fac"
+
+training:
+  dataset_total_clients: 10

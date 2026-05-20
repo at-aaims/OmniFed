@@ -12,6 +12,53 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from . import utils
-from .engine import Engine, EngineConfig, RayConfig
-from .node import Node, NodeConfig, RayActorConfig
+from __future__ import annotations
+
+import importlib
+from typing import Any, Tuple
+
+__all__ = (
+    "Engine",
+    "EngineConfig",
+    "RayConfig",
+    "Node",
+    "NodeConfig",
+    "RayActorConfig",
+    "utils",
+)
+
+
+def __getattr__(name: str) -> Any:
+    if name == "utils":
+        # Must not use ``from . import utils`` here: that re-enters ``__getattr__``
+        # and overflows the stack (utils is a subpackage, not a re-export).
+        return importlib.import_module(".utils", __name__)
+    if name == "Engine":
+        from .engine import Engine
+
+        return Engine
+    if name == "EngineConfig":
+        from .engine import EngineConfig
+
+        return EngineConfig
+    if name == "RayConfig":
+        from .engine import RayConfig
+
+        return RayConfig
+    if name == "Node":
+        from .node import Node
+
+        return Node
+    if name == "NodeConfig":
+        from .node import NodeConfig
+
+        return NodeConfig
+    if name == "RayActorConfig":
+        from .node import RayActorConfig
+
+        return RayActorConfig
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
+def __dir__() -> Tuple[str, ...]:
+    return __all__
