@@ -19,13 +19,14 @@ import grpc
 import rich.repr
 import torch
 from torch import nn
-
 from ..utils import print
+from ..utils import MetricLogger
 from . import BaseCommunicator, grpc_pb2_grpc
 from .base import AggregationOp
 from .grpc_client import GrpcClient
 from .grpc_server import GrpcServer
 from .utils import get_msg_info
+# from typing import override
 
 
 @rich.repr.auto
@@ -52,6 +53,8 @@ class GrpcCommunicator(BaseCommunicator):
         client_timeout: float = 60.0,
         retry_delay: float = 5.0,
         max_retries: int = 5,
+        client_compressor=None,
+        server_compressor=None
     ) -> None:
         """
         Initialize gRPC-based federated learning communicator.
@@ -88,11 +91,14 @@ class GrpcCommunicator(BaseCommunicator):
         self.client_timeout = client_timeout
         self.retry_delay = retry_delay
         self.max_retries = max_retries
+        self.logger = None
 
         # Runtime components (initialized in _setup)
         self._server = None
         self._client = None
         self._servicer = None
+        self.client_compressor = client_compressor
+        self.server_compressor = server_compressor
 
     @property
     def client(self):
@@ -168,7 +174,7 @@ class GrpcCommunicator(BaseCommunicator):
                 ],
             )
 
-            self._servicer = GrpcServer(world_size=self.world_size)
+            self._servicer = GrpcServer(world_size=self.world_size, compressor=self.server_compressor)
             grpc_pb2_grpc.add_GrpcServerServicer_to_server(self._servicer, self._server)
 
             self._server.add_insecure_port(f"[::]:{self.master_port}")
@@ -184,7 +190,9 @@ class GrpcCommunicator(BaseCommunicator):
                 retry_delay=self.retry_delay,
                 max_retries=self.max_retries,
                 client_timeout=self.client_timeout,
+                compressor=self.client_compressor
             )
+    
 
     def broadcast(
         self,
@@ -214,6 +222,13 @@ class GrpcCommunicator(BaseCommunicator):
             # Client: Retrieve broadcast state from server
             tensordict = self.client.get_broadcast_state()
             return self._apply_tensordict_to_msg(msg, tensordict)
+
+    def set_logger(self, logger: MetricLogger):
+        self.logger = logger
+        try:
+            self.client.set_logger(logger)
+        except Exception:
+            pass
 
     def aggregate(
         self,

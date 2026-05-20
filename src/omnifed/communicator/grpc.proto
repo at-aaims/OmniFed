@@ -72,4 +72,9 @@ message TensorEntry {
     string dtype = 4;            // PyTorch dtype (e.g., "torch.float32")
     string device = 5;           // Original tensor device (e.g., "cuda:0", "cpu")
     int32 data_size = 6;         // Byte size for validation
+    string compression_type = 7; // The compression algorithm
+    bytes index = 8; // The index for compression
+    repeated int32 index_shape = 9; // The index shape
+    string index_dtype = 10;
+    repeated int32 original_shape = 11; // The original data shape
 }

@@ -16,6 +16,7 @@ import threading
 from collections import defaultdict
 from typing import Any, Dict
 import warnings
+import traceback
 
 import rich.repr
 import torch
@@ -23,7 +24,10 @@ import torch
 from ..utils import print
 from . import grpc_pb2, grpc_pb2_grpc
 from .base import AggregationOp
-from .utils import get_msg_info, proto_to_tensordict, tensordict_to_proto
+from .utils import get_msg_info, proto_to_tensordict, tensordict_to_proto, proto_to_tensordict_extended
+from .compression.quantization import QSGDQuantCompression
+from .compression.sparsification import TopKCompression
+from .utils import compress_message_tensors, extract_tensordict
 
 
 @rich.repr.auto
@@ -39,6 +43,7 @@ class GrpcServer(grpc_pb2_grpc.GrpcServerServicer):
     def __init__(
         self,
         world_size: int,
+        compressor=None
     ):
         """
         Initialize gRPC server for federated learning coordination.
@@ -51,7 +56,9 @@ class GrpcServer(grpc_pb2_grpc.GrpcServerServicer):
         # Core configuration
         self.world_size = world_size
         self.registered_clients = set()
+        # self.compressor = QSGDQuantCompression()
         self.lock = threading.Lock()
+        self.model = None
 
         # Aggregation session management
         self.current_aggregation_session = 0
@@ -63,6 +70,10 @@ class GrpcServer(grpc_pb2_grpc.GrpcServerServicer):
                 "reduction_type": None,
             }
         )
+
+        self.compressor = compressor
+        # self.compressor = None
+
 
         # Broadcast state storage
         self._broadcast_state = {}
@@ -88,10 +99,23 @@ class GrpcServer(grpc_pb2_grpc.GrpcServerServicer):
         """
         with self.lock:
             self._broadcast_state = tensordict
+            self.model = tensordict
         print(get_msg_info(tensordict))
 
+    # def store_model(self, tensordict: Dict[str, torch.Tensor]):
+    #     """
+    #     Store broadcast state for distribution to clients.
+
+    #     Args:
+    #         tensordict: Tensors to broadcast (typically global model)
+    #     """
+    #     with self.lock:
+    #         self.model = tensordict
+    #     print("Server storing the model in itself")
+    #     print(get_msg_info(tensordict))
+
     def perform_aggregation_if_ready(
-        self, session_state: Dict, current_session: int
+        self, session_state: Dict, current_session: int, is_model_communicated=False
     ) -> bool:
         """
         Execute aggregation when all clients have submitted data.
@@ -140,13 +164,19 @@ class GrpcServer(grpc_pb2_grpc.GrpcServerServicer):
                 ):
                     # SUM/MEAN reduction: sum all contributions
                     for key, tensor in first_data.items():
-                        aggregated_tensors[key] = torch.zeros_like(tensor)
+                        aggregated_tensors[key] = torch.zeros_like(tensor).cpu()
 
                     # Sum all client contributions
                     for client_data in session_state["data"].values():
                         for key, tensor in client_data.items():
                             if key in aggregated_tensors:
-                                aggregated_tensors[key] += tensor
+                                # Ensure tensor is on CPU
+                                # tensor = tensor.to("cpu")
+
+                                # # Ensure same dtype as accumulator
+                                # tensor = tensor.to(aggregated_tensors[key].dtype)
+
+                                aggregated_tensors[key] += tensor.cpu()
 
                     # Convert sum to mean if needed
                     if reduction_type == AggregationOp.MEAN.value:
@@ -155,7 +185,8 @@ class GrpcServer(grpc_pb2_grpc.GrpcServerServicer):
 
                 else:
                     raise ValueError(f"Unknown reduction type: {reduction_type}")
-
+            if is_model_communicated:
+                self.model = aggregated_tensors
             session_state["result"] = aggregated_tensors
             session_state["event"].set()
             print(
@@ -201,7 +232,15 @@ class GrpcServer(grpc_pb2_grpc.GrpcServerServicer):
             session_state = self.aggregation_state[session_id]
             if session_state["result"] is not None:
                 aggregated_tensors = session_state["result"]
-                proto_tensordict = tensordict_to_proto(aggregated_tensors)
+                compressed_tensordict = compress_message_tensors(aggregated_tensors, self.compressor, "grad")
+                compressor_name = None
+                if self.compressor:
+                    compressor_name = self.compressor.__class__.__name__
+                if isinstance(aggregated_tensors, torch.Tensor):
+                    compressor_name = None
+                    compressed_tensordict = aggregated_tensors
+                proto_tensordict = tensordict_to_proto(compressed_tensordict, compressor_name)
+                # proto_tensordict = tensordict_to_proto(aggregated_tensors)
                 return grpc_pb2.OperationResponse(
                     tensor_dict=proto_tensordict, is_ready=True
                 )
@@ -224,13 +263,14 @@ class GrpcServer(grpc_pb2_grpc.GrpcServerServicer):
         with self.lock:
             client_id = request.client_id
             current_session = self.current_aggregation_session
-            print(
-                f"Client {client_id} submitting {len(request.tensor_dict.entries)} tensors"
-            )
+            # print(
+            #     f"Client {client_id} submitting {len(request.tensor_dict.entries)} tensors"
+            # )
 
             try:
                 # Deserialize tensors (will be on CPU for consistent aggregation)
-                data = proto_to_tensordict(request.tensor_dict)
+                data, is_model_communicated = proto_to_tensordict_extended(request.tensor_dict, self.model)
+                # print(f"Now the data is ready: data = {data}")
                 session_state = self.aggregation_state[current_session]
 
                 if session_state["reduction_type"] is None:
@@ -247,10 +287,12 @@ class GrpcServer(grpc_pb2_grpc.GrpcServerServicer):
                     f"Received from client {client_id} ({data_count}/{self.world_size} ready)"
                 )
 
-                self.perform_aggregation_if_ready(session_state, current_session)
+                self.perform_aggregation_if_ready(session_state, current_session, is_model_communicated)
                 return grpc_pb2.StatusResponse(success=True)
 
             except Exception as e:
+                print(f"Error is: {e}")
+                traceback.print_exc()
                 warnings.warn(
                     f"Failed to process aggregation submission from client {client_id} | {e}",
                     RuntimeWarning,

@@ -34,7 +34,7 @@ ray:
 
   # Cluster connection (null = auto-detect local cluster)
   # Use "ray://host:port" for remote clusters, "local" to force local
-  address: null
+  address: "local"
 
   # Resource allocation - CRITICAL for proper GPU/CPU distribution
   # null = auto-detect based on hardware, explicit numbers override detection
@@ -120,7 +120,7 @@ hydra:
   run:
     # Output directory for FL experiment results and logs
     # Docs: https://hydra.cc/docs/configure_hydra/workdir/
-    dir: outputs/${now:%Y-%m-%d}/${hydra.job.config_name}
+    dir: outputs/${now:%Y-%m-%d_%H-%M-%S}/${hydra.job.config_name}
 
     # Alternative example patterns:
     # dir: outputs/${now:%Y-%m-%d}/${now:%H-%M-%S}              # Group by date/time
