@@ -1,6 +1,6 @@
 # Hybrid communication + Slurm + OmniFed — reference
 
-This document records **what we set out to do**, **the phased steps**, **what is implemented in the codebase**, **what you validated on Frontier**, and **what remains** (Phase B steps 8–9). Keep it next to `conf_hybrid/` and the hybrid modules under `src/omnifed/hybrid/`.
+This document records **what we set out to do**, **the phased steps**, **what is implemented in the codebase**, **what is validated on Frontier**, and **what remains** (Phase B steps 8–9). Keep it next to `conf_hybrid/` and the hybrid modules under `src/omnifed/hybrid/`.
 
 ---
 
@@ -299,7 +299,7 @@ If that passes, treat Step 7 as **validated on Frontier** and move to **§6 (Ste
 
 ---
 
-## 8. Revision history (human-maintained)
+## 8. Revision history
 
 | Date | Note |
 |------|------|
