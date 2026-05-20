@@ -53,6 +53,8 @@ class GrpcCommunicator(BaseCommunicator):
         client_timeout: float = 60.0,
         retry_delay: float = 5.0,
         max_retries: int = 5,
+        client_compressor=None,
+        server_compressor=None
     ) -> None:
         """
         Initialize gRPC-based federated learning communicator.
@@ -95,6 +97,8 @@ class GrpcCommunicator(BaseCommunicator):
         self._server = None
         self._client = None
         self._servicer = None
+        self.client_compressor = client_compressor
+        self.server_compressor = server_compressor
 
     @property
     def client(self):
@@ -170,7 +174,7 @@ class GrpcCommunicator(BaseCommunicator):
                 ],
             )
 
-            self._servicer = GrpcServer(world_size=self.world_size)
+            self._servicer = GrpcServer(world_size=self.world_size, compressor=self.server_compressor)
             grpc_pb2_grpc.add_GrpcServerServicer_to_server(self._servicer, self._server)
 
             self._server.add_insecure_port(f"[::]:{self.master_port}")
@@ -186,6 +190,7 @@ class GrpcCommunicator(BaseCommunicator):
                 retry_delay=self.retry_delay,
                 max_retries=self.max_retries,
                 client_timeout=self.client_timeout,
+                compressor=self.client_compressor
             )
     
 

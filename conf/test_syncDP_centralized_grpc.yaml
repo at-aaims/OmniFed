@@ -20,6 +20,12 @@ topology:
     _target_: src.omnifed.communicator.GrpcCommunicator
     # master_addr: 127.0.0.1 # Default
     master_port: 50051
+    client_compressor:
+        _target_: src.omnifed.communicator.compression.sparsification.TopKCompression
+        compress_ratio: 0.01
+    server_compressor:
+        _target_: src.omnifed.communicator.compression.sparsification.TopKCompression
+        compress_ratio: 0.01
 
   overrides:
     0: # Rank 0 (server) - disable training by setting train dataloader to null

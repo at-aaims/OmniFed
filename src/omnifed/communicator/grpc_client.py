@@ -58,6 +58,7 @@ class GrpcClient:
         retry_delay: float = 5.0,
         max_retries: int = 3,
         client_timeout: float = 60,
+        compressor=None
     ):
         """
         Initialize gRPC client with connection and retry settings.
@@ -83,7 +84,8 @@ class GrpcClient:
         self.retry_delay = retry_delay
         self.max_retries = max_retries
         self.client_timeout = client_timeout
-        self.compressor = TopKCompression(compress_ratio=0.01)
+        # self.compressor = TopKCompression(compress_ratio=0.01)
+        self.compressor = compressor
         # self.compressor = None
         self.last_tensordict_submitted = None
         self.logger = None

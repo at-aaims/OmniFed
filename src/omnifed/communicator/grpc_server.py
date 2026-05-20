@@ -43,6 +43,7 @@ class GrpcServer(grpc_pb2_grpc.GrpcServerServicer):
     def __init__(
         self,
         world_size: int,
+        compressor=None
     ):
         """
         Initialize gRPC server for federated learning coordination.
@@ -70,7 +71,7 @@ class GrpcServer(grpc_pb2_grpc.GrpcServerServicer):
             }
         )
 
-        self.compressor = TopKCompression(compress_ratio=0.01)
+        self.compressor = compressor
         # self.compressor = None
 
 

@@ -120,7 +120,7 @@ hydra:
   run:
     # Output directory for FL experiment results and logs
     # Docs: https://hydra.cc/docs/configure_hydra/workdir/
-    dir: outputs/${now:%Y-%m-%d}/${hydra.job.config_name}
+    dir: outputs/${now:%Y-%m-%d_%H-%M-%S}/${hydra.job.config_name}
 
     # Alternative example patterns:
     # dir: outputs/${now:%Y-%m-%d}/${now:%H-%M-%S}              # Group by date/time
