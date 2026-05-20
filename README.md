@@ -160,9 +160,22 @@ OmniFed/
 ## Citation
 
 ```bibtex
-@inproceedings{omnifed2025,
-  title={OmniFed: A Modular Federated Learning Framework},
-  author={Authors},
-  year={2025}
+@inproceedings{10.1145/3731599.3767397,
+author = {Tyagi, Sahil and Cozma, Andrei and Kotevska, Olivera and Wang, Feiyi},
+title = {OmniFed: A Modular Framework for Configurable Federated Learning from Edge to HPC},
+year = {2025},
+isbn = {9798400718717},
+publisher = {Association for Computing Machinery},
+address = {New York, NY, USA},
+url = {https://doi.org/10.1145/3731599.3767397},
+doi = {10.1145/3731599.3767397},
+abstract = {Federated Learning (FL) is critical for edge and High Performance Computing (HPC) where data is not centralized and privacy is crucial. We present OmniFed, a modular framework designed around decoupling and clear separation of concerns for configuration, orchestration, communication, and training logic. Its architecture supports configuration-driven prototyping and code-level override-what-you-need customization. We also support different topologies, mixed communication protocols within a single deployment, and popular training algorithms. It also offers optional privacy mechanisms including Differential Privacy (DP), Homomorphic Encryption (HE), and Secure Aggregation (SA), as well as compression strategies. These capabilities are exposed through well-defined extension points, allowing users to customize topology and orchestration, learning logic, and privacy/compression plugins, all while preserving the integrity of the core system. We evaluate multiple models and algorithms to measure various performance metrics. By unifying topology configuration, mixed-protocol communication, and pluggable modules in one stack, OmniFed streamlines FL deployment across heterogeneous environments. Github repository is available at https://github.com/at-aaims/OmniFed.},
+booktitle = {Proceedings of the SC '25 Workshops of the International Conference for High Performance Computing, Networking, Storage and Analysis},
+pages = {516–523},
+numpages = {8},
+keywords = {Federated Learning (FL), Collaborative Learning (CL), Privacy-Preserving Machine Learning (ML), Edge computing, High Performance Computing (HPC), Deep Learning (DL), Compression},
+location = {
+},
+series = {SC Workshops '25}
 }
 ```
