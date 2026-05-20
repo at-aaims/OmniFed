@@ -405,6 +405,8 @@ class BaseAlgorithm(RequiredSetup, LifecycleHooks, MetricLogger):
         # Store injected dependencies
         self.__local_comm = local_comm
         self.__global_comm = global_comm
+        # self.__local_comm.set_algorithm(self)
+        # self.__global_comm.set_algorithm(self)
         self.__local_model = model
         self.__datamodule = datamodule
 

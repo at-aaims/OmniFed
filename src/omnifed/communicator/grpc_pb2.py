@@ -24,7 +24,7 @@ _sym_db = _symbol_database.Default()
 
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n#src/omnifed/communicator/grpc.proto\x12\x18src.omnifed.communicator\"\x0e\n\x0c\x45mptyRequest\"\x1f\n\nClientInfo\x12\x11\n\tclient_id\x18\x01 \x01(\t\"z\n\x12\x41ggregationRequest\x12\x11\n\tclient_id\x18\x01 \x01(\t\x12\x39\n\x0btensor_dict\x18\x02 \x01(\x0b\x32$.src.omnifed.communicator.TensorDict\x12\x16\n\x0ereduction_type\x18\x03 \x01(\t\"`\n\x11OperationResponse\x12\x39\n\x0btensor_dict\x18\x01 \x01(\x0b\x32$.src.omnifed.communicator.TensorDict\x12\x10\n\x08is_ready\x18\x02 \x01(\x08\"!\n\x0eStatusResponse\x12\x0f\n\x07success\x18\x01 \x01(\x08\"D\n\nTensorDict\x12\x36\n\x07\x65ntries\x18\x01 \x03(\x0b\x32%.src.omnifed.communicator.TensorEntry\"i\n\x0bTensorEntry\x12\x0b\n\x03key\x18\x01 \x01(\t\x12\x0c\n\x04\x64\x61ta\x18\x02 \x01(\x0c\x12\r\n\x05shape\x18\x03 \x03(\x05\x12\r\n\x05\x64type\x18\x04 \x01(\t\x12\x0e\n\x06\x64\x65vice\x18\x05 \x01(\t\x12\x11\n\tdata_size\x18\x06 \x01(\x05\x32\xb1\x03\n\nGrpcServer\x12\x66\n\x11GetBroadcastState\x12$.src.omnifed.communicator.ClientInfo\x1a+.src.omnifed.communicator.OperationResponse\x12n\n\x14SubmitForAggregation\x12,.src.omnifed.communicator.AggregationRequest\x1a(.src.omnifed.communicator.StatusResponse\x12i\n\x14GetAggregationResult\x12$.src.omnifed.communicator.ClientInfo\x1a+.src.omnifed.communicator.OperationResponse\x12`\n\x0eRegisterClient\x12$.src.omnifed.communicator.ClientInfo\x1a(.src.omnifed.communicator.StatusResponseb\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n#src/omnifed/communicator/grpc.proto\x12\x18src.omnifed.communicator\"\x0e\n\x0c\x45mptyRequest\"\x1f\n\nClientInfo\x12\x11\n\tclient_id\x18\x01 \x01(\t\"z\n\x12\x41ggregationRequest\x12\x11\n\tclient_id\x18\x01 \x01(\t\x12\x39\n\x0btensor_dict\x18\x02 \x01(\x0b\x32$.src.omnifed.communicator.TensorDict\x12\x16\n\x0ereduction_type\x18\x03 \x01(\t\"`\n\x11OperationResponse\x12\x39\n\x0btensor_dict\x18\x01 \x01(\x0b\x32$.src.omnifed.communicator.TensorDict\x12\x10\n\x08is_ready\x18\x02 \x01(\x08\"!\n\x0eStatusResponse\x12\x0f\n\x07success\x18\x01 \x01(\x08\"D\n\nTensorDict\x12\x36\n\x07\x65ntries\x18\x01 \x03(\x0b\x32%.src.omnifed.communicator.TensorEntry\"\xd4\x01\n\x0bTensorEntry\x12\x0b\n\x03key\x18\x01 \x01(\t\x12\x0c\n\x04\x64\x61ta\x18\x02 \x01(\x0c\x12\r\n\x05shape\x18\x03 \x03(\x05\x12\r\n\x05\x64type\x18\x04 \x01(\t\x12\x0e\n\x06\x64\x65vice\x18\x05 \x01(\t\x12\x11\n\tdata_size\x18\x06 \x01(\x05\x12\x18\n\x10\x63ompression_type\x18\x07 \x01(\t\x12\r\n\x05index\x18\x08 \x01(\x0c\x12\x13\n\x0bindex_shape\x18\t \x03(\x05\x12\x13\n\x0bindex_dtype\x18\n \x01(\t\x12\x16\n\x0eoriginal_shape\x18\x0b \x03(\x05\x32\xb1\x03\n\nGrpcServer\x12\x66\n\x11GetBroadcastState\x12$.src.omnifed.communicator.ClientInfo\x1a+.src.omnifed.communicator.OperationResponse\x12n\n\x14SubmitForAggregation\x12,.src.omnifed.communicator.AggregationRequest\x1a(.src.omnifed.communicator.StatusResponse\x12i\n\x14GetAggregationResult\x12$.src.omnifed.communicator.ClientInfo\x1a+.src.omnifed.communicator.OperationResponse\x12`\n\x0eRegisterClient\x12$.src.omnifed.communicator.ClientInfo\x1a(.src.omnifed.communicator.StatusResponseb\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
@@ -43,8 +43,8 @@ if not _descriptor._USE_C_DESCRIPTORS:
   _globals['_STATUSRESPONSE']._serialized_end=369
   _globals['_TENSORDICT']._serialized_start=371
   _globals['_TENSORDICT']._serialized_end=439
-  _globals['_TENSORENTRY']._serialized_start=441
-  _globals['_TENSORENTRY']._serialized_end=546
-  _globals['_GRPCSERVER']._serialized_start=549
-  _globals['_GRPCSERVER']._serialized_end=982
+  _globals['_TENSORENTRY']._serialized_start=442
+  _globals['_TENSORENTRY']._serialized_end=654
+  _globals['_GRPCSERVER']._serialized_start=657
+  _globals['_GRPCSERVER']._serialized_end=1090
 # @@protoc_insertion_point(module_scope)

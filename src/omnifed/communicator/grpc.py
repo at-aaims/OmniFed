@@ -19,13 +19,14 @@ import grpc
 import rich.repr
 import torch
 from torch import nn
-
 from ..utils import print
+from ..utils import MetricLogger
 from . import BaseCommunicator, grpc_pb2_grpc
 from .base import AggregationOp
 from .grpc_client import GrpcClient
 from .grpc_server import GrpcServer
 from .utils import get_msg_info
+# from typing import override
 
 
 @rich.repr.auto
@@ -88,6 +89,7 @@ class GrpcCommunicator(BaseCommunicator):
         self.client_timeout = client_timeout
         self.retry_delay = retry_delay
         self.max_retries = max_retries
+        self.logger = None
 
         # Runtime components (initialized in _setup)
         self._server = None
@@ -185,6 +187,7 @@ class GrpcCommunicator(BaseCommunicator):
                 max_retries=self.max_retries,
                 client_timeout=self.client_timeout,
             )
+    
 
     def broadcast(
         self,
@@ -214,6 +217,13 @@ class GrpcCommunicator(BaseCommunicator):
             # Client: Retrieve broadcast state from server
             tensordict = self.client.get_broadcast_state()
             return self._apply_tensordict_to_msg(msg, tensordict)
+
+    def set_logger(self, logger: MetricLogger):
+        self.logger = logger
+        try:
+            self.client.set_logger(logger)
+        except Exception:
+            pass
 
     def aggregate(
         self,

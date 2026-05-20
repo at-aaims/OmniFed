@@ -22,7 +22,18 @@ import torch
 
 from ..utils import print
 from . import AggregationOp, grpc_pb2, grpc_pb2_grpc
-from .utils import get_msg_info, proto_to_tensordict, tensordict_to_proto
+from .utils import get_msg_info, proto_to_tensordict, tensordict_to_proto, proto_to_tensordict_extended
+from .compression.sparsification import *
+from .compression.quantization import *
+from .compression.lowrank_approximation import *
+from .utils import compress_message_tensors, extract_tensordict
+from ..utils import MetricLogger
+# from ..logger import Baselogger
+
+from contextlib import nullcontext
+import torch
+import torch.nn as nn
+
 
 
 @rich.repr.auto
@@ -72,6 +83,10 @@ class GrpcClient:
         self.retry_delay = retry_delay
         self.max_retries = max_retries
         self.client_timeout = client_timeout
+        self.compressor = TopKCompression(compress_ratio=0.01)
+        # self.compressor = None
+        self.last_tensordict_submitted = None
+        self.logger = None
 
         # Initialize connection state
         self.channel = None
@@ -79,6 +94,9 @@ class GrpcClient:
 
         # Establish connection with retry logic
         self._establish_connection()
+
+    def set_logger(self, logger: MetricLogger):
+        self.logger = logger
 
     def _establish_connection(self):
         """Establish gRPC connection with retry logic."""
@@ -133,7 +151,11 @@ class GrpcClient:
                 request = grpc_pb2.ClientInfo(client_id=self.client_id)
                 response = self.stub.GetBroadcastState(request)
                 if response.is_ready:
+                    print(f"Retrieving response on the client side; client_id = {self.client_id}")
                     tensordict = proto_to_tensordict(response.tensor_dict)
+                    with torch.no_grad():
+                        for key, tensor in tensordict.items():
+                            pass
                     print(f"Received {get_msg_info(tensordict)}")
                     return tensordict
                 poll_count += 1
@@ -162,13 +184,34 @@ class GrpcClient:
             reduction_type: SUM, MEAN, or MAX aggregation operation
         """
         try:
-            proto_tensordict = tensordict_to_proto(tensordict)
-            request = grpc_pb2.AggregationRequest(
-                client_id=self.client_id,
-                tensor_dict=proto_tensordict,
-                reduction_type=reduction_type.value,
-            )
-            response = self.stub.SubmitForAggregation(request)
+            # print(f"Dict to submit; type = {type(tensordict)}")
+            # _upstream_time_break_down = {}
+            # encode_start = time.time()
+            ctx = self.logger.log_duration("training_compression_time") if self.logger else nullcontext()
+            with ctx:
+                compressed_tensordict = compress_message_tensors(tensordict, self.compressor, "grad")
+                compressor_name = None
+                if self.compressor:
+                    compressor_name = self.compressor.__class__.__name__
+                if isinstance(tensordict, torch.Tensor):
+                    compressor_name = None
+                    compressed_tensordict = tensordict
+                self.last_tensordict_submitted = tensordict
+                proto_tensordict = tensordict_to_proto(compressed_tensordict, compressor_name)
+            # encode_end = time.time()
+            # upload_start = time.time()
+            ctx = self.logger.log_duration("training_upstream_upload_time") if self.logger else nullcontext()
+            with ctx:
+                request = grpc_pb2.AggregationRequest(
+                    client_id=self.client_id,
+                    tensor_dict=proto_tensordict,
+                    reduction_type=reduction_type.value,
+                )
+                response = self.stub.SubmitForAggregation(request)
+            # upload_end = time.time()
+            # _upstream_time_break_down['upload'] = upload_end - upload_start
+            # _upstream_time_break_down['encode'] = encode_end - encode_start
+            # timing['upstream'].append(_upstream_time_break_down)
             if response.success:
                 print("Successfully sent local model to server")
             else:
@@ -203,9 +246,21 @@ class GrpcClient:
                 raise RuntimeError(f"Aggregation timeout ({self.client_timeout}s)")
             try:
                 request = grpc_pb2.ClientInfo(client_id=self.client_id)
-                response = self.stub.GetAggregationResult(request)
+                # downstream_start = time.time()
+                ctx = self.logger.log_duration("training_downstream_download_time") if self.logger else nullcontext()
+                with ctx:
+                    response = self.stub.GetAggregationResult(request)
+                # downstream_end = time.time()
                 if response.is_ready:
-                    tensordict = proto_to_tensordict(response.tensor_dict)
+                    # downstream_time_break_down = {'comm': [], 'decode': []}
+                    # downstream_time_break_down['comm'] = downstream_end - downstream_start 
+                    # decompression_start = time.time()
+                    ctx = self.logger.log_duration("training_decompression_time") if self.logger else nullcontext()
+                    with ctx:
+                        tensordict, is_model_communicated = proto_to_tensordict_extended(response.tensor_dict, self.last_tensordict_submitted)
+                    # decompression_end = time.time()
+                    # downstream_time_break_down['decode'] = decompression_end - decompression_start
+                    # timing['downstream'].append(downstream_time_break_down)
                     print(
                         f"Received {get_msg_info(tensordict)} (waited {elapsed:.1f}s)"
                     )
