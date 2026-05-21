@@ -1,6 +1,6 @@
 # Hybrid communication + Slurm + OmniFed — reference
 
-This document records **what we set out to do**, **the phased steps**, **what is implemented in the codebase**, **what is validated on Frontier**, and **what remains** (Phase B steps 8–9). Keep it next to `conf_hybrid/` and the hybrid modules under `src/omnifed/hybrid/`.
+This document records **what we set out to do**, **the phased steps**, **what is implemented in the codebase**, **what was validated on Frontier**, and optional **experiment follow-ups**. Keep it next to `conf_hybrid/` and `src/omnifed/hybrid/`.
 
 ---
 
@@ -43,9 +43,9 @@ Often **non-fatal**: c10d/Gloo probing IPv6 vs IPv4 or hostname resolution. If t
 | Step | Description | Status | Code / notes |
 |------|-------------|--------|--------------|
 | **6** | **Engine config contract:** `engine.communication_mode`: `classic` \| `hybrid`; `engine.hybrid.topology_config` (YAML name under `conf_hybrid/topology/`). Hybrid only with `engine.mode=slurm`. Slurm `--ntasks` = hybrid `world_size` and must match `len(topology)` (e.g. centralized `num_clients = world_size - 1` when one rank is RPC-only). | Done | `conf/base.yaml`, `src/omnifed/engine_communication.py`, `src/omnifed/engine.py`, `tests/test_engine_communication.py`, `conf/test_hybrid_engine_contract.yaml` |
-| **7** | **`slurm_worker` hybrid branch:** load hybrid topology; per-facility Torch MPI; gRPC by role; **`install_hybrid_slurm_sync`** for FedAvg global step without invalid torch scalar reduce across gRPC; **`round_exec`** loop; results under `engine/node_results/`. | Done | `src/omnifed/slurm_worker.py` (hybrid → `run_hybrid_training`), `src/omnifed/hybrid/slurm_hybrid_runner.py`, `hybrid_slurm_sync.py`, `torch_mpi_adapter.py`, `grpc_leader_comm.py`, `comm_bridge.py`, `slurm_hostlist.py` |
-| **8** | **Hardening:** single trainer path; **avoid hardcoding** gRPC server `id==0` where topology says otherwise; **datamodule / client id** mapping for **non-contiguous** global ranks. | **Remaining** | See §6 |
-| **9** | **Docs / examples:** `main.sh` + README-style recipe for `engine.mode=slurm` + hybrid FedAvg (canonical Frontier invocation). | **Remaining** | `main.sh` today runs `main.py` + protoc; hybrid example overrides should be documented |
+| **7** | **`slurm_worker` hybrid branch:** load hybrid topology; per-facility Torch MPI; gRPC by role; **`install_hybrid_slurm_sync`** for FedAvg global step without invalid torch scalar reduce across gRPC; **`round_exec`** loop; results under `engine/node_results/`. | **Done + validated on Frontier** (May 2026, job **4625686**; see §3.1) | `src/omnifed/slurm_worker.py`, `src/omnifed/hybrid/slurm_hybrid_runner.py`, `hybrid_slurm_sync.py`, `torch_mpi_adapter.py`, `grpc_leader_comm.py`, `comm_bridge.py`, `slurm_hostlist.py` |
+| **8** | **Hardening** (Flora **`id==0`** server contract; **`hybrid_rank_to_centralized_node_index`**; **`leader_done`** RPC shutdown vs **`sleep`**). | **Done** | `topology_roles.py`, `slurm_hybrid_runner.py`, `grpc_communicator.py` (comment); **`conf/base.yaml`** `server_shutdown`, `leader_done_poll_sec`. |
+| **9** | **Docs / examples** (README Hybrid Slurm; YAML header; `main.sh` comments). | **Done** | `README.md`, `conf/test_hybrid_engine_contract.yaml`, `main.sh` |
 
 ### Phase B Step 6 — Frozen config + Slurm
 
@@ -81,6 +81,15 @@ Step 7 replaces the Phase B Step 6 **stub** (hybrid branch exited immediately) w
 
 **Tests (local):** e.g. `pytest tests -k "hybrid or engine_communication"` (includes layout / engine contract tests).
 
+### Phase B Step 7 — Validated on OLCF Frontier (May 2026)
+
+| Job ID | Result | Notes |
+|--------|--------|--------|
+| **4625007** | `FAILED` (MNIST download) | Compute nodes could not reach the public internet; torchvision tried to download **`train-images-idx3-ubyte.gz`** and timed out. Only **`node_000_results.json`** appeared (RPC server stub). **Fix:** pre-stage MNIST on Lustre and pass **`datamodule.*.dataset.download=false`** plus **`root=.../torchvision-mnist`** (same pattern as classic `test_fedavg_centralized_torchdist` on Frontier). |
+| **4625686** | **`COMPLETED` / `0:0`** | **`[run_hybrid_training]`** lines for ranks **0–6**; workers on **`cuda:0`** with **`fac1` / `fac2`**; **`node_000`** (JSON stub) + **`node_001`–`node_006`** (JSON + PKL). **`slurm-4625686.err`:** non-fatal Gloo **`errno: 97`** warnings; optional **`UserWarning`** from **`algorithm/base.py`** (`global_agg` / `local_bcast` buffer tracking)—job still succeeded. |
+
+**Repository on GitHub fork:** **[dshruti20/OmniFed](https://github.com/dshruti20/OmniFed)** (renamed from `OmniFed_VT`); feature branch **`feature/hybridcommu-slurm-engine`** carries this work.
+
 ### Phase B Step 7 — Verify on Frontier (commands)
 
 Run these **in order** from the repo root on a Frontier login node (adjust paths, account, partition, and `<JOBID>` / `<DATE>`).
@@ -112,10 +121,16 @@ Expect **`hybrid`** and **`built_symmetric_2x3.yaml`** (`world_size` 7; `num_cli
 
 **4 — Submit Engine (canonical 7 nodes × 1 task)**
 
+On Frontier, **always** disable MNIST download and point **`root`** at scratch data already visible on compute nodes (see job **4625007** if you omit this):
+
 ```bash
 ./main.sh --config-name test_hybrid_engine_contract \
   overwrite=true \
   engine.mode=slurm \
+  datamodule.train.dataset.download=false \
+  datamodule.eval.dataset.download=false \
+  datamodule.train.dataset.root=/lustre/orion/gen150/scratch/shruti2395/omnifed_data/torchvision-mnist \
+  datamodule.eval.dataset.root=/lustre/orion/gen150/scratch/shruti2395/omnifed_data/torchvision-mnist \
   slurm.account=gen150 \
   slurm.partition=batch \
   slurm.time=00:45:00 \
@@ -127,7 +142,9 @@ Expect **`hybrid`** and **`built_symmetric_2x3.yaml`** (`world_size` 7; `num_cli
   slurm.gres=null
 ```
 
-Save **`Submitted batch job <JOBID>`**.
+(Adjust **`scratch`** path and account for your project.)
+
+Save **`Submitted batch job <JOBID>`**. Omitting **`datamodule.*` overrides** is only for **login or internet-capable** runs; **Frontier compute nodes** usually require the block above.
 
 **5 — Confirm generated `sbatch` has `--ntasks=7`**
 
@@ -153,7 +170,7 @@ Target: **`COMPLETED`** and **`0:0`**.
 
 ```bash
 OUT=/lustre/orion/gen150/scratch/shruti2395/OmniFed_VT/outputs/<DATE>/test_hybrid_engine_contract
-grep -E '\[hybrid\]|run_hybrid|communication_mode' "$OUT/slurm-<JOBID>.out" | head -40
+grep -E '\[hybrid\]|\[run_hybrid_training\]|run_hybrid|communication_mode' "$OUT/slurm-<JOBID>.out" | head -40
 ```
 
 **9 — Seven result files (`node_000` … `node_006`)**
@@ -177,7 +194,10 @@ head -30 "$OUT/engine/node_results/node_001_results.json"
 
 ### Rank-0 gRPC server lifetime (tunable)
 
-- **`conf/base.yaml`** → `engine.hybrid.server_run_extra_sec`, `server_sec_per_round`: rank that runs the **Flora `GrpcCommunicator` daemon** sleeps (`slurm_hybrid_runner._run_grpc_server_only`) so workers can finish rounds. If jobs **hang or disconnect** near the end, increase these or (future work) replace sleep with explicit round synchronization.
+- **`conf/base.yaml`** → **`engine.hybrid`**:
+  - **`server_run_extra_sec`**, **`server_sec_per_round`**: ceiling for how long the RPC rank waits (**used as max wall time**, especially if **`leader_done`** waits).
+  - **`server_shutdown`**: **`leader_done`** (write **`engine/hybrid_grpc_leader_done/rank_<leader>.done`** after training, default) or **`sleep`** (legacy fixed nap).
+  - **`leader_done_poll_sec`**: polling interval while waiting for markers.
 
 ---
 
@@ -237,16 +257,20 @@ sbatch test_scripts/slurm_frontier/hybrid_comm_smoke.slurm
 
 ### 5.4 Phase B — Engine + hybrid (`test_hybrid_engine_contract`)
 
-Canonical **7 tasks, 7 nodes, 1 GPU per node** (matches `built_symmetric_2x3`):
+Canonical **7 tasks, 7 nodes, 1 GPU per node** (matches `built_symmetric_2x3`). **Frontier:** include **offline MNIST** overrides (same idea as classic FedAvg on compute nodes):
 
 ```bash
 cd "$OMNIFED_REPO"
 ./main.sh --config-name test_hybrid_engine_contract \
   overwrite=true \
   engine.mode=slurm \
+  datamodule.train.dataset.download=false \
+  datamodule.eval.dataset.download=false \
+  datamodule.train.dataset.root=/lustre/orion/gen150/scratch/shruti2395/omnifed_data/torchvision-mnist \
+  datamodule.eval.dataset.root=/lustre/orion/gen150/scratch/shruti2395/omnifed_data/torchvision-mnist \
   slurm.account=gen150 \
   slurm.partition=batch \
-  slurm.time=00:30:00 \
+  slurm.time=00:45:00 \
   slurm.nodes=7 \
   slurm.ntasks_per_node=1 \
   slurm.cpus_per_task=4 \
@@ -268,35 +292,58 @@ Example (15 clients, 2×8 tasks): use `test_fedavg_centralized_torchdist` with `
 
 ---
 
-## 6. Remaining work (Phase B steps 8–9)
+## 6. Phase B Steps 8–9 (implemented + follow-ups)
 
-### Step 8 — Hardening (do when logs expose wrong assumptions)
+### Step 8 — Hardening (closed in-repo)
 
-1. **gRPC server identity**  
-   Full training path still constructs the Flora daemon with **`id=0`** in `_run_grpc_server_only` (`slurm_hybrid_runner.py`). Topology may use **`rpc.server_rank`** not equal to 0 in other layouts—reconcile **`id`** and **`server_rank`** with Flora’s expectations.
+| Item | What we did |
+|------|--------------|
+| Flora gRPC PS `id == 0` vs `rpc.server_rank` | Flora’s **`GrpcCommunicator`** only builds the daemon server branch when **`id == 0`** (communicator role, not **`SLURM_PROCID`**). Hybrid still runs that process on **`topology.rpc.server_rank`**; constructor **`id`** stays **`0`**. Comments in **`grpc_communicator.py`** and **`_run_grpc_server_only`** document this contract. Changing **`rpc.server_rank` ≠ 0** does **not** require **`id≠0`** at the Flora layer until Flora is refactored. |
+| **Client / `topology.overrides` mapping** | **`hybrid_rank_to_centralized_node_index`** in **`topology_roles.py`**: **`rpc_server_rank` → centralized index 0**; training ranks (**all others**) map to **`1 … num_clients`** in ascending hybrid rank order. **`run_hybrid_training`** selects **`node_cfg = node_cfgs[mapped]`** instead of **`node_cfgs[SLURM_PROCID]`**. Unit tests cover **`rpc.server_rank`** 0 and 3. Larger topologies inherit the same rule. |
+| **RPC shutdown** | Default **`engine.hybrid.server_shutdown: leader_done`**: leaders write **`engine/hybrid_grpc_leader_done/rank_<r>.done`** after **`round_exec`** finishes; daemon rank clears stale markers at start then polls (**`leader_done_poll_sec`**) up to **`server_run_extra_sec + rounds × server_sec_per_round`** and calls **`grpc_shutdown`**. Fallback: **`sleep`** restores previous fixed-nap semantics. Configure in **`conf/base.yaml`**. |
 
-2. **Client / datamodule id mapping**  
-   Hybrid **global ranks** need a **consistent map** to FL “client” indices and datamodule overrides (`topology.overrides`) when ranks are **non-contiguous** or RPC-only ranks do not train. Validate with a topology larger than 7 after Step 7 is stable.
+### Step 9 — Documentation (done)
 
-3. **RPC server shutdown**  
-   Replace or augment **sleep-based** server lifetime with round-aware shutdown if long runs become flaky.
+- **`README.md`**: Hybrid Slurm subsection (`engine.communication_mode=hybrid`, Frontier MNIST, example `main.sh` line).
+- **`conf/test_hybrid_engine_contract.yaml`**: Updated header / example (no stub wording).
+- **`main.sh`**: Commented hybrid one-liner pattern.
 
-### Step 9 — Documentation and examples
+### Optional follow-ups (not required)
 
-1. Update **`conf/test_hybrid_engine_contract.yaml`** header (remove “stub” wording).  
-2. Add a **Frontier hybrid** section to the main **README** (or this doc) with the exact `./main.sh ...` line and prerequisites (`OMNIFED_DATA_DIR`, `PYEXE`).  
-3. Optionally extend **`main.sh`** comments with a copy-paste hybrid block (no behavioral change required).
+- Stress-test **`hybrid_rank_to_centralized_node_index`** on very large asymmetric layouts (`world_size ≫ 11`).
+- If **`global_agg` / `local_bcast` “buffers unchanged”** warnings correlate with poor metrics, trace **`algorithm/base.py`** tracking vs hybrid sync.
+- Add **`test_hybrid_engine_contract_frontier.yaml`** with scratch **`dataset.root`** + **`download=false`** baked in.
+
 
 ---
 
 ## 7. Frontier validation pointer
 
-**Step 7 cluster proof** is the numbered checklist in **§3 — “Phase B Step 7 — Verify on Frontier (commands)”**. The short recipe is also in **§5.4**.
+**Step 7 cluster proof** is the numbered checklist in **§3 — “Phase B Step 7 — Verify on Frontier (commands)”**. The short recipe is also in **§5.4**. **Recorded success:** **§3.1** (job **4625686**).
 
-**Acceptance:** `sacct` **0:0**; **`[hybrid]`** lines in **`slurm-<jobid>.out`**; **`node_000`–`node_006`** under **`engine/node_results/`**; no systematic gRPC connection or MPI init failures (if failures occur, tune **`server_run_extra_sec`** / **`server_sec_per_round`** in `conf/base.yaml` or fix host binding).
+**Acceptance:** `sacct` **0:0**; **`[hybrid]`** markers in **`slurm-<jobid>.out`**; **`node_000`–`node_006`** under **`engine/node_results/`**; **`download=false`** + scratch **`root`** on Frontier (job **4625007** showed public MNIST timeouts).
 
-If that passes, treat Step 7 as **validated on Frontier** and move to **§6 (Steps 8–9)** as needed.
+If that passes, treat Step 7 as **validated on Frontier**.
 
+### 7b — Re-check Steps **8–9** on Frontier (after `rsync`)
+
+Do this when you’ve **pushed or rsync’d** the repo that includes **`leader_done`** shutdown, **`hybrid_rank_to_centralized_node_index`**, and doc/YAML updates.
+
+1. **Sync** your local tree to Frontier (same excludes as before — at least avoid clobbering **`outputs/`** if you want old logs).
+2. **Run** the **same** hybrid job that worked before (offline MNIST, `slurm.nodes=7`, `ntasks_per_node=1`; see **§5.4**).
+3. **Expect** `sacct` **`COMPLETED`** / **`0:0`** and seven **`engine/node_results/`** files as in Step 7.
+4. **Step 8 extras (quick):** In **`slurm-*.out`** for the **RPC rank**, look for **`shutdown_mode='leader_done'`** and either **`all gRPC leader markers present`** or **`leader-done wait timed out`** (timeout still means the run can succeed if wall cap was enough — prefer the **markers** line for a clean validation). After the job, **`ls engine/hybrid_grpc_leader_done/`** should show **`.done` files for each gRPC leader rank** (not for every training rank).
+5. **Step 9:** Confirm **`README`** / **`test_hybrid_engine_contract`** header on Frontier match your laptop (optional `diff` or `head`).
+
+---
+
+## **Next steps (experiment tuning)**
+
+Hygiene from **Steps 8–9** above is landed. Practical next explorations:
+
+1. **FedAvg aggregation schedule / “communication frequency”** — tighten via **`algorithm.schedules.aggregation`** (e.g. trigger every **N** local steps or **`batch_end`**) consistent with OmniFed YAML; correlate with Flora gRPC **round-number** semantics and MNIST staleness metrics.
+2. **Two global rounds, seven local steps analogy** — if you literal-mean **`global_rounds=2`** and additional gRPC-visible rounds, bump **`global_rounds`** plus tune **`schedules`** so **`round_exec`** + hybrid **`GrpcLeaderCommunicator`** align with what you plot as “GRPC rounds.”
+3. **Optional Frontier defaults** — new YAML config with MNIST **`root`**/`download=false` wired for OLCF scratch.
 ---
 
 ## 8. Revision history
@@ -304,7 +351,9 @@ If that passes, treat Step 7 as **validated on Frontier** and move to **§6 (Ste
 | Date | Note |
 |------|------|
 | 2026-05 | Document created: aligns Phase A/B steps with repo; notes Frontier jobs 4576044 / 4576474 / 4576606 / contract run 4576327 style; remaining Steps 8–9. |
-| 2026-05 | Added §3 Step 7 “what we implemented” table + Frontier verification commands (1–10); §7 points to that checklist. |
+| 2026-05 | Frontier Step 7 validated: job **4625686** (`COMPLETED`); job **4625007** MNIST download failure documented; **§5.4** / Step 4 use offline MNIST; fork URL **[dshruti20/OmniFed](https://github.com/dshruti20/OmniFed)**; **§7** adds explicit **Next step** (Step 8 → 9). |
+| 2026-05 | **Steps 8–9** landed: Flora **`id==0`** doc + **`leader_done`** shutdown (default); **`hybrid_rank_to_centralized_node_index`** + tests; README / YAML / **`main.sh`**; **§6** rewritten from “remaining” → “implemented + follow-ups.” |
+| 2026-05 | **§7b** added: minimal Frontier checklist to re-verify Steps **8–9** after `git pull` / **`rsync`**. |
 
 ---
 

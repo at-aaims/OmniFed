@@ -166,6 +166,9 @@ engine:
   hybrid:
     # Set when communication_mode=hybrid, e.g. built_symmetric_2x3.yaml (must live under conf_hybrid/topology/).
     topology_config: null
-    # Hybrid Slurm RPC server (rank 0) lifetime: extra startup wait + estimated seconds per FedAvg round.
+    # Hybrid Slurm RPC server lifetime (see docs/HYBRID_SLURM_REFERENCE.md).
     server_run_extra_sec: 120
     server_sec_per_round: 300
+    # sleep = fixed heuristic; leader_done = wait until each gRPC leader rank touches a marker (max wait below).
+    server_shutdown: leader_done
+    leader_done_poll_sec: 5.0

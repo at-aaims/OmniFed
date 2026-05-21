@@ -12,13 +12,44 @@ A federated learning framework built on [Ray](https://ray.io/) and [Hydra](https
 
 ## Quick Start
 
-### Omnifed with SLURM
-```bash
+### OmniFed with SLURM
 
+```bash
 # Run basic federated learning experiment with SLURM
 ./main.sh --config-name test_fedavg_centralized_torchdist   engine.mode=slurm   slurm.enabled=true   slurm.partition=debug   slurm.nodes=2   slurm.ntasks_per_node=1   slurm.time=02:00:00   slurm.gres="gpu:1"
-
 ```
+
+### Hybrid Slurm (`engine.communication_mode=hybrid`)
+
+Cross-facility gRPC plus per-facility Torch MPI (`conf_hybrid` topology); see **`docs/HYBRID_SLURM_REFERENCE.md`**.
+
+Prerequisites:
+
+- Frozen config + **`slurm_worker`** on each task (**`PYTHONPATH`** to repo root; **`PYEXE`** for ROCm stack on compute nodes is often injected via **`engine.py`** `setup_lines` on Frontier).
+- **MNIST offline** on OLCF Frontier: compute nodes may not reach the public internet — pre-stage torchvision MNIST under Lustre and pass **`download=false`** and matching **`dataset.root`** for train and eval.
+
+Minimal Frontier-style submit (seven tasks, seven nodes; adjust account/path):
+
+```bash
+./main.sh --config-name test_hybrid_engine_contract \
+  overwrite=true \
+  engine.mode=slurm \
+  datamodule.train.dataset.download=false \
+  datamodule.eval.dataset.download=false \
+  datamodule.train.dataset.root=/lustre/orion/gen150/scratch/YOUR_USER/omnifed_data/torchvision-mnist \
+  datamodule.eval.dataset.root=/lustre/orion/gen150/scratch/YOUR_USER/omnifed_data/torchvision-mnist \
+  slurm.account=YOUR_PROJECT \
+  slurm.partition=batch \
+  slurm.time=00:45:00 \
+  slurm.nodes=7 \
+  slurm.ntasks_per_node=1 \
+  slurm.cpus_per_task=4 \
+  slurm.gpus_per_node=1 \
+  slurm.gpus_per_task=1 \
+  slurm.gres=null
+```
+
+Optional knobs (see **`conf/base.yaml`** **`engine.hybrid`**): **`server_shutdown: leader_done`** (default — wait for leader marker files plus a wall-time cap), **`leader_done_poll_sec`**, **`sleep`** fallback, **`server_sec_per_round`**.
 
 ```bash
 # Clone and install

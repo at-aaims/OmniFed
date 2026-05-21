@@ -1,14 +1,20 @@
 # ================================================================================
-# Phase B Step 6 — Engine contract only (hybrid communication_mode).
+# Hybrid Slurm Engine + centralized FedAvg (Phase B Steps 6–7+).
 #
-# * Login node: Engine computes Slurm --ntasks from conf_hybrid world_size and
-#   checks len(topology) matches (here: built_symmetric_2x3 → 7 tasks; centralized
-#   num_clients=6 → 7 nodes including FedAvg server).
-# * Compute: slurm_worker exits immediately until Phase B step 7 (expect job success
-#   with a stub message in slurm *.out).
+# * Login node: submit Slurm bundle with --ntasks = conf_hybrid world_size
+#   (built_symmetric_2x3 → 7 ranks; centralized num_clients must be 6 so
+#   len(topology)==7 matches hybrid world_size).
+# * Compute nodes: facility TorchMPI + gRPC leaders; FedAvg loop via slurm_worker
+#   hybrid branch (run_hybrid_training).
 #
-# Example (Frontier): same slurm.* overrides as test_fedavg_centralized_torchdist;
-# use slurm.nodes / slurm.ntasks_per_node so ntasks >= 7 (e.g. 1 node × 8 tasks).
+# Frontier OLCF: MNIST offline on lustre recommended (compute nodes timeout on
+# public download unless you disable download=false and match dataset root — see README).
+#
+# Example:
+#   ./main.sh --config-name test_hybrid_engine_contract engine.mode=slurm \
+#     datamodule.train.dataset.download=false datamodule.eval.dataset.download=false \
+#     datamodule.{train,eval}.dataset.root=/path/to/torchvision-mnist \
+#     slurm.account=YOUR_PROJECT slurm.partition=batch slurm.nodes=7 slurm.ntasks_per_node=1 ...
 # ================================================================================
 
 defaults:

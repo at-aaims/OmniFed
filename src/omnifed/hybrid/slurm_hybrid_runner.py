@@ -6,6 +6,7 @@ from __future__ import annotations
 import json
 import os
 import pickle
+import shutil
 import time
 import warnings
 from typing import Optional
@@ -27,7 +28,11 @@ from src.omnifed.hybrid.slurm_hostlist import (
     apply_hosts_to_hybrid_topology,
     slurm_job_hosts_ordered,
 )
-from src.omnifed.hybrid.topology_roles import facility_local_rank, find_facility_for_global_rank
+from src.omnifed.hybrid.topology_roles import (
+    facility_local_rank,
+    find_facility_for_global_rank,
+    hybrid_rank_to_centralized_node_index,
+)
 from src.omnifed.hybrid.torch_mpi_adapter import TorchMPIAdapter
 from src.omnifed.utils import print
 
@@ -60,6 +65,33 @@ def _safe_len_train(dm) -> int:
         return len(dm.train) if dm.train is not None else 0
     except Exception:
         return 0
+
+
+def _leader_done_dir(hydra_out_dir: str) -> str:
+    return os.path.join(hydra_out_dir, "engine", "hybrid_grpc_leader_done")
+
+
+def _reset_leader_done_dir(hydra_out_dir: str) -> None:
+    d = _leader_done_dir(hydra_out_dir)
+    shutil.rmtree(d, ignore_errors=True)
+
+
+def _write_leader_done_marker(hydra_out_dir: str, rank: int) -> None:
+    d = _leader_done_dir(hydra_out_dir)
+    os.makedirs(d, exist_ok=True)
+    p = os.path.join(d, f"rank_{int(rank)}.done")
+    with open(p, "w", encoding="utf-8") as f:
+        f.write("ok\n")
+
+
+def _leader_markers_all_present(hydra_out_dir: str, grpc_client_ranks: set[int]) -> bool:
+    if not grpc_client_ranks:
+        return True
+    d = _leader_done_dir(hydra_out_dir)
+    for r in grpc_client_ranks:
+        if not os.path.isfile(os.path.join(d, f"rank_{int(r)}.done")):
+            return False
+    return True
 
 
 def run_hybrid_training(cfg, hydra_out_dir: str, ckpt_dir: str) -> None:
@@ -96,7 +128,14 @@ def run_hybrid_training(cfg, hydra_out_dir: str, ckpt_dir: str) -> None:
     )
 
     if rank == rpc_server_rank:
-        _run_grpc_server_only(cfg, rank, hydra_out_dir, rpc_port, rpc_total_clients)
+        _run_grpc_server_only(
+            cfg,
+            rank,
+            hydra_out_dir,
+            rpc_port,
+            rpc_total_clients,
+            grpc_client_ranks=client_ranks,
+        )
         return
 
     delay = 2.0 * float(rank)
@@ -125,7 +164,19 @@ def run_hybrid_training(cfg, hydra_out_dir: str, ckpt_dir: str) -> None:
         default_datamodule_cfg=cfg.datamodule,
     )
     node_cfgs = list(center)
-    node_cfg = node_cfgs[rank]
+    nc = int(cfg.topology.num_clients)
+    if len(node_cfgs) != nc + 1 or len(node_cfgs) != world:
+        raise RuntimeError(
+            f"Hybrid centralized node count mismatch: len(node_configs)={len(node_cfgs)} "
+            f"num_clients={nc} hybrid world={world}"
+        )
+    cen_idx = hybrid_rank_to_centralized_node_index(
+        rank,
+        rpc_server_rank=rpc_server_rank,
+        world_size=world,
+        num_clients=nc,
+    )
+    node_cfg = node_cfgs[cen_idx]
 
     node_name = node_cfg.name
     node_log_dir = os.path.join(hydra_out_dir, node_name)
@@ -212,6 +263,8 @@ def run_hybrid_training(cfg, hydra_out_dir: str, ckpt_dir: str) -> None:
     try:
         for r in range(algorithm.max_rounds):
             algorithm.round_exec(r, algorithm.max_rounds)
+        if rank in client_ranks:
+            _write_leader_done_marker(hydra_out_dir, rank)
     finally:
         if global_comm is not None:
             global_comm.close()
@@ -239,6 +292,8 @@ def _run_grpc_server_only(
     hydra_out_dir: str,
     rpc_port: int,
     rpc_total_clients: int,
+    *,
+    grpc_client_ranks: set[int],
 ) -> None:
     model = instantiate(cfg.model)
     model = model.to(torch.device("cpu"))
@@ -249,9 +304,21 @@ def _run_grpc_server_only(
     per_round = float(
         OmegaConf.select(cfg, "engine.hybrid.server_sec_per_round", default=180.0)
     )
+    shutdown_mode = str(
+        OmegaConf.select(cfg, "engine.hybrid.server_shutdown", default="leader_done")
+    ).lower()
+    poll_sec = float(
+        OmegaConf.select(cfg, "engine.hybrid.leader_done_poll_sec", default=5.0)
+    )
     rounds = int(cfg.global_rounds)
     nap = extra + rounds * per_round
+    nap = max(30.0, nap)
 
+    # Fresh marker dir so a previous run cannot satisfy leader_done prematurely.
+    _reset_leader_done_dir(hydra_out_dir)
+
+    # Flora daemon path requires id==0 (parameter-server role bit), independent of rpc.server_rank /
+    # this process's SLURM_PROCID. See grpc_communicator.py and docs/HYBRID_SLURM_REFERENCE.md §6.
     comm = FloraGrpcComm.GrpcCommunicator(
         model=model,
         id=0,
@@ -262,11 +329,29 @@ def _run_grpc_server_only(
         daemon_server=True,
     )
     print(
-        f"[hybrid] rank={rank} gRPC daemon listening ~{nap:.0f}s "
-        f"(extra={extra}, per_round={per_round}, rounds={rounds})",
+        f"[hybrid] rank={rank} gRPC daemon (Flora id=0 PS) shutdown_mode={shutdown_mode!r}; "
+        f"max_wall={nap:.0f}s (extra={extra}, per_round={per_round}, rounds={rounds})",
         flush=True,
     )
-    time.sleep(max(30.0, nap))
+    deadline = time.monotonic() + nap
+    if shutdown_mode == "sleep":
+        time.sleep(nap)
+    else:
+        if shutdown_mode != "leader_done":
+            warnings.warn(
+                f"Unknown engine.hybrid.server_shutdown={shutdown_mode!r}; using leader_done",
+                UserWarning,
+            )
+        while time.monotonic() < deadline:
+            if _leader_markers_all_present(hydra_out_dir, grpc_client_ranks):
+                print("[hybrid] all gRPC leader markers present; shutting down server.", flush=True)
+                break
+            time.sleep(max(1.0, poll_sec))
+        else:
+            print(
+                f"[hybrid] leader-done wait timed out after {nap:.0f}s; shutting down anyway.",
+                flush=True,
+            )
     comm.grpc_shutdown()
     print(f"[hybrid] rank={rank} gRPC server shut down.", flush=True)
 

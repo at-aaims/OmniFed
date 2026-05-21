@@ -47,8 +47,10 @@ class GrpcCommunicator(Communicator):
         self.accumulate_updates = accumulate_updates
         self.server = None
 
-        # id 0 corresponds to central server...later change this to local_id for central server nodes
-        # to enable dual communication protocols
+        # Flora: only ``id == 0`` starts the daemon gRPC server. That is the *communicator role id*,
+        # not OmniFed hybrid ``SLURM_PROCID``. Hybrid Slurm runs the server **process** on
+        # ``topology.rpc.server_rank`` but must still construct the server with ``id=0`` here unless
+        # this branch is refactored (see Phase B Step 8 notes in docs/HYBRID_SLURM_REFERENCE.md).
         if self.id == 0:
             # grpc send and receive message length max 100MB
             self.server = grpc.server(
