@@ -6,7 +6,7 @@
 # FedAvg) but declares the hybrid lattice **inline** instead of **`conf_hybrid/topology/built_symmetric_2x3.yaml`**.
 # next to **`topology`**, **`algorithm`**, and **`slurm`** in one YAML.
 #
-# See also: **`docs/HYBRID_USER_KNOBS_AND_ROADMAP.md`** §4 (**Phase C**), **`docs/HYBRID_SLURM_REFERENCE.md`** §**4.3** (**Phase D** — Slurm **`nodes`/`ntasks`** vs hybrid **`W`**), and the file‑preset sibling **`conf/test_hybrid_engine_contract.yaml`**.
+# See also: **`docs/archive/hybrid-engine-pipeline/HYBRID_USER_KNOBS_AND_ROADMAP.md`** §4 (**Phase C**), **`docs/archive/hybrid-engine-pipeline/HYBRID_SLURM_REFERENCE.md`** §**4.3** (**Phase D** — Slurm **`nodes`/`ntasks`** vs hybrid **`W`**), and the file‑preset sibling **`conf/test_hybrid_engine_contract.yaml`**.
 #
 # Example (Frontier: add lustre MNIST overrides like the sibling preset):
 #   ./main.sh --config-name test_hybrid_layout_fedavg engine.mode=slurm \

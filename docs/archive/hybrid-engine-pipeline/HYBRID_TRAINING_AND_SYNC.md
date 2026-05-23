@@ -68,6 +68,6 @@ Under the Hydra run directory: **`Node0.<rank>/metrics_*.csv`** (CSV/trace) and 
 
 ## See also
 
-- **`docs/HYBRID_SLURM_REFERENCE.md`** — Frontier checks, topology, Step 7–9.  
-- **`docs/README_TEST_HYBRID_ENGINE_CONTRACT.md`** — preset + file touch map.
-- **`docs/README_HYDRA_RUN_OUTPUTS.md`** — run output folders and **communication timings** (**`sync/*_time`**, **`metrics_*.csv`**).
+- **`./HYBRID_SLURM_REFERENCE.md`** — Frontier checks, topology, Step 7–9.  
+- **`./README_TEST_HYBRID_ENGINE_CONTRACT.md`** — preset + file touch map.
+- **`./README_HYDRA_RUN_OUTPUTS.md`** — run output folders and **communication timings** (**`sync/*_time`**, **`metrics_*.csv`**).

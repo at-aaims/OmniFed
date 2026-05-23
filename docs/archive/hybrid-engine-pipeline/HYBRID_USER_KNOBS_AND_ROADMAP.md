@@ -2,7 +2,7 @@
 
 This document is **Phase A**: **requirements + configuration schema at a conceptual level** only (no implementation mandate here). Implementation status is summarized so **new chats** can align quickly.
 
-See also **`docs/HYBRID_SLURM_REFERENCE.md`** (operations / validation / jobs), **`docs/HYBRID_TRAINING_AND_SYNC.md`** (FedAvg sync cadence), **`docs/README_HYDRA_RUN_OUTPUTS.md`** (artifacts).
+See also **`./HYBRID_SLURM_REFERENCE.md`** (operations / validation / jobs), **`./HYBRID_TRAINING_AND_SYNC.md`** (FedAvg sync cadence), **`./README_HYDRA_RUN_OUTPUTS.md`** (artifacts).
 
 ---
 
@@ -51,7 +51,7 @@ Definitions below **name** knobs the product should expose. Some already exist (
 
 **First milestone (explicit):** **1 GPU ↔ 1 Slurm task ↔ 1 host** wherever possible (**7 nodes, `ntasks_per_node=1`**, seven tasks).
 
-**Implementation story (Phase D):** how **`#SBATCH --ntasks=W`**, **`nodes`**, and **`ntasks_per_node`** line up with hybrid **`layout`** / **`topology_config`** is documented in **`docs/HYBRID_SLURM_REFERENCE.md`** §**4.3** (Engine may bump **`slurm.nodes`** when the requested count is too small for **`W`**).
+**Implementation story (Phase D):** how **`#SBATCH --ntasks=W`**, **`nodes`**, and **`ntasks_per_node`** line up with hybrid **`layout`** / **`topology_config`** is documented in **`./HYBRID_SLURM_REFERENCE.md`** §**4.3** (Engine may bump **`slurm.nodes`** when the requested count is too small for **`W`**).
 
 **Later milestone:** **multiple tasks per node** (e.g. **8 GPUs ⇒ 8 tasks** on fewer nodes) — **`LOCAL_RANK`/device binding** and Slurm coherence must remain well-defined (**Phase E**, not Phase A).
 
@@ -125,7 +125,7 @@ slurm:
 
 | Phase | Description | Status (high level as of Phase A write-up) |
 |-------|--------------|--------------------------------------------|
-| **A** | This document: knobs, schema sketch, communicator intent, phased roadmap | **Delivered (`docs/HYBRID_USER_KNOBS_AND_ROADMAP.md`)** |
+| **A** | This document: knobs, schema sketch, communicator intent, phased roadmap | **Delivered (`./HYBRID_USER_KNOBS_AND_ROADMAP.md`)** |
 | **B** | Single source for **`world_size`** + **alignment checks** (**`topology.num_clients + 1`**, **`SLURM_NTASKS`**, **`len(topology)`**; **`layout`** vs **`topology_config`** must agree if both set) | **Implemented** (**`engine_communication.hybrid_world_size_from_cfg`**, **`validate_hybrid_slurm_topology_alignment`**; hybrid worker + Engine **`resolve_slurm_ntasks`** use the same gates) |
 | **C** | Hydra presets / ergonomics aligning with Figure 2 narrative | **Core sample landed** (**`conf/test_hybrid_layout_fedavg.yaml`**, README + **`tests/test_hybrid_phase_c_preset.py`**); fuller multi-model/dataset bundles still **TBD** |
 | **D** | Slurm user story + docs for **allocation ↔ `ntasks`** (both hybrid presets; Frontier §**4.3**/§**7**) | **Delivered** (**`HYBRID_SLURM_REFERENCE.md`** §**4.3**; **`[Engine] slurm.nodes raised …`** log when auto-bumped — **`engine.py`**) |
@@ -191,10 +191,10 @@ ssh shruti2395@loginNN.frontier.olcf.ornl.gov \
 
 ## See also
 
-- **`docs/HYBRID_SLURM_REFERENCE.md`**
-- **`docs/CHAT_HANDOFF_HYBRID.md`** — paste-ready hybrid Slurm roadmap + Cursor “please read” list (edit § “Today’s ask” per chat).
-- **`docs/HYBRID_TRAINING_AND_SYNC.md`**
-- **`docs/README_HYDRA_RUN_OUTPUTS.md`**
+- **`./HYBRID_SLURM_REFERENCE.md`**
+- **`./CHAT_HANDOFF_HYBRID.md`** — paste-ready hybrid Slurm roadmap + Cursor “please read” list (edit § “Today’s ask” per chat).
+- **`./HYBRID_TRAINING_AND_SYNC.md`**
+- **`./README_HYDRA_RUN_OUTPUTS.md`**
 
 ---
 

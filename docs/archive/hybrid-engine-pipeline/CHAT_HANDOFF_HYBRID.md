@@ -24,19 +24,19 @@ Anything in **§1** distinguishes historical Reference “Steps 6–9” from ro
 
 The validated path today assumes **one named preset** (**`conf_hybrid/topology/built_symmetric_2x3.yaml`**) → **`world_size = 7`**, fixed **outer = gRPC** (facility leaders ↔ central PS) and **inner = Torch distributed / NCCL‑style** per facility.
 
-The longer-term UX is **Figure‑2‑like Hydra configs**: swap **algorithm**, **topology flavor**, **model**, **dataset**, **aggregation schedules**, **hyperparameters**, and—in the hybrid case—**how many facilities**, **trainers per facility**, **allocation (nodes × tasks × GPUs)** and eventually **explicit inner/outer communicator selectors**. **Phase A** captured that intent in **`docs/HYBRID_USER_KNOBS_AND_ROADMAP.md`** without requiring one mega‑YAML rewrite in a single PR.
+The longer-term UX is **Figure‑2‑like Hydra configs**: swap **algorithm**, **topology flavor**, **model**, **dataset**, **aggregation schedules**, **hyperparameters**, and—in the hybrid case—**how many facilities**, **trainers per facility**, **allocation (nodes × tasks × GPUs)** and eventually **explicit inner/outer communicator selectors**. **Phase A** captured that intent in **`./HYBRID_USER_KNOBS_AND_ROADMAP.md`** without requiring one mega‑YAML rewrite in a single PR.
 
 ---
 
 ## 3. What is already landed (assume it stays unless a maintainer says otherwise)
 
 - **Smoke → Engine path:** Topology builder (**`topology_builder.py`**), **`conf_hybrid/`** presets, **`hybrid_comm_smoke`**, Slurm scripts, then **Engine** hybrid branch with **`run_hybrid_training`** (**`slurm_hybrid_runner.py`** etc.).
-- **Training semantics:** **`docs/HYBRID_TRAINING_AND_SYNC.md`** — each **`__sync`**: **`local_agg` → `global_agg` (leaders only) → `local_bcast`**; frequency from **`algorithm.schedules.aggregation`**, not Flora **`comm_freq`** alone.
-- **Frontier checklist:** **`docs/HYBRID_SLURM_REFERENCE.md`** — jobs, **`main.sh`** overrides, offline MNIST, **`--ntasks=world_size`** verification, §7 / §7b re‑checks.
+- **Training semantics:** **`./HYBRID_TRAINING_AND_SYNC.md`** — each **`__sync`**: **`local_agg` → `global_agg` (leaders only) → `local_bcast`**; frequency from **`algorithm.schedules.aggregation`**, not Flora **`comm_freq`** alone.
+- **Frontier checklist:** **`./HYBRID_SLURM_REFERENCE.md`** — jobs, **`main.sh`** overrides, offline MNIST, **`--ntasks=world_size`** verification, §7 / §7b re‑checks.
 - **Slurm ↔ hybrid ranks (Phase D):** **`HYBRID_SLURM_REFERENCE`** §**4.3** (**`nodes`**, **`ntasks_per_node`**, **`#SBATCH --ntasks=W`**); **`[Engine] slurm.nodes raised …`** when **`engine.py`** auto-bumps **`nodes`**.
 - **Phase C layout-first preset:** **`conf/test_hybrid_layout_fedavg.yaml`** (**`tests/test_hybrid_phase_c_preset.py`**) mirrors **`built_symmetric_2x3`** without **`topology_config`**.
 - **Validation (roadmap Phase B):** **`hybrid_world_size_from_cfg`** and **`validate_hybrid_slurm_topology_alignment`** (**`engine_communication.py`**) — **`resolve_slurm_ntasks`** (Engine submit) and **`run_hybrid_training`** (workers) share the same rules: **`topology.num_clients + 1 == world_size`**, **`len(topology)`** match, **`SLURM_NTASKS`** match inside the job, **`layout`** must not contradict **`topology_config`** if both are present.
-- **Touch map for the canonical preset:** **`docs/All_files_touched.md`** (Hydra preset → engine → launcher → hybrid modules).
+- **Touch map for the canonical preset:** **`./All_files_touched.md`** (Hydra preset → engine → launcher → hybrid modules).
 
 ---
 
@@ -61,11 +61,11 @@ Synced with **`HYBRID_USER_KNOBS_AND_ROADMAP.md`** §5. **Important:** **`B` bel
 
 Strongly suggested for anyone picking this up cold:
 
-1. **`docs/HYBRID_USER_KNOBS_AND_ROADMAP.md`** — intent, invariants (**`num_clients + 1 == world_size`**), communicator roadmap, Appendix §8 (Frontier **`rsync`** / paths if present).
-2. **`docs/HYBRID_SLURM_REFERENCE.md`** — what was built, Frontier commands, **`layout`** vs **`topology_config`**, Steps 8–9 behavior.
-3. **`docs/HYBRID_TRAINING_AND_SYNC.md`** — what one sync block does.
-4. **`docs/All_files_touched.md`** — which YAML and Python paths participate in **`test_hybrid_engine_contract`**.
-5. **`docs/README_HYDRA_RUN_OUTPUTS.md`** — where **`node_results`**, **`sync/*_time`**, metrics land.
+1. **`./HYBRID_USER_KNOBS_AND_ROADMAP.md`** — intent, invariants (**`num_clients + 1 == world_size`**), communicator roadmap, Appendix §8 (Frontier **`rsync`** / paths if present).
+2. **`./HYBRID_SLURM_REFERENCE.md`** — what was built, Frontier commands, **`layout`** vs **`topology_config`**, Steps 8–9 behavior.
+3. **`./HYBRID_TRAINING_AND_SYNC.md`** — what one sync block does.
+4. **`./All_files_touched.md`** — which YAML and Python paths participate in **`test_hybrid_engine_contract`**.
+5. **`./README_HYDRA_RUN_OUTPUTS.md`** — where **`node_results`**, **`sync/*_time`**, metrics land.
 
 Then open implementation **as needed**:
 

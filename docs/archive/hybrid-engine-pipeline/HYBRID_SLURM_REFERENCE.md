@@ -2,7 +2,7 @@
 
 This document records **what we set out to do**, **the phased steps**, **what is implemented in the codebase**, **what was validated on Frontier**, and optional **experiment follow-ups**. Keep it next to `conf_hybrid/` and `src/omnifed/hybrid/`.
 
-For **Figure 2‑style user knobs, schema sketch, and Phases A–F backlog** (**requirements Phase A**), see **`docs/HYBRID_USER_KNOBS_AND_ROADMAP.md`** (distinct from §2 historical “Phase A smoke” below). For **Slurm `nodes`/`ntasks` vs hybrid `world_size`**, see §**4.3** below (**Phase D**).
+For **Figure 2‑style user knobs, schema sketch, and Phases A–F backlog** (**requirements Phase A**), see **`./HYBRID_USER_KNOBS_AND_ROADMAP.md`** (distinct from §2 historical “Phase A smoke” below). For **Slurm `nodes`/`ntasks` vs hybrid `world_size`**, see §**4.3** below (**Phase D**).
 
 ---
 
@@ -225,11 +225,11 @@ head -30 "$OUT/engine/node_results/node_001_results.json"
 
 ### 4.1 Training loop & sync cadence (FedAvg hybrid)
 
-Detailed walkthrough (**minibatches, epochs, `local_agg` → leader gRPC → `local_bcast`**, vs **`algorithm.schedules.aggregation`** / **`round_end`**) lives in **`docs/HYBRID_TRAINING_AND_SYNC.md`**. In short:
+Detailed walkthrough (**minibatches, epochs, `local_agg` → leader gRPC → `local_bcast`**, vs **`algorithm.schedules.aggregation`** / **`round_end`**) lives in **`./HYBRID_TRAINING_AND_SYNC.md`**. In short:
 
 - One **`BaseAlgorithm.__sync()`** invocation (when **`schedules.aggregation`** says so — typically **`round_end`**) executes **facility reduce → gRPC merge at facility leaders → facility broadcast** **back-to-back**; **non-leader** ranks **skip** the gRPC block but still do **facility** reduce + **receive** broadcast.
 - **Frequency** is **not** a single Flora **`comm_freq`** in OmniFed; it comes from **`conf/algorithm/schedules/aggregation/*.yaml`**, plus **`global_rounds`** and **`algorithm.max_epochs_per_round`**.
-- **Output artifacts** (**`Node0.*/`**, **`engine/node_results/`**, CSV **`sync/`** timing keys): **`docs/README_HYDRA_RUN_OUTPUTS.md`**.
+- **Output artifacts** (**`Node0.*/`**, **`engine/node_results/`**, CSV **`sync/`** timing keys): **`./README_HYDRA_RUN_OUTPUTS.md`**.
 
 ### 4.2 Runtime hybrid topology (`engine.hybrid.layout`)
 
@@ -410,10 +410,10 @@ Hygiene from **Steps 8–9** above is landed. Practical next explorations:
 | 2026-05 | Frontier Step 7 validated: job **4625686** (`COMPLETED`); job **4625007** MNIST download failure documented; **§5.4** / Step 4 use offline MNIST; fork URL **[dshruti20/OmniFed](https://github.com/dshruti20/OmniFed)**; **§7** adds explicit **Next step** (Step 8 → 9). |
 | 2026-05 | **Steps 8–9** landed: Flora **`id==0`** doc + **`leader_done`** shutdown (default); **`hybrid_rank_to_centralized_node_index`** + tests; README / YAML / **`main.sh`**; **§6** rewritten from “remaining” → “implemented + follow-ups.” |
 | 2026-05 | **§7b** added: minimal Frontier checklist to re-verify Steps **8–9** after `git pull` / **`rsync`**. |
-| 2026-05 | **§4.1** + **`docs/HYBRID_TRAINING_AND_SYNC.md`**: FedAvg hybrid training/sync ordering and schedule vs **`comm_freq`**. |
-| 2026-05 | **`docs/README_HYDRA_RUN_OUTPUTS.md`**: catalog of **`outputs/…`** artifacts + **`sync/*_time`** metrics. §4.1 cross-link. |
+| 2026-05 | **§4.1** + **`./HYBRID_TRAINING_AND_SYNC.md`**: FedAvg hybrid training/sync ordering and schedule vs **`comm_freq`**. |
+| 2026-05 | **`./README_HYDRA_RUN_OUTPUTS.md`**: catalog of **`outputs/…`** artifacts + **`sync/*_time`** metrics. §4.1 cross-link. |
 | 2026-05 | **`engine.hybrid.layout`**: runtime **`build_hybrid_topology`** (**§4.2**) supersedes **`topology_config`** when set (both must imply same **`world_size`** — **`validate_hybrid_slurm_topology_alignment`**). |
-| 2026-05 | **`docs/HYBRID_USER_KNOBS_AND_ROADMAP.md`**: Phase A requirements + roadmap (**user knobs / schema sketch / Phases A–F**); intro links here vs historical §2 Phase A smoke. |
+| 2026-05 | **`./HYBRID_USER_KNOBS_AND_ROADMAP.md`**: Phase A requirements + roadmap (**user knobs / schema sketch / Phases A–F**); intro links here vs historical §2 Phase A smoke. |
 | 2026-05 | **`conf/test_hybrid_layout_fedavg`**: Phase C layout-first preset + **`§5.4`** / **`§7b`** pointers; **`tests/test_hybrid_phase_c_preset`**. |
 | 2026-05 | **Phase D:** **`HYBRID_SLURM_REFERENCE`** §**4.3** (Slurm **`nodes`/`ntasks`** ↔ hybrid **`W`**); §**3** pre-checks + §**7** parity note; **`[Engine] slurm.nodes raised …`** (**`engine.py`**). |
 

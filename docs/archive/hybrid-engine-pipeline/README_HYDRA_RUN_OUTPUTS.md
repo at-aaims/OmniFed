@@ -186,7 +186,7 @@ Repo root:
 
 ## 7. Related docs
 
-- **`docs/HYBRID_SLURM_REFERENCE.md`** — Frontier validation, topology, **`sbatch`** notes.  
-- **`docs/HYBRID_TRAINING_AND_SYNC.md`** — when **`local_agg` → global gRPC → `local_bcast`** run vs **`round_end`**.  
-- **`docs/README_TEST_HYBRID_ENGINE_CONTRACT.md`** — preset CLI + codebase touch map.  
+- **`./HYBRID_SLURM_REFERENCE.md`** — Frontier validation, topology, **`sbatch`** notes.  
+- **`./HYBRID_TRAINING_AND_SYNC.md`** — when **`local_agg` → global gRPC → `local_bcast`** run vs **`round_end`**.  
+- **`./README_TEST_HYBRID_ENGINE_CONTRACT.md`** — preset CLI + codebase touch map.  
 - **`src/omnifed/hybrid/hybrid_run_summary.py`** — implementation of **`hybrid_per_round_summary.*`**.

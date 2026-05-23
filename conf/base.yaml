@@ -135,7 +135,7 @@ hydra:
 
 slurm:
   # Hybrid (``engine.communication_mode=hybrid``): Engine sets ``#SBATCH --ntasks=W`` where
-  # ``W`` = hybrid ``world_size``. Choose ``nodes × ntasks_per_node >= W`` (``docs/HYBRID_SLURM_REFERENCE.md`` §4.3);
+  # ``W`` = hybrid ``world_size``. Choose ``nodes × ntasks_per_node >= W`` (``docs/archive/hybrid-engine-pipeline/HYBRID_SLURM_REFERENCE.md`` §4.3);
   # if ``nodes`` is too small, Engine may raise it and log ``[Engine] slurm.nodes raised …``.
   enabled: false
   account: null
@@ -175,7 +175,7 @@ engine:
     layout: null
     # Optional; merged onto hybrid cfg ``training`` (e.g. dataset_total_clients) when using ``layout``.
     training: null
-    # Hybrid Slurm RPC server lifetime (see docs/HYBRID_SLURM_REFERENCE.md).
+    # Hybrid Slurm RPC server lifetime (see docs/archive/hybrid-engine-pipeline/HYBRID_SLURM_REFERENCE.md).
     server_run_extra_sec: 120
     server_sec_per_round: 300
     # sleep = fixed heuristic; leader_done = wait until each gRPC leader rank touches a marker (max wait below).

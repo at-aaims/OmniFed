@@ -222,7 +222,7 @@ Notes:
 
 - **`main.sh`** invokes **`grpc_tools.protoc`** on `./src/omnifed/communicator/grpc.proto` before **`main.py`**.
 - **`slurm.nodes=7`** matches preset **`topology.num_clients=6`** + dedicated RPC ⇒ **`world_size=7`**.
-- **NCCL** is still chosen for **`topology.local_comm.backend: nccl`**; **`NCCL_SOCKET_IFNAME`** (or OLCF FABRIC vars) only if multi‑node Torch MPI misbehaves — see **`docs/HYBRID_SLURM_REFERENCE.md`**.
+- **NCCL** is still chosen for **`topology.local_comm.backend: nccl`**; **`NCCL_SOCKET_IFNAME`** (or OLCF FABRIC vars) only if multi‑node Torch MPI misbehaves — see **`./HYBRID_SLURM_REFERENCE.md`**.
 
 ### I. Queue & logs
 
@@ -323,7 +323,7 @@ Follow **[Frontier procedure (login → data → submit)](#frontier-procedure-lo
 | `src/omnifed/hybrid/slurm_hybrid_runner.py` | Sets **`OMNIFED_FEDERATED_CLIENT_INDEX`** and **`OMNIFED_CENTRALIZED_NODE_INDEX`** before **`instantiate(cfg.datamodule)`** for per-client C4 **train** shards. |
 | `src/omnifed/algorithm/__init__.py` | Exports **`FedAvgLLM`**. |
 | `requirements.txt` | Adds **`datasets`**, **`transformers`**, **`sentencepiece`**. |
-| `docs/HYBRID_LLAMA150M_C4_ROADMAP.md` | Status, paths, Phase 2 landed, this inventory. |
+| `./HYBRID_LLAMA150M_C4_ROADMAP.md` | Status, paths, Phase 2 landed, this inventory. |
 
 ---
 
@@ -379,11 +379,11 @@ Follow **[Frontier procedure (login → data → submit)](#frontier-procedure-lo
 
 ## Related docs
 
-- `docs/CHAT_HANDOFF_HYBRID.md` — hybrid roadmap snapshot (A–D done; E/F deferred).
-- `docs/HYBRID_USER_KNOBS_AND_ROADMAP.md` — invariants (**`num_clients + 1 == world_size`**).
-- `docs/HYBRID_SLURM_REFERENCE.md` — Frontier submit, **`layout`**, Steps 8–9.
-- `docs/HYBRID_TRAINING_AND_SYNC.md` — one **`__sync`** block.
-- `docs/README_HYDRA_RUN_OUTPUTS.md` — **`node_results`**, per-round hybrid summary.
+- `./CHAT_HANDOFF_HYBRID.md` — hybrid roadmap snapshot (A–D done; E/F deferred).
+- `./HYBRID_USER_KNOBS_AND_ROADMAP.md` — invariants (**`num_clients + 1 == world_size`**).
+- `./HYBRID_SLURM_REFERENCE.md` — Frontier submit, **`layout`**, Steps 8–9.
+- `./HYBRID_TRAINING_AND_SYNC.md` — one **`__sync`** block.
+- `./README_HYDRA_RUN_OUTPUTS.md` — **`node_results`**, per-round hybrid summary.
 
 ---
 

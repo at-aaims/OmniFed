@@ -341,7 +341,7 @@ def _run_grpc_server_only(
     _reset_leader_done_dir(hydra_out_dir)
 
     # Flora daemon path requires id==0 (parameter-server role bit), independent of rpc.server_rank /
-    # this process's SLURM_PROCID. See grpc_communicator.py and docs/HYBRID_SLURM_REFERENCE.md §6.
+    # this process's SLURM_PROCID. See grpc_communicator.py and docs/archive/hybrid-engine-pipeline/HYBRID_SLURM_REFERENCE.md §6.
     comm = FloraGrpcComm.GrpcCommunicator(
         model=model,
         id=0,
