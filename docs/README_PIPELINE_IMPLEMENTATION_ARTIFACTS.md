@@ -1,25 +1,28 @@
-# Hybrid pipeline — implementation artifacts (what we added and why)
+# Hybrid pipeline — what we wired in and where it landed
 
-This document complements **`README_FRONTIER_EXPERIMENTS.md`**. That file tells a **collaborator or PI-facing runner** *how to launch* jobs. **This** file catalogs **important source files, configs, and scripts**, explains **why they exist**, and shows **where they sit in the execution graph**.
+**Scope of this section:** companion to **`README_FRONTIER_EXPERIMENTS.md`**. That file walks through OLCF Frontier in the chronological order **we experimented**; **this one** inventories the **YAML / Python / shell** pieces introduced or touched so the hybrid path could ride the same Engine **`slurm_worker`** door as TorchDistrib—not a second codebase, **not** a fork of Flora, just branching behavior once **`communication_mode`** flips.
+
+**Suggested placement:** right after **`README_FRONTIER_EXPERIMENTS.md`** inside `docs/` (or as a sibling chapter in a combined handbook) so collaborators who already reproduced jobs can pivot to implementation detail without drowning in **`./archive/hybrid-engine-pipeline/`**.
+
+**Relationship between the two readmes.**
+
+- **`README_FRONTIER_EXPERIMENTS`** answers “**what ran**,” with enough commands to rerun the ladder (central → smoke → contract → layout → scale → LM).
+
+- **`README_PIPELINE_IMPLEMENTATION_ARTIFACTS`** (this file) answers “**what files implement that ladder**”—the Engine freeze path, validators, communicator adapters, patched FedAvg **`__sync`**, hybrid summary stitching, LM sharding hooks.
+
+Older write-ups (**`HYBRID_SLURM_REFERENCE`**, knobs roadmap, artefact glossary) deliberately live under **`./archive/hybrid-engine-pipeline/`**. We skim them here **by filename** rather than rewriting their prose.
 
 ---
 
-## Purpose of these two READMEs (at `docs/` root)
+## How execution actually flowed (Condensed snapshot)
 
-| File | Audience / goal |
-|------|------------------|
-| **`README_FRONTIER_EXPERIMENTS.md`** | Ordered **Frontier commands** from engine/centralized checks through hybrid smoke, full hybrid MNIST, scale-up, optional LM — for **reproduction and demos**. |
-| **`README_PIPELINE_IMPLEMENTATION_ARTIFACTS.md` (this file)** | **Engineering map**: new or touched modules, YAML, shell — **rationale** and **call graph** so maintainers can extend the pipeline without rereading the whole repo. |
-
----
-
-## End-to-end execution graph (short)
+Once **`main.sh`** regenerated protobufs and spawned **`Engine`**, the login-node story always paired **`engine_frozen.json`** with **`sbatch`**. Hybrid **only** rewired compute-side **`slurm_worker`** when **`communication_mode`** said so—no alternate batch template.
 
 ```text
 main.sh  →  grpc protoc  →  main.py  →  Engine (login)
                 │                              │
                 │                              ├─ freeze cfg → outputs/.../engine_frozen.json
-                │                              ├─ resolve_slurm_ntasks (hybrid W)
+                │                              ├─ resolve_slurm_ntasks → hybrid W
                 │                              └─ SlurmOnlyLauncher → sbatch omnifed_slurm_only.sh
 
 Compute:  srun … slurm_worker --cfg-json <frozen>
@@ -29,126 +32,115 @@ Compute:  srun … slurm_worker --cfg-json <frozen>
                 └─ communication_mode == hybrid   →  run_hybrid_training (slurm_hybrid_runner)
                             │
                             ├─ load topology (layout or conf_hybrid YAML) + patch addresses (slurm_hostlist)
-                            ├─ rank 0: Flora gRPC parameter server (optional leader_done shutdown)
-                            ├─ others: TorchMPI per facility + GrpcLeader on facility leaders
-                            ├─ install_hybrid_slurm_sync → FedAvg __sync_comm = local_agg → global_agg → local_bcast
-                            └─ algorithm.round_exec → node_results + hybrid_per_round_summary
+                            ├─ dedicated RPC rank: Flora gRPC parameter server (shutdown via leader_done)
+                            ├─ trainers: TorchMPI per facility + gRPC-only on facility leaders
+                            ├─ install_hybrid_slurm_sync patches FedAvg: local_agg → global_agg → local_bcast
+                            └─ algorithm.round_exec → engine/node_results + hybrid_per_round_summary
 ```
 
----
-
-## Shell and entrypoints
-
-| Path | Role |
-|------|------|
-| **`main.sh`** | Export debug/Hydra env; **compile** `src/omnifed/communicator/grpc.proto`; invoke **`python -u main.py`**. Hybrid **example one-liner** commented in file header. |
-| **`main.py`** | Hydra entry; builds **`Engine`**, dispatches experiment / SLURM submit. |
-| **`test_scripts/slurm_frontier/hybrid_comm_smoke.slurm`** | Phase A **batch** driver for **`hybrid_comm_smoke`** (multi-node collectives + gRPC without Engine FedAvg). |
-| **`test_scripts/slurm_frontier/run_hybrid_smoke_one_task.sh`** | Per-task helper invoked by smoke Slurm script (env, backend, **ROCR→HIP** device visibility). |
-| **`omnifed_slurm_only.sh`** | **Generated** at repo root by **`slurm_launcher.py`** (last submit wins); inspect for **`--ntasks`**, modules, **`PYEXE`**. |
+Validators (**`validate_hybrid_slurm_topology_alignment`**, **`hybrid_world_size_from_cfg`**) deliberately sit beside **`resolve_slurm_ntasks`** because **we burnt time** chasing **`SLURM_NTASKS != W`** and **`topology.num_clients + 1 != world_size`**; keeping those checks centralized meant login submit and worker bootstrapping shared one story.
 
 ---
 
-## Engine, communication mode, SLURM launch
+## Shell + entry scripts
 
-| Path | Role |
-|------|------|
-| **`src/omnifed/engine.py`** | Login-side orchestration: **freeze** Hydra cfg for workers, **`resolve_slurm_ntasks`** for hybrid **`W`**, may **bump `slurm.nodes`** so capacity ≥ **`W`**; submits batch script. |
-| **`src/omnifed/engine_communication.py`** | **`communication_mode`**, **`hybrid_world_size_from_cfg`**, **`validate_hybrid_slurm_topology_alignment`**, **`load_hybrid_cfg_for_engine`** — single place for **`world_size`** and **topology vs SLURM** consistency. |
-| **`src/omnifed/slurm_launcher.py`** | Writes **`#SBATCH`**, merges stdout/stderr, **`srun`** → **`slurm_worker`**. |
-| **`src/omnifed/slurm_worker.py`** | **Branch:** hybrid → **`run_hybrid_training`** then exit; else classic distributed path. |
-| **`conf/base.yaml`** | Defaults for **`engine.hybrid.*`** (**`layout`**, **`topology_config`**, **`server_shutdown`**, **`leader_done_poll_sec`**, etc.) and **`slurm.*`**. |
-
----
-
-## Hybrid runtime package (`src/omnifed/hybrid/`)
-
-| Path | Role |
-|------|------|
-| **`slurm_hybrid_runner.py`** | **Main orchestrator:** build/load topology; map **`hybrid_rank_to_centralized_node_index`** → correct **`node_cfgs`**; start RPC server rank vs trainers; wire **`GrpcLeaderCommunicator`**, **`TorchMPIAdapter`**, **`HybridCommBridge`**; **`install_hybrid_slurm_sync`**; run **`algorithm.round_exec`**; write **`node_results`**; **`leader_done`** files for clean PS shutdown; sets **`OMNIFED_FEDERATED_CLIENT_INDEX`** / **`OMNIFED_CENTRALIZED_NODE_INDEX`** before **`instantiate(cfg.datamodule)`** (used by LM C4 sharding). |
-| **`topology_builder.py`** | **`build_hybrid_topology`** — resolves **`world_size`**, facilities, RPC client ranks, communicators metadata. |
-| **`hydra_loader.py`** | Compose **`conf_hybrid`** topology YAML and merge into resolved dict for Engine/worker. |
-| **`topology_roles.py`** | Facility membership helpers; **`hybrid_rank_to_centralized_node_index`** (RPC server → centralized slot 0; trainers → 1…N). |
-| **`slurm_hostlist.py`** | Patch **`rpc` / facility MPI** listen/connect addresses from **`SLURM_JOB_NODELIST`** ordering. |
-| **`addr_env.py`** | Optional address/port overrides for multi-job debugging. |
-| **`torch_mpi_adapter.py`** | Adapts Flora **`TorchMPICommunicator`** to **`BaseCommunicator`** for **`local_comm`**. |
-| **`grpc_leader_comm.py`** | Facility **leaders** use Flora **`GrpcCommunicator`** as **`global_comm`** for **`aggregate`**. |
-| **`comm_bridge.py`** | Passes **sample counts** from facility reduce into weighted **global** gRPC step. |
-| **`hybrid_slurm_sync.py`** | Monkey-patches **`BaseAlgorithm._BaseAlgorithm__sync_comm`**: **`local_agg` → `global_agg` (leaders only) → `local_bcast`**. |
-| **`hybrid_comm_smoke.py`** | Phase A **smoke** — no dataset; one collective + one gRPC round per roles. |
-| **`hybrid_run_summary.py`** | After training, **one writer rank** waits for all **`node_*_results.json`**, builds **`hybrid_per_round_summary.{txt,csv}`** and run-root CSV copy (used for quick PI tables). |
+| Artifact | Why it exists / how we used it |
+|----------|--------------------------------|
+| **`main.sh`** | Standard driver: protobuf compile, **`PYTHONUNBUFFERED`**, **`HYDRA_FULL_ERROR`**, forwarded Hydra overrides; hybrid **`main.sh` comments accumulated** Frontier one-liners as presets stabilized. |
+| **`main.py`** | Hydra entry that instantiates **`Engine`**; untouched philosophically—we only leaned on richer **`cfg.engine.hybrid`** + **`cfg.engine.communication_mode`**. |
+| **`test_scripts/slurm_frontier/hybrid_comm_smoke.slurm`** | Thin Slurm façade over **`hybrid_comm_smoke.py`** during Phase-A—proof of TorchMPI lanes + Flora without FedAvg scaffolding. |
+| **`test_scripts/slurm_frontier/run_hybrid_smoke_one_task.sh`** | Per-task glue (env, ROCm HIP visibility tweaks) we iterated on beside OLCF ROCm quirks. |
+| **`omnifed_slurm_only.sh`** (**generated**) | Emitter output from **`slurm_launcher.py`**; **`--ntasks=W`** scrutiny happened here repeatedly because **`nodes`** knobs misled collaborators even when **`W`** matched. |
 
 ---
 
-## Flora / legacy communicators (selected)
+## Engine lane + communication mode (**Sabiha’s SLURM path**, extended here for hybrid)
 
-| Path | Role |
-|------|------|
-| **`src/flora/communicator/grpc_communicator.py`** | Central **PS** daemon (**`id==0`** contract) and **client** aggregates; hybrid documents **`rpc.server_rank`** vs Flora **`id`**. |
-| **`src/flora/communicator/torch_mpi.py`** | Process-group backend for **intra-facility** collectives. |
-
----
-
-## Hydra: hybrid presets and topology files
-
-| Path | Role |
-|------|------|
-| **`conf/test_hybrid_engine_contract.yaml`** | Hybrid Slurm preset using **`engine.hybrid.topology_config` → built_symmetric_2x3**; **`topology.num_clients: 6`**. |
-| **`conf/test_hybrid_layout_fedavg.yaml`** | **Layout-first** preset — same 7-rank lattice via **`engine.hybrid.layout`** only (**Phase C**). |
-| **`conf_hybrid/topology/built_symmetric_2x3.yaml`** | Named **2×3 + dedicated RPC** topology (**`world_size=7`**). |
-| **`conf_hybrid/base.yaml`**, **`conf_hybrid/runtime/default.yaml`** | **`conf_hybrid`** package defaults (mostly parity / seeds; training uses main **`cfg`**). |
-| **`tests/test_hybrid_phase_c_preset.py`** | Asserts **layout vs file** topology produce **same validation** / **`world_size`**. |
+| Artifact | Narrative hook |
+|----------|----------------|
+| **`src/omnifed/engine.py`** | Login orchestration inherited from SLURM Engine work: **`engine_frozen.json`**, launcher emission, optional **`nodes` bump**. Hybrid threaded **`resolve_slurm_ntasks`** so **`#SBATCH --ntasks=W`** tracked **`layout` / `topology_config`**. |
+| **`src/omnifed/engine_communication.py`** | Where **`communication_mode`** was interpreted and **`hybrid_world_size_from_cfg`** / **`validate_hybrid_slurm_topology_alignment`** / **`load_hybrid_cfg_for_engine`** landed—replacing scattered ad hoc checks. |
+| **`src/omnifed/slurm_launcher.py`** | Still emits **`sbatch`** / **`srun`** into **`python -m src.omnifed.slurm_worker`**; template tweaks (**merged logs**, Frontier **`setup_lines`**, etc.) grew beside OLCF quirks. |
+| **`src/omnifed/slurm_worker.py`** | Branches on **`communication_mode`**: hybrid delegates to **`run_hybrid_training`** and exits early; centralized path unchanged. |
+| **`conf/base.yaml`** | Collected **`engine.hybrid.*`** defaults (**`leader_done_poll_sec`**, **`server_shutdown`**, …) once **`leader_done`** replaced naive sleep-only PS shutdown notes on Frontier. |
 
 ---
 
-## LM extension (FedAvg + Hugging Face causal LM + C4 disk)
+## Hybrid runtime package (**`src/omnifed/hybrid/`**)
 
-| Path | Role |
-|------|------|
-| **`src/omnifed/algorithm/fedavg_llm.py`** | **`FedAvgLLM`** — HF **`dict`** forward, **AdamW**, batch size from **`input_ids`**; pairs with federated LM datamodule. |
-| **`src/omnifed/algorithm/__init__.py`** | Exports **`FedAvgLLM`**. |
-| **`src/omnifed/data/lm_datamodule.py`** | **`build_c4_lm_datamodule`** — **`datasets.load_from_disk`**, **`Dataset.shard`** on **train** by **`OMNIFED_FEDERATED_CLIENT_INDEX`**. |
-| **`src/omnifed/model/hf_causal_lm.py`** | **`load_llama_from_pretrained_checkpoint`** for Hydra **`instantiate`**. |
-| **`conf/algorithm/fedavg_llm.yaml`** | Algorithm group default for **`FedAvgLLM`**. |
-| **`conf/model/llama150m_hf_disk.yaml`** | Offline **`LlamaForCausalLM.from_pretrained`** via **`OMNIFED_LLAMA_WEIGHTS`**. |
-| **`conf/datamodule/c4_lm_federated_disk.yaml`** | C4 disk root via **`OMNIFED_C4_DISK`**; **`num_federated_clients`** must be set **literally** per job (match **`topology.num_clients`**). |
-| **`conf/test_fedavg_llm_centralized_torchdist.yaml`** | **Centralized** LM stack (TorchDist) — parent of hybrid LM preset. |
-| **`conf/test_hybrid_layout_fedavg_llama150m.yaml`** | **Hybrid Slurm** + same lattice as **`test_hybrid_layout_fedavg`** + composes LM centralized bundle. |
-| **`tests/test_lm_collate_utils.py`** | Unit tests for LM collate / batch helpers used by the LM datamodule path. |
-| **`requirements.txt`** | Adds **`datasets`**, **`transformers`**, **`sentencepiece`** (and peers) for LM path. |
+Most of this surfaced while stitching Flora’s **`TorchMPICommunicator`** lanes to OmniFed **`BaseAlgorithm.__sync`** without breaking FedAvg semantics.
 
-**Integration note:** LM presets **reuse** the same **`run_hybrid_training`** loop; only **model / algorithm / datamodule** groups change. Sharding depends on env vars set in **`slurm_hybrid_runner.py`**.
+| Module | Narrative hook |
+|--------|----------------|
+| **`slurm_hybrid_runner.py`** | The spine: topology resolution, **`hybrid_rank_to_centralized_node_index`** (RPC rank maps to OmniFed **`Node0.0`** conventions), communicator wiring per rank, **`install_hybrid_slurm_sync`**, **`algorithm.round_exec`**. **`OMNIFED_FEDERATED_CLIENT_INDEX`** / **`OMNIFED_CENTRALIZED_NODE_INDEX`** landed ahead of **`instantiate(cfg.datamodule)`** so C4 federation stayed reproducible **without slicing datasets by hand per rank in YAML**. |
+| **`topology_builder.py`** | **`build_hybrid_topology`** so symmetric / asymmetric **`mpi_ranks_per_facility`** lists matched Figure-2-esque YAML without hand-written rank enums. |
+| **`hydra_loader.py`** | Merged **`conf_hybrid`** assets when **`topology_config`** pointed into that package. |
+| **`topology_roles.py`** | Role queries + **`hybrid_rank_to_centralized_node_index`**—critical once centralized CFG slots diverged from raw **`SLURM_PROCID`**. |
+| **`slurm_hostlist.py`** **`addr_env.py`** | Materialized sane RPC / intra-facility **`MASTER_*`** tuples from Frontier hostlists after we chased connection failures tied to bogus defaults. |
+| **`torch_mpi_adapter.py`** **`grpc_leader_comm.py`** **`comm_bridge.py`** | Translator layer bridging Flora communicators → OmniFed aggregator expectations; **`comm_bridge`** carried sample weights so Flora’s global **`SUM`** behaved like federated averages. |
+| **`hybrid_slurm_sync.py`** | Monkey-patch replacing vanilla **`torch.distributed`** all-reduce choreography with **`local_agg`** → Flora **`global_agg` (leaders)** → **`local_bcast`** in one inseparable **`__sync`**. |
+| **`hybrid_comm_smoke.py`** | Deliberately tiny harness used before **`run_hybrid_training`** matured. |
+| **`hybrid_run_summary.py`** | Post-training stitcher generating **`hybrid_per_round_summary.(csv|txt)`** plus run-root **`hybrid_per_round_summary.csv`** for PI-friendly spreadsheets—grown after we struggled to diff **`sync/global_agg_time`** across leaders manually in JSON shards. |
 
 ---
 
-## Documentation map (**`archive/hybrid-engine-pipeline/`**)
+## Flora intersections we leaned on (**no fork**—comments only where behaviour surprised us)
 
-| Path | Contents |
-|------|----------|
-| **`archive/hybrid-engine-pipeline/HYBRID_SLURM_REFERENCE.md`** | Master operations reference — Phase A/B steps, Frontier commands, **`--ntasks`** story, validated job IDs. |
-| **`archive/hybrid-engine-pipeline/HYBRID_USER_KNOBS_AND_ROADMAP.md`** | User knobs schema, roadmap phases **B–F**, invariants. |
-| **`archive/hybrid-engine-pipeline/HYBRID_TRAINING_AND_SYNC.md`** | **`__sync`** ordering (**`local_agg` → global → `local_bcast`**), **`round_exec`**, **`global_rounds`**, vs **`algorithm.schedules.aggregation`**. |
-| **`archive/hybrid-engine-pipeline/README_HYDRA_RUN_OUTPUTS.md`** | Artifact catalog — **`node_results`**, **`hybrid_per_round_summary`**, timing columns. |
-| **`archive/hybrid-engine-pipeline/README_TEST_HYBRID_ENGINE_CONTRACT.md`** | Extended preset touch map (duplicate summary in **`All_files_touched.md`**). |
-| **`archive/hybrid-engine-pipeline/CHAT_HANDOFF_HYBRID.md`** | Snapshot for new sessions — phases done vs deferred (**E**, **F**). |
-| **`archive/hybrid-engine-pipeline/HYBRID_LLAMA150M_C4_ROADMAP.md`** | LM data prep, **`OMNIFED_*`**, scaling table, **Frontier procedure** script block. |
-| **`archive/hybrid-engine-pipeline/All_files_touched.md`** | Legacy mirror of contract README touch list. |
+| Path | Narrative hook |
+|------|----------------|
+| **`src/flora/communicator/grpc_communicator.py`** | Flora’s **`GrpcCommunicator`** still expects **`id == 0`** for daemon wiring even when OmniFed’s RPC-only rank is elsewhere (**`topology.rpc.server_rank`**); we documented rather than forking Flora. |
+| **`src/flora/communicator/torch_mpi.py`** | Facility intra-communicators—unchanged mechanically, reused through **`torch_mpi_adapter`**. |
 
 ---
 
-## Deferred engineering (for context)
+## Hydra surfaces we leaned on (**hybrid presets + topology artefacts**)
 
-From **`archive/hybrid-engine-pipeline/CHAT_HANDOFF_HYBRID.md`** / **`archive/hybrid-engine-pipeline/HYBRID_USER_KNOBS_AND_ROADMAP.md`**:
+| File | Narrative hook |
+|------|----------------|
+| **`conf/test_hybrid_engine_contract.yaml`** | First end-to-end hybrid preset pinning **`topology_config`** to **`built_symmetric_2x3`**. |
+| **`conf/test_hybrid_layout_fedavg.yaml`** | Same **`W`** as contract preset but spelled entirely via **`engine.hybrid.layout`**, proving ergonomics validators covered both YAML styles. |
+| **`conf_hybrid/topology/built_symmetric_2x3.yaml`** | Named reproducible **`2 × 3 + RPC`** lattice we referenced in Frontier validation jobs. |
+| **`conf_hybrid/base.yaml`** **`runtime/default.yaml`** | Minor defaults / seeds—primary training toggles stayed in main **`cfg`**. |
+| **`tests/test_hybrid_phase_c_preset.py`** | Regression ensuring **`compose`** parity between **`layout`** vs **`topology_config` interpretations. |
 
-- **Phase E:** **`ntasks_per_node > 1`**, **`LOCAL_RANK`**, multi-GPU binding — **not** part of first LM milestone.  
-- **Phase F:** Pluggable **`inner_comm` / `outer_comm`** — communicators today are **declarative** in YAML with **fixed** wiring.
+LM-specific Hydra tails (**`fedavg_llm`**, **`llama150m_hf_disk`**, **`c4_lm_federated_disk`**, **`test_hybrid_layout_fedavg_llama150m`**) sit in the LM table below—we split them consciously so MNIST regressions stayed **`test_hybrid_*`** only.
 
 ---
 
-## Maintenance
+## LM extension (**FedAvgLLM**, C4 disk, Llama weights)
 
-When you add a new **preset** or **communicator**, update:
+FedAvg tensors still averaged exactly as CNN runs; causal LM swapped forward/loss shaping + adam + sharded **`Dataset`**.
 
-1. This file’s tables (short description + integration point).  
-2. **`README_FRONTIER_EXPERIMENTS.md`** if the PI-facing command sequence changes.  
-3. The deep reference in **`archive/hybrid-engine-pipeline/HYBRID_SLURM_REFERENCE.md`** if Frontier validation or invariants change.  
+| Artefact | Narrative hook |
+|----------|----------------|
+| **`src/omnifed/algorithm/fedavg_llm.py`**, **`conf/algorithm/fedavg_llm.yaml`** | Thin FedAvg descendant accepting HF **`dict`** batches + AdamW—kept separate from **`fedavg.py`** on purpose. |
+| **`src/omnifed/data/lm_datamodule.py`**, **`conf/datamodule/c4_lm_federated_disk.yaml`**, **`tests/test_lm_collate_utils.py`** | **`build_c4_lm_datamodule`** plus collate tests; federation keyed via **`OMNIFED_*`** env set in **`slurm_hybrid_runner.py`** before **`instantiate(cfg.datamodule)`**. |
+| **`src/omnifed/model/hf_causal_lm.py`** **`conf/model/llama150m_hf_disk.yaml`** | HF **`from_pretrained`** path wired for offline Frontier trees via **`OMNIFED_LLAMA_WEIGHTS`**. |
+| **`conf/test_fedavg_llm_centralized_torchdist.yaml`**, **`conf/test_hybrid_layout_fedavg_llama150m.yaml`** | Central TorchDistrib LM stack + hybrid Slurm composition mirroring **`test_hybrid_layout_fedavg`**’s lattice. |
+| **`requirements.txt`** | Declared **`datasets`**, **`transformers`**, **`sentencepiece`**, **`huggingface_hub`** so Frontier login prep matched compute constraints. |
+
+---
+
+## Archive pointer (**everything else stays verbose on purpose**) 
+
+| `./archive/hybrid-engine-pipeline/...` | Why we kept it bulky |
+|-------------------------|-----------------------|
+| **`HYBRID_SLURM_REFERENCE.md`** | Chronological Frontier job diary + numbered verification steps—we never wanted to shrink that evidence trail. |
+| **`HYBRID_USER_KNOBS_AND_ROADMAP.md`** | Figure-2 schema sketch / roadmap phases **E**/**F**. |
+| **`HYBRID_TRAINING_AND_SYNC.md`** | Deep dive on **`__sync`** sequencing vs **`schedules/aggregation`**. |
+| **`README_HYDRA_RUN_OUTPUTS.md`** | Exhaustive glossary of **`node_results`**, CSV columns, asymmetric **`gRPC_F*`** timings. |
+| **`README_TEST_HYBRID_ENGINE_CONTRACT.md`** **`All_files_touched.md`** | Touch maps for audits. |
+| **`CHAT_HANDOFF_HYBRID.md`** | Rolling “where we paused” capsule for collaborators / future threads. |
+| **`HYBRID_LLAMA150M_C4_ROADMAP.md`** | Offline LM prep playbook + **`num_federated_clients`** freeze footnote §**J**. |
+
+---
+
+## Deferred engineering (**documented—not implemented here**)
+
+We explicitly parked **multi-task-per-node** (**Phase E**) richer communicator selectors (**Phase F**) outside this hybrid milestone; **`HYBRID_USER_KNOBS_AND_ROADMAP`** still tracks intent so PRs stay scoped.
+
+---
+
+## Maintenance ethos (**same voice we asked collaborators to adopt**)
+
+Whenever a new preset crosses **`run_hybrid_training`**, mirror updates in **`README_FRONTIER_EXPERIMENTS`** (Frontier steps) plus this artefacts map (code/config tables). Frontier validation prose still belongs in **`./archive/hybrid-engine-pipeline/HYBRID_SLURM_REFERENCE.md`** until a job cleanly passes at the newest topology size.
