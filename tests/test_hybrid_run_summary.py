@@ -8,17 +8,22 @@ from pathlib import Path
 
 from omegaconf import OmegaConf
 
-from src.omnifed.hybrid.hybrid_run_summary import write_hybrid_slurm_per_round_summary
+from src.omnifed.hybrid.hybrid_run_summary import (
+    _sync_metric_seconds,
+    write_hybrid_slurm_per_round_summary,
+)
 from src.omnifed.hybrid.topology_builder import build_hybrid_topology
 
 
-def _sync_row(round_idx: int, **metrics: float) -> dict:
-    row: dict = {"round_idx": float(round_idx)}
-    row.update(metrics)
-    return row
-
-
 class TestHybridRunSummary(unittest.TestCase):
+    def test_sync_metric_seconds_accepts_metriclogger_keys(self) -> None:
+        row = {"round_idx": 0, "sync/global_agg_time": 1.234, "noise": 0}
+        self.assertAlmostEqual(_sync_metric_seconds(row, "global_agg_time"), 1.234)
+
+    def test_sync_metric_fallback_bare_key(self) -> None:
+        row = {"global_agg_time": 0.5}
+        self.assertAlmostEqual(_sync_metric_seconds(row, "global_agg_time"), 0.5)
+
     def test_build_and_write_round_summary(self) -> None:
         topo = OmegaConf.create(
             build_hybrid_topology(num_facilities=2, mpi_ranks_per_facility=3)
@@ -39,10 +44,17 @@ class TestHybridRunSummary(unittest.TestCase):
                 la = {1: 0.001, 3: 0.003, 4: 0.002, 2: 0.01, 5: 0.02, 6: 0.015}
                 lb = {1: 0.004, 3: 0.005, 4: 0.004, 2: 0.008, 5: 0.009, 6: 0.007}
                 ga = {1: 0.07, 2: 0.09}
-                sync = [_sync_row(0, local_agg_time=la[rank], local_bcast_time=lb[rank])]
+                # Match Slurm JSON: durations under ``sync/...`` keys
+                tm = dict(
+                    local_agg_time=la[rank],
+                    local_bcast_time=lb[rank],
+                )
                 if rank in ga:
-                    sync[0]["global_agg_time"] = ga[rank]
-                ev = [{"round_idx": 0.0, "accuracy": 0.5 + rank * 0.01}]
+                    tm["global_agg_time"] = ga[rank]
+                sync_row = {"round_idx": 0.0}
+                sync_row.update({f"sync/{k}": v for k, v in tm.items()})
+                sync = [sync_row]
+                ev = [{"round_idx": 0.0, "accuracy": 0.5 + rank * 0.01, "eval/loss": 0.42}]
                 return {"rank": rank, "sync": sync, "eval": ev}
 
             for r in range(1, 7):
@@ -83,3 +95,5 @@ class TestHybridRunSummary(unittest.TestCase):
             # accuracy mean across 6 trainers
             av = sum(0.5 + r * 0.01 for r in range(1, 7)) / 6.0
             self.assertIn(f"{av:.4f}", txt)
+            self.assertIn("eval_loss_avg", txt)
+            self.assertIn("0.420000", txt)

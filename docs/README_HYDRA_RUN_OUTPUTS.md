@@ -36,11 +36,65 @@ After **`./main.sh --config-name <name> ...`**, you typically see:
 |------|------------|
 | **`engine/node_results/node_<bbb>_results.json`** | **Structured experiment payload** per **Slurm / Ray rank**: **`train`**, **`eval`**, **`sync`** arrays (summaries). **`node_000`** is usually the **gRPC daemon** (**stub**: `rank`, `role` only). **Clients** (`node_001` …) hold full **`sync`** breakdown. |
 | **`engine/node_results/node_<bbb>_results.pkl`** | Pickle counterpart (may be absent on RPC-only stub). |
-| **`engine/hybrid_per_round_summary.txt`** | **Hybrid Slurm only:** Markdown table stitched from all **`node_*_results.json`** after training — per **`round_idx`**, **`gRPC_F*`** (**`sync/global_agg_time`** ms on each facility leader), **`local_agg_*_max`** / **`local_bcast_*_max`** (facility maxima), optional **`accuracy_avg`** from **`eval`** rows whose keys contain **`accuracy`**. Also **printed** to **`slurm-*.out`** (single writer: lowest **`topo.rpc.client_ranks`**). |
+| **`engine/hybrid_per_round_summary.txt`** | **Hybrid Slurm only:** Markdown table stitched from all **`node_*_results.json`** after training — per **`round_idx`**, **`gRPC_F*`** (**`sync/global_agg_time`** ms on each facility leader), **`local_agg_*_max`** / **`local_bcast_*_max`** (facility maxima), optional **`accuracy_avg`**, **`eval_loss_avg`** (from **`eval/loss`**), plus trainer counts. Also **printed** to **`slurm-*.out`** (single writer: lowest **`topo.rpc.client_ranks`**). |
 | **`engine/hybrid_per_round_summary.csv`** | **Duplicate** of run-root **`hybrid_per_round_summary.csv`** (same bytes). Keeps summaries next to **`node_results`**. Env: **`OMNIFED_HYBRID_SUMMARY_POLL_SEC`** (wait for JSON), **`OMNIFED_HYBRID_SUMMARY_POLL_GAP_SEC`**. |
 | **`engine/hybrid_grpc_leader_done/rank_<r>.done`** | Marker files (**Step 8**): **gRPC facility leaders** write **`leader_done`** when training finishes so the RPC rank can **`grpc_shutdown`**. Presence = clean shutdown path (**not** every training rank). |
 | **`engine/ckpt/`** | Checkpoint dir when **`slurm.checkpoint_dir`** is set or default under **`engine/ckpt`** (preemption / resume experiments). |
 | **`engine/rank0_gpu_memory.log`** | Optional periodic GPU memory log (**classic `slurm_worker`** rank 0 path); hybrid runs may or may not create it depending on code path. |
+
+### Hybrid per-round summary table (`hybrid_per_round_summary.{txt,csv}`)
+
+**Hybrid Slurm only.** After training, one writer rank (the **minimum** of **`topo.rpc.client_ranks`**) waits until **`engine/node_results/`** has **`world_size`** `node_*_results.json`, then merges every trainer JSON (skipping the **`role: hybrid_grpc_server`** stub) and emits the table. A copy appears at **run root** as **`hybrid_per_round_summary.csv`** for uploads; **`engine/`** holds the **`.csv`** sibling and **`.txt`**. The Markdown block is **also printed** to **`slurm-<JOBID>.out`**.
+
+Rows are keyed by **`round_idx`** (**last **`sync`** row wins** per rank per round).
+
+| Columns | Meaning |
+|---------|---------|
+| **`gRPC_F*j*_ms`** | **`sync/global_agg_time`** from facility *j*’s **leader** (stored as **seconds**, printed as **ms**). |
+| **`local_agg_F*j*_max_ms`** / **`local_bcast_F*j*_max_ms`** | **Facility max** of **`sync/local_agg_time`** / **`sync/local_bcast_time`** over all ranks in facility *j*. |
+| **`accuracy_avg`** / **`n_acc_trainers`** | Mean over trainers of **`eval`** keys containing **`accuracy`**. **`—`** if nothing logs accuracy (FedAvg MNIST often only **`eval/loss`**). |
+| **`eval_loss_avg`** / **`n_eval_trainers`** | Mean over trainers of per-trainer **average **`eval/loss`**** for that round (many **`eval`** rows per round are averaged inside each trainer first). |
+
+**Why `gRPC_F1_ms` and `gRPC_F2_ms` often look unrelated (short)**  
+
+Each column is **`sync/global_agg_time` on one facility leader** — wall time for **that leader’s** Flora step **`send_update` + pull averaged model**, not half of a symmetric MPI collective. Flora runs a **central parameter server**: one leader usually **returns from `SendUpdate` early** and then spends **`GetUpdatedModel` waiting** (server lock, peer upload, deserialization, averaging), while the **other leader often blocks longer inside its own `SendUpdate`** RPC when its update is the one that completes the round (heavy server-side merge before the RPC returns). So **different leaders routinely report very different durations for the same federated round** even though **`local_agg_*`** stays similar (**same pattern inside each site**).
+
+*Example shape (illustrative, two facilities):*
+
+| round_idx | `gRPC_F1_ms` | `gRPC_F2_ms` | note |
+|-----------|---------------|---------------|------|
+| 0 | ~127 500 | ~19 | first global step often cold (protobuf build, transports, JIT); largest skew if one leader waits or serializes longest |
+| 1+ | ~200–400 | ~18 | steady state: ~10–20 × gap is typical “first vs second updater / waiter” asymmetry |
+
+For a **single number per round**, use **`max(gRPC_F1_ms, gRPC_F2_ms)`** (manual or spreadsheet), not **`mean`** — that matches **`sync/global_agg_time`** semantics (**per‑process** timelines — see **§4** *Per‑rank variability*).
+
+**Environment (writer rank):**
+
+| Variable | Role |
+|---------|------|
+| **`OMNIFED_HYBRID_SUMMARY_POLL_SEC`** | Max wait for all JSON files (default **`max(90, 5 × world_size)`** → large **`world_size`** can imply **many minutes**). |
+| **`OMNIFED_HYBRID_SUMMARY_POLL_GAP_SEC`** | Sleep between checks (default **`0.5`**). |
+
+**Offline regeneration (login node, same layout as Frontier)**
+
+Pass the **Hydra run directory** (folder containing **`engine/node_results`**), **not** the repo root. Set **`PYTHONPATH`** to the OmniFed checkout.
+
+```bash
+cd /lustre/orion/gen150/scratch/$USER/OmniFed_VT/outputs/2026-05-22/test_hybrid_layout_fedavg   # your run dir
+export PYTHONPATH="/lustre/orion/gen150/scratch/$USER/OmniFed_VT"
+
+python -c "
+import os
+from omegaconf import OmegaConf
+from src.omnifed.hybrid.topology_builder import build_hybrid_topology
+from src.omnifed.hybrid.hybrid_run_summary import write_hybrid_slurm_per_round_summary
+# Topo must match the Slurm job (facilities / members). Example: world_size = 129 = 2×64 + RPC.
+topo = OmegaConf.create(build_hybrid_topology(num_facilities=2, mpi_ranks_per_facility=64))
+write_hybrid_slurm_per_round_summary(os.getcwd(), topo=topo, world_size=129, rpc_server_rank=0, rank_writer=0)
+"
+```
+
+If **`engine/node_results`** is absent from **`hydra_out_dir`**, **`write_hybrid_slurm_per_round_summary`** exits with a message instead of waiting for the poll timeout.
 
 ---
 
@@ -75,7 +129,7 @@ FedAvg **`__sync()`** wraps **facility MPI** and **`global_agg` (Flora gRPC)** w
 
 **Where to read them**
 
-1. **`engine/node_results/node_<bbb>_results.json`** → **`"sync"`** array (rolled up per aggregation event). Easiest for **“how long did gRPC vs local agg take?”** on **leader** JSON.
+1. **`engine/node_results/node_<bbb>_results.json`** → **`"sync"`** array (rolled up per aggregation event). Easiest for **“how long did gRPC vs local agg take?”** on **leader** JSON. For a **facility‑wise table** merged from **all ranks**, see **§2** (*Hybrid per-round summary table*).
 2. **`Node0.<client>/metrics_sync.csv`** and **`metrics_full.csv`** (filter **`agg_ctx`** = **`sync`** or keys **`sync/local_agg_time`**, …). Useful for timelines with **`global_step`**.
 
 For **overlap with evaluation**, **`sync/time_total`** is the duration of the entire **`__sync()`** method (**`MetricLogger.context("sync", duration_key="time_total")`**), including **`__pre_sync`** (optional pre-eval), **`__sync_comm`** (local / global / bcast phases), and **`__post_sync`** (e.g. **post_aggregation eval** — often seconds). Prefer **`sync/local_agg_time`**, **`sync/global_agg_time`**, **`sync/local_bcast_time`** for **communication-only** comparison.
@@ -96,12 +150,13 @@ Each **`node_<bbb>_results.json`** is **one Slurm task** (**`SLURM_PROCID` = `bb
 
 ---
 
-## 5. Quick “success” checklist (hybrid 7-task job)
+## 5. Quick “success” checklist (hybrid Slurm jobs)
 
 | Check | Where |
 |--------|--------|
 | Scheduler exit **`0:0`** | `sacct -j JOBID` |
-| Seven result files **`node_000`–`node_006`** | **`engine/node_results/`** |
+| Result files **`node_000`** … **`node_{W−1}`** (**`W =`** hybrid **`world_size`**) | **`engine/node_results/`** |
+| Optional per-round rollup (gRPC / local timings, **`eval/loss`** mean) | **`hybrid_per_round_summary.csv`** and **`engine/hybrid_per_round_summary.*`** |
 | Hybrid markers (**leaders**) | **`engine/hybrid_grpc_leader_done/`** |
 | Shutdown **leader_done** | **`grep shutdown_mode slurm-*.out`** |
 
@@ -114,9 +169,11 @@ Login node Hydra dir: outputs/<date>/<config>/
 ├── .hydra/                 ← exact config snapshot
 ├── main.log               ← driver (often exits after sbatch)
 ├── slurm-<id>.{out,err}   ← all ranks interleaved stdout/stderr
+├── hybrid_per_round_summary.csv  ← hybrid-only per-round table (duplicate of engine copy)
 ├── Node0.{0..6}/           ← MetricLogger CSV + TensorBoard per logical node slot
 └── engine/
     ├── node_results/       ← per-SLURM_PROCID JSON/PKL summaries (sync timings here)
+    ├── hybrid_per_round_summary.{txt,csv}  ← hybrid rollup + Markdown
     └── hybrid_grpc_leader_done/ ← leader_done handshake (hybrid only)
 
 Sibling of date folder scope:
@@ -131,4 +188,5 @@ Repo root:
 
 - **`docs/HYBRID_SLURM_REFERENCE.md`** — Frontier validation, topology, **`sbatch`** notes.  
 - **`docs/HYBRID_TRAINING_AND_SYNC.md`** — when **`local_agg` → global gRPC → `local_bcast`** run vs **`round_end`**.  
-- **`docs/README_TEST_HYBRID_ENGINE_CONTRACT.md`** — preset CLI + codebase touch map.
+- **`docs/README_TEST_HYBRID_ENGINE_CONTRACT.md`** — preset CLI + codebase touch map.  
+- **`src/omnifed/hybrid/hybrid_run_summary.py`** — implementation of **`hybrid_per_round_summary.*`**.

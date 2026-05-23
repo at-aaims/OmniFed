@@ -62,6 +62,14 @@ def _get_f(row: Dict[str, Any], key: str) -> Optional[float]:
         return None
 
 
+def _sync_metric_seconds(row: Optional[Dict[str, Any]], base: str) -> Optional[float]:
+    """Resolve ``sync/*`` timings as stored by MetricLogger (``sync/global_agg_time`` …)."""
+    if not row:
+        return None
+    v = _get_f(row, base)
+    if v is not None:
+        return v
+    return _get_f(row, f"sync/{base}")
 def _eval_accuracy_avg_for_round(eval_list: List[Dict[str, Any]], round_idx: int) -> Optional[float]:
     candidates: List[float] = []
     for row in eval_list or []:
@@ -81,6 +89,26 @@ def _eval_accuracy_avg_for_round(eval_list: List[Dict[str, Any]], round_idx: int
     if not candidates:
         return None
     return sum(candidates) / len(candidates)
+
+
+def _eval_loss_avg_for_round(eval_list: List[Dict[str, Any]], round_idx: int) -> Optional[float]:
+    """Mean ``eval/loss`` over eval rows matching ``round_idx`` (FedAvg MNIST rollup)."""
+    vals: List[float] = []
+    for row in eval_list or []:
+        if not isinstance(row, dict):
+            continue
+        if int(row.get("round_idx", -1)) != round_idx:
+            continue
+        v = row.get("eval/loss")
+        if v is None or v == "":
+            continue
+        try:
+            vals.append(float(v))
+        except (TypeError, ValueError):
+            continue
+    if not vals:
+        return None
+    return sum(vals) / len(vals)
 
 
 def _format_ms(v: Optional[float]) -> str:
@@ -109,14 +137,15 @@ def _build_tables(
     hdr_g = [f"gRPC_F{i+1}_ms" for i in range(n_f)]
     hdr_la = [f"local_agg_F{i+1}_max_ms" for i in range(n_f)]
     hdr_lb = [f"local_bcast_F{i+1}_max_ms" for i in range(n_f)]
+    hdr_tail = ["accuracy_avg", "n_acc_trainers", "eval_loss_avg", "n_eval_trainers"]
 
-    tbl_header = "| round_idx | " + " | ".join([*hdr_g, *hdr_la, *hdr_lb, "accuracy_avg", "n_acc_trainers"]) + " |"
-    ncols = 1 + len(hdr_g) + len(hdr_la) + len(hdr_lb) + 2
+    tbl_header = "| round_idx | " + " | ".join([*hdr_g, *hdr_la, *hdr_lb, *hdr_tail]) + " |"
+    ncols = 1 + len(hdr_g) + len(hdr_la) + len(hdr_lb) + len(hdr_tail)
     sep_row = "|" + "|".join([":---"] * ncols) + "|"
 
     md_rows = [tbl_header, sep_row]
 
-    csv_header = ["round_idx", *hdr_g, *hdr_la, *hdr_lb, "accuracy_avg", "n_acc_trainers"]
+    csv_header = ["round_idx", *hdr_g, *hdr_la, *hdr_lb, *hdr_tail]
     buf = io.StringIO()
     w = csv.writer(buf)
     w.writerow(csv_header)
@@ -125,7 +154,7 @@ def _build_tables(
         grpc = []
         for lr in leaders:
             sr = _sync_rows_by_round((payloads.get(lr) or {}).get("sync") or []).get(ridx)
-            grpc.append(None if sr is None else _get_f(sr, "global_agg_time"))
+            grpc.append(None if sr is None else _sync_metric_seconds(sr, "global_agg_time"))
 
         la_m: List[Optional[float]] = []
         lb_m: List[Optional[float]] = []
@@ -138,8 +167,8 @@ def _build_tables(
                 ).get(ridx)
                 if not sr:
                     continue
-                xa = _get_f(sr, "local_agg_time")
-                xb = _get_f(sr, "local_bcast_time")
+                xa = _sync_metric_seconds(sr, "local_agg_time")
+                xb = _sync_metric_seconds(sr, "local_bcast_time")
                 if xa is not None:
                     la_v.append(xa)
                 if xb is not None:
@@ -158,9 +187,20 @@ def _build_tables(
             else "—"
         )
 
+        loss_list: List[float] = []
+        for gr in trainer_ranks:
+            lo = _eval_loss_avg_for_round((payloads.get(gr) or {}).get("eval") or [], ridx)
+            if lo is not None:
+                loss_list.append(lo)
+        loss_txt = (
+            f"{sum(loss_list) / len(loss_list):.6f}"
+            if loss_list
+            else "—"
+        )
+
         md_cells = (
             [*[_format_ms(x) for x in grpc], *[_format_ms(x) for x in la_m], *[_format_ms(x) for x in lb_m],
-             acc_txt, str(len(acc_list))]
+             acc_txt, str(len(acc_list)), loss_txt, str(len(loss_list))]
         )
         md_rows.append("| " + str(ridx) + " | " + " | ".join(md_cells) + " |")
 
@@ -168,8 +208,7 @@ def _build_tables(
         csv_row.extend(_format_ms(x) for x in grpc)
         csv_row.extend(_format_ms(x) for x in la_m)
         csv_row.extend(_format_ms(x) for x in lb_m)
-        csv_row.append(acc_txt)
-        csv_row.append(str(len(acc_list)))
+        csv_row.extend([acc_txt, str(len(acc_list)), loss_txt, str(len(loss_list))])
         w.writerow(csv_row)
 
     intro = "\n".join(
@@ -181,6 +220,8 @@ def _build_tables(
             "**local_agg_* / local_bcast_*:** **max** over ranks in facility (**ms**). ",
             "**accuracy_avg:** mean of per-trainer *accuracy* scalars logged in **`eval`** for that round ",
             "(keys containing `accuracy`, case‑insensitive). Requires eval to record accuracy.",
+            "**eval_loss_avg:** mean across trainers of per-trainer average **`eval/loss`** (multiple eval ",
+            "rows sharing the same **round_idx** are averaged inside each trainer first).",
             "",
         ]
     )
@@ -209,6 +250,14 @@ def write_hybrid_slurm_per_round_summary(
     )
 
     rd = os.path.join(hydra_out_dir, "engine", "node_results")
+    if not os.path.isdir(rd):
+        print(
+            f"[hybrid] summary: missing {rd} — pass the Hydra **run directory** that "
+            "contains **engine/node_results** (e.g. outputs/DATE/your_job_name/). "
+            "Do not pass the repo root.",
+            flush=True,
+        )
+        return None
     timeout_s = float(
         os.environ.get("OMNIFED_HYBRID_SUMMARY_POLL_SEC", str(max(90.0, 5.0 * float(world_size))))
     )

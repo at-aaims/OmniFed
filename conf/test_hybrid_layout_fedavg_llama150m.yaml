@@ -1,0 +1,46 @@
+# ================================================================================
+# Hybrid Slurm preset — Llama‑150M (**disk**) + C4 (**load_from_disk**) + FedAvgLLM.
+#
+# Same lattice as **`test_hybrid_layout_fedavg`** (world_size **7**: 6 trainers + RPC).
+#
+# Prerequisites (Frontier offline):
+#   - ``OMNIFED_C4_DISK`` …/omnifed_data/allenai_c4 (``DatasetDict`` train+validation).
+#   - ``OMNIFED_TOKENIZER_DIR`` Mistral tokenizer cache (``AutoTokenizer``, local only).
+#   - ``OMNIFED_LLAMA_WEIGHTS`` sanitized Llama‑150m cache directory.
+#
+# Example Slurm launcher (reuse account/partition from MNIST hybrid):
+#   OMNIFED_C4_DISK=... OMNIFED_TOKENIZER_DIR=... OMNIFED_LLAMA_WEIGHTS=... \\
+#     ./main.sh --config-name test_hybrid_layout_fedavg_llama150m \\
+#       overwrite=true engine.mode=slurm global_rounds=2 \\
+#       slurm.account=YOUR_PROJECT ... slurm.nodes=7 ...
+# ================================================================================
+
+defaults:
+  - test_fedavg_llm_centralized_torchdist
+  - _self_
+
+engine:
+  mode: slurm
+  communication_mode: hybrid
+  hybrid:
+    topology_config: null
+    layout:
+      num_facilities: 2
+      mpi_ranks_per_facility: 3
+      dedicated_rpc_server: true
+      rpc_addr: "127.0.0.1"
+      rpc_port: 50051
+      facility_mpi_addr: "127.0.0.1"
+      facility_mpi_base_port: 28250
+      facility_mpi_port_stride: 40
+      facility_name_prefix: "fac"
+      communicators:
+        intra_facility: torch_mpi
+        global_aggregation: grpc
+    training:
+      dataset_total_clients: 6
+
+topology:
+  num_clients: 6
+
+global_rounds: 2

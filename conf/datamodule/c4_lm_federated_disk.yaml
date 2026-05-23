@@ -1,0 +1,29 @@
+# ================================================================================
+# C4-style HF ``DatasetDict`` on disk (``save_to_disk``) + LM tokenizer shards.
+#
+# Defaults follow ``frontier_example/train_llama150m.py`` conventions:
+#   ``allenai/c4`` → directory name ``allenai_c4`` under omnifed_data.
+#
+# Requires env vars on compute nodes **before Hydra merges** datamodules:
+#   OMNIFED_C4_DISK, OMNIFED_TOKENIZER_DIR
+#
+# ``num_federated_clients``: set in each preset’s ``_self_`` (must equal
+# ``topology.num_clients``). Do **not** use ``${topology.num_clients}`` here:
+# Slurm freezes ``cfg`` via ``OmegaConf.to_container(resolve=True)`` and can reject
+# that interpolation under structured merges.
+#
+# Hybrid ``slurm_hybrid_runner`` sets ``OMNIFED_FEDERATED_CLIENT_INDEX`` per trainer rank.
+# ================================================================================
+
+_target_: src.omnifed.data.lm_datamodule.build_c4_lm_datamodule
+dataset_path: ${oc.env:OMNIFED_C4_DISK,/tmp/allenai_c4}
+tokenizer_path: ${oc.env:OMNIFED_TOKENIZER_DIR,/tmp/mistralai_Mistral-7B-v0.1}
+num_federated_clients: ???
+train_split: train
+eval_split: validation
+max_length: 1024
+train_batch_size: 1
+eval_batch_size: 1
+num_workers: 0
+shard_train: true
+shard_eval: false

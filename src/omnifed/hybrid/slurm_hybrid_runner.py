@@ -191,6 +191,10 @@ def run_hybrid_training(cfg, hydra_out_dir: str, ckpt_dir: str) -> None:
     node_log_dir = os.path.join(hydra_out_dir, node_name)
     os.makedirs(node_log_dir, exist_ok=True)
 
+    # Federated shards (HF C4 LM datamodules): centralized client ids are ``1 .. num_clients``.
+    os.environ["OMNIFED_FEDERATED_CLIENT_INDEX"] = str(int(cen_idx) - 1)
+    os.environ["OMNIFED_CENTRALIZED_NODE_INDEX"] = str(int(cen_idx))
+
     model = instantiate(cfg.model).to(device, non_blocking=True)
     datamodule = instantiate(cfg.datamodule)
     algorithm = instantiate(node_cfg.algorithm, log_dir=node_log_dir)
