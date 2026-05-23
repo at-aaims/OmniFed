@@ -1,6 +1,10 @@
 # ================================================================================
 # Hybrid Slurm Engine + centralized FedAvg (Phase B Steps 6–7+).
 #
+# **Phase C sibling (layout‑only YAML, same 7‑rank lattice):**
+# **`conf/test_hybrid_layout_fedavg.yaml`** — use **`engine.hybrid.layout`** and omit
+# **`conf_hybrid/topology/built_symmetric_2x3.yaml`**.
+#
 # * Login node: submit Slurm bundle with --ntasks = conf_hybrid world_size
 #   (built_symmetric_2x3 → 7 ranks; centralized num_clients must be 6 so
 #   len(topology)==7 matches hybrid world_size).
@@ -26,6 +30,15 @@ engine:
   communication_mode: hybrid
   hybrid:
     topology_config: built_symmetric_2x3.yaml
+    # Optional: runtime layout (``build_hybrid_topology`` kwargs; same schema as yaml ``layout:`` blocks).
+    # When ``layout`` is set, Slurm sizing and hybrid runner use it; ``topology_config`` is ignored.
+    # Example (equivalent symmetric 2×3 + RPC; keep topology.num_clients = world_size - 1):
+    # layout:
+    #   num_facilities: 2
+    #   mpi_ranks_per_facility: 3
+    #   dedicated_rpc_server: true
+    # training:
+    #   dataset_total_clients: 6
 
 topology:
   num_clients: 6

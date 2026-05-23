@@ -24,5 +24,9 @@ topology:
         members: [3, 4, 5, 6, 7, 8, 9, 10]   # leader is 3 (local_rank 0)
         leader_rank: 3
 
+  communicators:
+    intra_facility: torch_mpi
+    global_aggregation: grpc
+
 training:
   dataset_total_clients: 10

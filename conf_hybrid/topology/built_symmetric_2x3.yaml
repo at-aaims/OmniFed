@@ -10,6 +10,10 @@ layout:
   facility_mpi_base_port: 28250
   facility_mpi_port_stride: 40
   facility_name_prefix: "fac"
+  # Optional overrides merged onto topology_builder.DEFAULT_HYBRID_COMMUNICATORS.
+  communicators:
+    intra_facility: torch_mpi
+    global_aggregation: grpc
 
 training:
   dataset_total_clients: 6

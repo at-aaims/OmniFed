@@ -2,6 +2,8 @@
 
 This document records **what we set out to do**, **the phased steps**, **what is implemented in the codebase**, **what was validated on Frontier**, and optional **experiment follow-ups**. Keep it next to `conf_hybrid/` and `src/omnifed/hybrid/`.
 
+For **Figure 2‑style user knobs, schema sketch, and Phases A–F backlog** (**requirements Phase A**), see **`docs/HYBRID_USER_KNOBS_AND_ROADMAP.md`** (distinct from §2 historical “Phase A smoke” below). For **Slurm `nodes`/`ntasks` vs hybrid `world_size`**, see §**4.3** below (**Phase D**).
+
 ---
 
 ## 1. Overall aim
@@ -112,12 +114,19 @@ export PYTHONPATH="$PWD"
 
 **3 — Config is hybrid + 7-rank topology**
 
+Either preset is valid (**§4.3**); pick one and **`grep`** it:
+
 ```bash
+# File-preset sibling
 grep -A2 'communication_mode:' conf/test_hybrid_engine_contract.yaml
 grep topology_config conf/test_hybrid_engine_contract.yaml
+
+# Or layout-first (Phase C) — no topology_config line
+grep -A2 'communication_mode:' conf/test_hybrid_layout_fedavg.yaml
+grep -q 'layout:' conf/test_hybrid_layout_fedavg.yaml && grep 'num_clients:' conf/test_hybrid_layout_fedavg.yaml
 ```
 
-Expect **`hybrid`** and **`built_symmetric_2x3.yaml`** (`world_size` 7; `num_clients` 6 in that example).
+Expect **`hybrid`**, **`world_size` 7 semantics** (**`topology_config`** → **`built_symmetric_2x3`** *or* inline **`layout`: 2 facilities × 3 MPI + **`dedicated_rpc_server`**), and **`topology.num_clients: 6`**.
 
 **4 — Submit Engine (canonical 7 nodes × 1 task)**
 
@@ -169,7 +178,7 @@ Target: **`COMPLETED`** and **`0:0`**.
 **8 — Stdout shows hybrid training (not Step 6 stub)**
 
 ```bash
-OUT=/lustre/orion/gen150/scratch/shruti2395/OmniFed_VT/outputs/<DATE>/test_hybrid_engine_contract
+OUT=/lustre/orion/gen150/scratch/shruti2395/OmniFed_VT/outputs/<DATE>/<CONFIG_NAME>
 grep -E '\[hybrid\]|\[run_hybrid_training\]|run_hybrid|communication_mode' "$OUT/slurm-<JOBID>.out" | head -40
 ```
 
@@ -190,7 +199,7 @@ head -30 "$OUT/engine/node_results/node_001_results.json"
 ### Config example (FedAvg + MNIST + hybrid 7 ranks)
 
 - **`conf/test_hybrid_engine_contract.yaml`** — sets `communication_mode: hybrid`, `topology_config: built_symmetric_2x3.yaml`, `num_clients: 6`, `global_rounds: 1`.  
-  **Note:** The file header still mentions an old “stub” exit; Step 7 **replaced** that with real training—treat the header as stale until someone edits the comment.
+- **`conf/test_hybrid_layout_fedavg.yaml`** — same hybrid lattice via **`engine.hybrid.layout`** only (**Phase C**; **§4.3** table).
 
 ### Rank-0 gRPC server lifetime (tunable)
 
@@ -213,6 +222,46 @@ head -30 "$OUT/engine/node_results/node_001_results.json"
 | Host list → topology addresses | `src/omnifed/hybrid/slurm_hostlist.py` |
 | Smoke test module | `src/omnifed/hybrid/hybrid_comm_smoke.py` |
 | Frontier smoke batch | `test_scripts/slurm_frontier/hybrid_comm_smoke.slurm` |
+
+### 4.1 Training loop & sync cadence (FedAvg hybrid)
+
+Detailed walkthrough (**minibatches, epochs, `local_agg` → leader gRPC → `local_bcast`**, vs **`algorithm.schedules.aggregation`** / **`round_end`**) lives in **`docs/HYBRID_TRAINING_AND_SYNC.md`**. In short:
+
+- One **`BaseAlgorithm.__sync()`** invocation (when **`schedules.aggregation`** says so — typically **`round_end`**) executes **facility reduce → gRPC merge at facility leaders → facility broadcast** **back-to-back**; **non-leader** ranks **skip** the gRPC block but still do **facility** reduce + **receive** broadcast.
+- **Frequency** is **not** a single Flora **`comm_freq`** in OmniFed; it comes from **`conf/algorithm/schedules/aggregation/*.yaml`**, plus **`global_rounds`** and **`algorithm.max_epochs_per_round`**.
+- **Output artifacts** (**`Node0.*/`**, **`engine/node_results/`**, CSV **`sync/`** timing keys): **`docs/README_HYDRA_RUN_OUTPUTS.md`**.
+
+### 4.2 Runtime hybrid topology (`engine.hybrid.layout`)
+
+Instead of a **`conf_hybrid/topology/*.yaml`** preset, **`conf/base.yaml`** supports **`engine.hybrid.layout`** with keyword args matching **`build_hybrid_topology`** (**`num_facilities`**, **`mpi_ranks_per_facility`**, **`dedicated_rpc_server`**, **`rpc_port`**, etc.). **`Slurm --ntasks`** and **`run_hybrid_training`** use **`layout`** when both **`layout`** and **`topology_config`** are set (**`layout` wins**); otherwise **`topology_config`** (e.g. **`built_symmetric_2x3.yaml`**) behaves as before. If **both** are set they must imply the **same** **`world_size`** (otherwise Engine validation fails — **`validate_hybrid_slurm_topology_alignment`**). Optional **`engine.hybrid.training`** is merged onto the hybrid cfg for parity with **`conf_hybrid`** YAML.
+
+### 4.3 Slurm allocation ↔ hybrid **`world_size`** (roadmap **Phase D**)
+
+This section is the **user story for `slurm.*` knobs** alongside **`engine.hybrid.layout`** or **`topology_config`**. Implementation: **`resolve_slurm_ntasks`** (**`engine_communication.py`**) → **`SlurmConfig.ntasks`** → **`#SBATCH --ntasks=W`** (**`slurm_launcher.py`**).
+
+**Rules (today’s hybrid Slurm milestone):**
+
+1. **`W = hybrid world_size`** (from **`layout`** or **`conf_hybrid/topology/<topology_config>`** — **§4.2**, Phase **B** alignment with **`topology.num_clients + 1`**).
+2. **One Slurm MPI task ↔ one hybrid global rank.** Inside the job, **`SLURM_NTASKS`** must equal **`W`** (**Phase B** validates on workers).
+3. **Capacity:** Slurm expects enough **slots**: in practice **`slurm.nodes × slurm.ntasks_per_node ≥ W`** (Frontier schedulers reserve by node). The Engine does **not** magic extra nodes beyond one step: **`slurm.nodes`** is replaced by **`max(slurm.nodes, ceil(W / ntasks_per_node))`** before submit so under-sized **`nodes`** are bumped **upward** (**`engine.py`**). If **`nodes`** was already sufficient, nothing changes.
+4. **Simplest Frontier pattern:** **`ntasks_per_node=1`** and **`nodes=W`** (**7 × 7** for the symmetric 2×3 + RPC presets). Packed nodes (**fewer hosts, **`ntasks_per_node>1`**) remain **experimental** until **Phase E** documents **`LOCAL_RANK`** / GPU binding rigorously (**§5.4** “Alternative” smoke only).
+
+**Checklist before submit**
+
+| Question | OK if |
+|---------|-------|
+| What is **`W`**? | Login-node log **`[Engine] communication_mode=hybrid: Slurm --ntasks=W …`** |
+| Enough nodes? **`nodes`** | **`ceil(W / slurm.ntasks_per_node)`** (Engine may bump **`nodes`**; watch for **`[Engine] slurm.nodes raised …`** in the log (**`engine.py`**)) |
+| Does **`topology.num_clients`** match? | **`num_clients == W − 1`** |
+
+**Concrete presets (**`W=7`**)** — interchangeable Slurm/datamodule block; only **`--config-name`** differs (**§5.4**):
+
+| Hydra **`--config-name`** | Hybrid lattice source |
+|---------------------------|------------------------|
+| **`test_hybrid_engine_contract`** | **`engine.hybrid.topology_config`** → **`built_symmetric_2x3.yaml`** |
+| **`test_hybrid_layout_fedavg`** | **`engine.hybrid.layout`** only (**Phase C**) |
+
+Both produce the same **`#SBATCH --ntasks=7`** and the same **`run_hybrid_training`** roles; **`outputs/<date>/<config_name>/`** differs by preset name only.
 
 ---
 
@@ -255,9 +304,11 @@ export HYBRID_SMOKE_BACKEND=nccl
 sbatch test_scripts/slurm_frontier/hybrid_comm_smoke.slurm
 ```
 
-### 5.4 Phase B — Engine + hybrid (`test_hybrid_engine_contract`)
+### 5.4 Phase B — Engine + hybrid (Phase D: **§4.3** allocation story)
 
-Canonical **7 tasks, 7 nodes, 1 GPU per node** (matches `built_symmetric_2x3`). **Frontier:** include **offline MNIST** overrides (same idea as classic FedAvg on compute nodes):
+Canonical **7 tasks, 7 nodes, 1 GPU per node** (**`built_symmetric_2x3`** lattice ↔ **`engine.hybrid.layout`** in **`test_hybrid_layout_fedavg`**). **Frontier:** include **offline MNIST** overrides (same idea as classic FedAvg on compute nodes).
+
+**File‑preset sibling** (`topology_config:` → **`built_symmetric_2x3.yaml`**):
 
 ```bash
 cd "$OMNIFED_REPO"
@@ -279,10 +330,12 @@ cd "$OMNIFED_REPO"
   slurm.gres=null
 ```
 
+**Layout‑first preset** (same **`--ntasks=7`**; Hydra **`outputs/`** subdirectory uses **`test_hybrid_layout_fedavg`**): swap **`test_hybrid_layout_fedavg`** as **`--config-name`** with the identical Slurm/datamodule block.
+
 **Alternative** (fewer nodes, more tasks per node): e.g. `slurm.nodes=1`, `slurm.ntasks_per_node=8` still yields **7 tasks** if Engine sets `#SBATCH --ntasks=7`—verify in the generated log:  
 `[Engine] communication_mode=hybrid: Slurm --ntasks=7 ...`
 
-**After submit:** inspect `outputs/<date>/test_hybrid_engine_contract/slurm-<jobid>.out` and `.err`, and under that run’s Hydra output, **`engine/node_results/node_*_results.{json,pkl}`**.
+**After submit:** inspect **`outputs/<date>/<config_name>/slurm-<jobid>.out`** and `.err`, and **`engine/node_results/node_*_results.{json,pkl}`**.
 
 **Full Step-by-step verification (pre-checks, `grep`, `sacct`, result listing):** see **§3 — “Phase B Step 7 — Verify on Frontier (commands)”**.
 
@@ -317,11 +370,13 @@ Example (15 clients, 2×8 tasks): use `test_fedavg_centralized_torchdist` with `
 
 ---
 
-## 7. Frontier validation pointer
+## 7. Frontier validation pointer (**Phase D** operations)
 
-**Step 7 cluster proof** is the numbered checklist in **§3 — “Phase B Step 7 — Verify on Frontier (commands)”**. The short recipe is also in **§5.4**. **Recorded success:** **§3.1** (job **4625686**).
+**Step 7 cluster proof** is the numbered checklist in **§3 — “Phase B Step 7 — Verify on Frontier (commands)”**. The short recipe is also in **§5.4**. **Allocation rules** (**`--ntasks`**, **`nodes`**, **`ntasks_per_node`**) are summarized in **§4.3** (**Phase D**). **Recorded success:** **§3.1** (job **4625686**).
 
 **Acceptance:** `sacct` **0:0**; **`[hybrid]`** markers in **`slurm-<jobid>.out`**; **`node_000`–`node_006`** under **`engine/node_results/`**; **`download=false`** + scratch **`root`** on Frontier (job **4625007** showed public MNIST timeouts).
+
+**Phase D cluster parity:** after **Phase C**, run **§7b** once with **`--config-name test_hybrid_layout_fedavg`** (same Slurm block as **`test_hybrid_engine_contract`**) so **layout-first YAML** is exercised on OLCF — expect the same **`--ntasks`** line and seven **`node_*`** files; only the Hydra output folder name changes.
 
 If that passes, treat Step 7 as **validated on Frontier**.
 
@@ -330,7 +385,7 @@ If that passes, treat Step 7 as **validated on Frontier**.
 Do this when you’ve **pushed or rsync’d** the repo that includes **`leader_done`** shutdown, **`hybrid_rank_to_centralized_node_index`**, and doc/YAML updates.
 
 1. **Sync** your local tree to Frontier (same excludes as before — at least avoid clobbering **`outputs/`** if you want old logs).
-2. **Run** the **same** hybrid job that worked before (offline MNIST, `slurm.nodes=7`, `ntasks_per_node=1`; see **§5.4**).
+2. **Run** the **same** hybrid job that worked before — **§5.4** (**`test_hybrid_engine_contract`** *or*, for Phase C parity, **`--config-name test_hybrid_layout_fedavg`** with the same offline MNIST + **`slurm.nodes=7`**, **`ntasks_per_node=1`** block).
 3. **Expect** `sacct` **`COMPLETED`** / **`0:0`** and seven **`engine/node_results/`** files as in Step 7.
 4. **Step 8 extras (quick):** In **`slurm-*.out`** for the **RPC rank**, look for **`shutdown_mode='leader_done'`** and either **`all gRPC leader markers present`** or **`leader-done wait timed out`** (timeout still means the run can succeed if wall cap was enough — prefer the **markers** line for a clean validation). After the job, **`ls engine/hybrid_grpc_leader_done/`** should show **`.done` files for each gRPC leader rank** (not for every training rank).
 5. **Step 9:** Confirm **`README`** / **`test_hybrid_engine_contract`** header on Frontier match your laptop (optional `diff` or `head`).
@@ -344,6 +399,7 @@ Hygiene from **Steps 8–9** above is landed. Practical next explorations:
 1. **FedAvg aggregation schedule / “communication frequency”** — tighten via **`algorithm.schedules.aggregation`** (e.g. trigger every **N** local steps or **`batch_end`**) consistent with OmniFed YAML; correlate with Flora gRPC **round-number** semantics and MNIST staleness metrics.
 2. **Two global rounds, seven local steps analogy** — if you literal-mean **`global_rounds=2`** and additional gRPC-visible rounds, bump **`global_rounds`** plus tune **`schedules`** so **`round_exec`** + hybrid **`GrpcLeaderCommunicator`** align with what you plot as “GRPC rounds.”
 3. **Optional Frontier defaults** — new YAML config with MNIST **`root`**/`download=false` wired for OLCF scratch.
+
 ---
 
 ## 8. Revision history
@@ -354,6 +410,12 @@ Hygiene from **Steps 8–9** above is landed. Practical next explorations:
 | 2026-05 | Frontier Step 7 validated: job **4625686** (`COMPLETED`); job **4625007** MNIST download failure documented; **§5.4** / Step 4 use offline MNIST; fork URL **[dshruti20/OmniFed](https://github.com/dshruti20/OmniFed)**; **§7** adds explicit **Next step** (Step 8 → 9). |
 | 2026-05 | **Steps 8–9** landed: Flora **`id==0`** doc + **`leader_done`** shutdown (default); **`hybrid_rank_to_centralized_node_index`** + tests; README / YAML / **`main.sh`**; **§6** rewritten from “remaining” → “implemented + follow-ups.” |
 | 2026-05 | **§7b** added: minimal Frontier checklist to re-verify Steps **8–9** after `git pull` / **`rsync`**. |
+| 2026-05 | **§4.1** + **`docs/HYBRID_TRAINING_AND_SYNC.md`**: FedAvg hybrid training/sync ordering and schedule vs **`comm_freq`**. |
+| 2026-05 | **`docs/README_HYDRA_RUN_OUTPUTS.md`**: catalog of **`outputs/…`** artifacts + **`sync/*_time`** metrics. §4.1 cross-link. |
+| 2026-05 | **`engine.hybrid.layout`**: runtime **`build_hybrid_topology`** (**§4.2**) supersedes **`topology_config`** when set (both must imply same **`world_size`** — **`validate_hybrid_slurm_topology_alignment`**). |
+| 2026-05 | **`docs/HYBRID_USER_KNOBS_AND_ROADMAP.md`**: Phase A requirements + roadmap (**user knobs / schema sketch / Phases A–F**); intro links here vs historical §2 Phase A smoke. |
+| 2026-05 | **`conf/test_hybrid_layout_fedavg`**: Phase C layout-first preset + **`§5.4`** / **`§7b`** pointers; **`tests/test_hybrid_phase_c_preset`**. |
+| 2026-05 | **Phase D:** **`HYBRID_SLURM_REFERENCE`** §**4.3** (Slurm **`nodes`/`ntasks`** ↔ hybrid **`W`**); §**3** pre-checks + §**7** parity note; **`[Engine] slurm.nodes raised …`** (**`engine.py`**). |
 
 ---
 

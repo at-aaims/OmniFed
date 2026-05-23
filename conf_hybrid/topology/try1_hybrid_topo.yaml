@@ -24,6 +24,10 @@ topology:
         members: [2, 5, 6]
         leader_rank: 2
 
+  communicators:
+    intra_facility: torch_mpi      # Torch process group inside each facility (declarative).
+    global_aggregation: grpc        # Flora gRPC daemon + facility leaders as clients.
+
 training:
   # how many actual workers
   dataset_total_clients: 6

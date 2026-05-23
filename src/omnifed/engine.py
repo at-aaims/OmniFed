@@ -303,16 +303,28 @@ class Engine(RequiredSetup):
                 topo_nodes = len(list(self.topology))
                 sconf.ntasks = resolve_slurm_ntasks(self.cfg, topo_nodes)
                 if comm == "hybrid":
+                    from src.omnifed.hybrid.hydra_loader import engine_has_runtime_hybrid_layout
+
+                    if engine_has_runtime_hybrid_layout(self.cfg):
+                        desc = "engine.hybrid.runtime layout"
+                    else:
+                        desc = f"conf_hybrid {OmegaConf.select(self.cfg, 'engine.hybrid.topology_config')!r}"
                     print(
                         f"[Engine] communication_mode=hybrid: Slurm --ntasks={sconf.ntasks} "
-                        f"(matches conf_hybrid {OmegaConf.select(self.cfg, 'engine.hybrid.topology_config')!r} "
-                        f"and len(topology)={topo_nodes}).",
+                        f"({desc}, len(topology)={topo_nodes}).",
                         flush=True,
                     )
 
                 if sconf.ntasks_per_node and sconf.ntasks_per_node > 0:
                     needed_nodes = (sconf.ntasks + sconf.ntasks_per_node - 1) // sconf.ntasks_per_node
+                    prev_nodes = sconf.nodes
                     sconf.nodes = max(sconf.nodes, needed_nodes)
+                    if sconf.nodes != prev_nodes:
+                        print(
+                            f"[Engine] slurm.nodes raised {prev_nodes} -> {sconf.nodes} "
+                            f"(need >= ceil(ntasks={sconf.ntasks}/ntasks_per_node={sconf.ntasks_per_node})={needed_nodes})",
+                            flush=True,
+                        )
 
                 sconf.stdout = os.path.join(self.hydra_cfg.runtime.output_dir, "slurm-%j.out")
                 sconf.stderr = os.path.join(self.hydra_cfg.runtime.output_dir, "slurm-%j.err")

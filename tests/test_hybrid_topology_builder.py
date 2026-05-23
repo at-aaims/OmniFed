@@ -3,12 +3,29 @@
 import unittest
 
 from src.omnifed.hybrid.topology_builder import (
+    DEFAULT_HYBRID_COMMUNICATORS,
     build_hybrid_topology,
+    merge_hybrid_communicators,
     validate_hybrid_topology_dict,
 )
 
 
 class TestBuildHybridTopology(unittest.TestCase):
+    def test_default_communicators_in_topology(self) -> None:
+        t = build_hybrid_topology(num_facilities=2, mpi_ranks_per_facility=[2, 3])
+        self.assertEqual(t["communicators"], dict(DEFAULT_HYBRID_COMMUNICATORS))
+
+    def test_merge_hybrid_communicators_overlay(self) -> None:
+        merged = merge_hybrid_communicators({"global_aggregation": "grpc_future"})
+        self.assertEqual(merged["intra_facility"], "torch_mpi")
+        self.assertEqual(merged["global_aggregation"], "grpc_future")
+
+    def test_validate_rejects_non_mapping_communicators(self) -> None:
+        topo = build_hybrid_topology(num_facilities=2, mpi_ranks_per_facility=3)
+        topo["communicators"] = []
+        with self.assertRaises(ValueError):
+            validate_hybrid_topology_dict(topo)
+
     def test_symmetric_2x3_matches_try1_layout(self) -> None:
         """Same global ranks / members as conf_hybrid/topology/try1_hybrid_topo.yaml."""
         topo = build_hybrid_topology(
@@ -48,6 +65,10 @@ class TestBuildHybridTopology(unittest.TestCase):
                     },
                 },
             ],
+            "communicators": {
+                "intra_facility": "torch_mpi",
+                "global_aggregation": "grpc",
+            },
         }
         self.assertEqual(topo, expected)
 

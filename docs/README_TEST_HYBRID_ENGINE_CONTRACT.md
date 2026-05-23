@@ -2,6 +2,8 @@
 
 This README is repo-relative to **`OmniFed_VT/`** (workspace root except **MNIST/TorchVision data**, which typically lives on Lustre paths you pass via CLI overrides).
 
+**Phase C — layout-first sibling:** **`conf/test_hybrid_layout_fedavg.yaml`** — **`engine.hybrid.layout`** only (**same **`world_size` / **`topology.num_clients`** as below** — no **`conf_hybrid`** topology file).
+
 ## Command shape (Frontier-style example)
 
 **Preset:** `--config-name test_hybrid_engine_contract` sets **`engine.mode: slurm`**, **`engine.communication_mode: hybrid`**, **`engine.hybrid.topology_config`** → **`conf_hybrid/topology/built_symmetric_2x3.yaml`** (implicit **world size = 7**), and **`topology.num_clients: 6`** (must match **`num_clients + 1 == world_size`** for centralized mapping).
@@ -40,9 +42,9 @@ Minimal pattern (adapt account, partitions, lustre MNIST roots):
 | **`main.sh`** | Sets env vars, runs **gRPC protobuf** codegen, invokes **`python -u main.py "$@"`** with Hydra overrides. |
 | **`main.py`** | Hydra entry; constructs **`Engine`** and runs experiment / Slurm submission. |
 | **`src/omnifed/communicator/grpc.proto`** | **OmniFed** RPC schema; compiled by **`main.sh`** → generated `*_pb2*.py` next to it. |
-| **`conf/test_hybrid_engine_contract.yaml`** | Top preset: inherits FedAvg TorchDist bundle; sets **`engine` hybrid + **`topology.num_clients`** + **`global_rounds`**. |
-| **`conf/test_hybrid_layout_fedavg.yaml`** | Phase C preset: **`engine.hybrid.layout`** only (parity with **`built_symmetric_2x3`**; no **`topology_config`**). |
-| **`tests/test_hybrid_phase_c_preset.py`** | Hydra **`compose`** + **`load_hybrid_cfg_for_engine`** parity test. |
+| **`conf/test_hybrid_engine_contract.yaml`** | Top preset (**`topology_config`** → **`built_symmetric_2x3.yaml`**): **`engine`** hybrid + **`topology.num_clients`** + **`global_rounds`**. |
+| **`conf/test_hybrid_layout_fedavg.yaml`** | Phase C preset (**`engine.hybrid.layout`** only; same lattice as **`built_symmetric_2x3`**; **`topology_config`** null). |
+| **`tests/test_hybrid_phase_c_preset.py`** | Hydra **`compose`** parity vs file preset (**`validate_hybrid_slurm_topology_alignment`**, **`load_hybrid_cfg_for_engine`**). |
 | **`conf/test_fedavg_centralized_torchdist.yaml`** | Parent preset: **`CentralizedTopology`**, FedAvg schedules, **`max_epochs_per_round`**, **`datamodule` batch sizes**, rank-0 **train=null**. |
 | **`conf/base.yaml`** | Framework defaults (**`slurm.*`**, **`engine.*`** including **`engine.hybrid.*`**). |
 | **`conf/topology/centralized.yaml`** | **`CentralizedTopology`** **`_target_`** + inherits topology base. |
@@ -84,9 +86,9 @@ Minimal pattern (adapt account, partitions, lustre MNIST roots):
 
 | Path pattern | Role |
 |----------------|------|
-| **`outputs/<date>/test_hybrid_engine_contract/engine/node_results/node_*`** | Per-task **FedAvg summary** payloads (`.json` / `.pkl`). |
-| **`outputs/<date>/test_hybrid_engine_contract/engine/hybrid_grpc_leader_done/`** | **`leader_done`** shutdown handshake files (**subset of ranks**, gRPC leaders). |
-| **`outputs/<date>/test_hybrid_engine_contract/Node0.*`** | **`CentralizedTopology`** **`Node0.rank`** dirs — **metrics CSVs** / TB per logical node slot. |
+| **`outputs/<date>/<config_name>/test_hybrid_* /engine/node_results/node_*`** | Per-task **FedAvg summary** payloads (covers **`test_hybrid_engine_contract`** and **`test_hybrid_layout_fedavg`**). |
+| **`outputs/<date>/<config_name>/test_hybrid_*/engine/hybrid_grpc_leader_done/`** | **`leader_done`** shutdown handshake files. |
+| **`outputs/<date>/<config_name>/test_hybrid_*/Node0.*`** | **`CentralizedTopology`** **`Node0.rank`** dirs — **metrics CSVs** / TB per logical node slot. |
 
 ---
 
@@ -94,3 +96,5 @@ Minimal pattern (adapt account, partitions, lustre MNIST roots):
 
 - **`README.md`** (project root) — hybrid Slurm + centralized baseline bullets.  
 - **`docs/HYBRID_SLURM_REFERENCE.md`** — Frontier checklist, validation, revision history.
+- **`docs/README_HYDRA_RUN_OUTPUTS.md`** — **run output catalog** (**`outputs/…`**, metrics CSVs, **`sync/*_time`** for comm).
+- **`docs/HYBRID_TRAINING_AND_SYNC.md`** — training loop: epochs/steps vs **`local_agg` / gRPC / `local_bcast`**, and **`round_end`** schedule (replacing Flora **`comm_freq`** in OmniFed).

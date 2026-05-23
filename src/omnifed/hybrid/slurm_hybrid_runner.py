@@ -18,12 +18,19 @@ from omegaconf import OmegaConf
 from src.flora.communicator import grpc_communicator as FloraGrpcComm
 from src.flora.communicator import torch_mpi
 from src.omnifed.communicator import AggregationOp
-from src.omnifed.engine_communication import hybrid_topology_config_for_slurm
+from src.omnifed.engine_communication import (
+    hybrid_topology_config_for_slurm,
+    validate_hybrid_slurm_topology_alignment,
+)
 from src.omnifed.hybrid.addr_env import apply_hybrid_addr_env_overrides
 from src.omnifed.hybrid.comm_bridge import HybridCommBridge
+from src.omnifed.hybrid.hybrid_run_summary import write_hybrid_slurm_per_round_summary
 from src.omnifed.hybrid.grpc_leader_comm import GrpcLeaderCommunicator
 from src.omnifed.hybrid.hybrid_slurm_sync import install_hybrid_slurm_sync
-from src.omnifed.hybrid.hydra_loader import load_hybrid_cfg
+from src.omnifed.hybrid.hydra_loader import (
+    engine_has_runtime_hybrid_layout,
+    load_hybrid_cfg_for_engine,
+)
 from src.omnifed.hybrid.slurm_hostlist import (
     apply_hosts_to_hybrid_topology,
     slurm_job_hosts_ordered,
@@ -99,18 +106,20 @@ def run_hybrid_training(cfg, hydra_out_dir: str, ckpt_dir: str) -> None:
     rank = int(os.environ.get("SLURM_PROCID", "0"))
     world = int(os.environ.get("SLURM_NTASKS", "1"))
 
-    htc = hybrid_topology_config_for_slurm(cfg)
-    if not htc:
-        raise ValueError("engine.hybrid.topology_config missing in frozen cfg.")
+    if not engine_has_runtime_hybrid_layout(cfg) and not hybrid_topology_config_for_slurm(cfg):
+        raise ValueError(
+            "engine.hybrid.layout or engine.hybrid.topology_config required in frozen cfg for hybrid."
+        )
 
-    hcfg = load_hybrid_cfg(htc)
+    hcfg = load_hybrid_cfg_for_engine(cfg)
     apply_hybrid_addr_env_overrides(hcfg)
     topo = hcfg.topology
 
-    if int(topo.world_size) != world:
-        raise RuntimeError(
-            f"Hybrid topology world_size={topo.world_size} != SLURM_NTASKS={world}"
-        )
+    validate_hybrid_slurm_topology_alignment(
+        cfg,
+        topology_node_count=int(topo.world_size),
+        slurm_ntasks=world,
+    )
 
     hosts = slurm_job_hosts_ordered()
     apply_hosts_to_hybrid_topology(topo, hosts)
@@ -283,6 +292,16 @@ def run_hybrid_training(cfg, hydra_out_dir: str, ckpt_dir: str) -> None:
     with open(out_json, "w", encoding="utf-8") as f:
         json.dump(_to_jsonable(results), f, ensure_ascii=False, indent=2)
     print(f"[hybrid] rank={rank} wrote {out_json}", flush=True)
+
+    if client_ranks and rank == min(client_ranks):
+        write_hybrid_slurm_per_round_summary(
+            hydra_out_dir,
+            topo=topo,
+            world_size=world,
+            rpc_server_rank=rpc_server_rank,
+            rank_writer=rank,
+        )
+
     print(f"[hybrid] rank={rank} finished.", flush=True)
 
 

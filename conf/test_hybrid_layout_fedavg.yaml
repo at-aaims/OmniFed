@@ -1,0 +1,47 @@
+# ================================================================================
+# Phase C — Figure‑2‑style hybrid preset: **`engine.hybrid.layout`** only
+#
+# Same experiment semantics as **`test_hybrid_engine_contract`** (2 facilities × 3
+# trainers + dedicated RPC ⇒ **world_size 7**, **topology.num_clients: 6**, MNIST
+# FedAvg) but declares the hybrid lattice **inline** instead of **`conf_hybrid/topology/built_symmetric_2x3.yaml`**.
+# next to **`topology`**, **`algorithm`**, and **`slurm`** in one YAML.
+#
+# See also: **`docs/HYBRID_USER_KNOBS_AND_ROADMAP.md`** §4 (**Phase C**), **`docs/HYBRID_SLURM_REFERENCE.md`** §**4.3** (**Phase D** — Slurm **`nodes`/`ntasks`** vs hybrid **`W`**), and the file‑preset sibling **`conf/test_hybrid_engine_contract.yaml`**.
+#
+# Example (Frontier: add lustre MNIST overrides like the sibling preset):
+#   ./main.sh --config-name test_hybrid_layout_fedavg engine.mode=slurm \
+#     datamodule.train.dataset.download=false datamodule.eval.dataset.download=false \
+#     datamodule.train.dataset.root=... datamodule.eval.dataset.root=... \
+#     slurm.account=YOUR_PROJECT ... slurm.nodes=7 slurm.ntasks_per_node=1 ...
+# ================================================================================
+
+defaults:
+  - test_fedavg_centralized_torchdist
+  - _self_
+
+engine:
+  mode: slurm
+  communication_mode: hybrid
+  hybrid:
+    topology_config: null
+    layout:
+      num_facilities: 2
+      mpi_ranks_per_facility: 3
+      dedicated_rpc_server: true
+      rpc_addr: "127.0.0.1"
+      rpc_port: 50051
+      facility_mpi_addr: "127.0.0.1"
+      facility_mpi_base_port: 28250
+      facility_mpi_port_stride: 40
+      facility_name_prefix: "fac"
+      # Declarative only — hybrid runner behavior unchanged (see topology_builder.DEFAULT_HYBRID_COMMUNICATORS).
+      communicators:
+        intra_facility: torch_mpi
+        global_aggregation: grpc
+    training:
+      dataset_total_clients: 6
+
+topology:
+  num_clients: 6
+
+global_rounds: 1

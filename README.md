@@ -21,14 +21,25 @@ A federated learning framework built on [Ray](https://ray.io/) and [Hydra](https
 
 ### Hybrid Slurm (`engine.communication_mode=hybrid`)
 
-Cross-facility gRPC plus per-facility Torch MPI (`conf_hybrid` topology); see **`docs/HYBRID_SLURM_REFERENCE.md`**.
+Cross-facility gRPC plus per-facility Torch MPI; see **`docs/HYBRID_SLURM_REFERENCE.md`**.
+
+**Hydra presets (Phase C):**
+
+- **`--config-name test_hybrid_engine_contract`** — **`engine.hybrid.topology_config`** → **`conf_hybrid/topology/built_symmetric_2x3.yaml`** (named reproducible lattice).
+- **`--config-name test_hybrid_layout_fedavg`** — **same experiment** (**`world_size`** 7, **`topology.num_clients: 6`**) via **`engine.hybrid.layout`** only (Figure‑2 style: lattice next to **`topology`** / **`engine`** blocks — no **`conf_hybrid`** YAML path).
+
+How **`slurm.nodes`** / **`ntasks_per_node`** relate to **`#SBATCH --ntasks`** (**hybrid `world_size`**): **`docs/HYBRID_SLURM_REFERENCE.md`** §**4.3** (**Phase D**).
+
+**Centralized baseline (not hybrid):** For classic **MNIST FedAvg** over a **single** Torch collective world (TorchDist/NCCL, rank-0 server with train dataloader stubbed), use **`--config-name test_fedavg_centralized_torchdist`** — that pulls **`conf/test_fedavg_centralized_torchdist.yaml`**, keeps default **`engine.communication_mode=classic`**, and is **different** from the hybrid presets. Examples:
+- **Ray:** `./main.sh --config-name test_fedavg_centralized_torchdist`
+- **Slurm:** same `--config-name` with **`engine.mode=slurm`** and **`slurm.*`** knobs (same pattern as **OmniFed with SLURM** above).
 
 Prerequisites:
 
 - Frozen config + **`slurm_worker`** on each task (**`PYTHONPATH`** to repo root; **`PYEXE`** for ROCm stack on compute nodes is often injected via **`engine.py`** `setup_lines` on Frontier).
 - **MNIST offline** on OLCF Frontier: compute nodes may not reach the public internet — pre-stage torchvision MNIST under Lustre and pass **`download=false`** and matching **`dataset.root`** for train and eval.
 
-Minimal Frontier-style submit (seven tasks, seven nodes; adjust account/path):
+Minimal Frontier-style submit (seven tasks, seven nodes; substitute **`test_hybrid_layout_fedavg`** for the **`--config-name`** line if you prefer **`engine.hybrid.layout`**):
 
 ```bash
 ./main.sh --config-name test_hybrid_engine_contract \

@@ -14,7 +14,35 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Sequence, Union
 
-__all__ = ["build_hybrid_topology", "validate_hybrid_topology_dict"]
+__all__ = [
+    "DEFAULT_HYBRID_COMMUNICATORS",
+    "build_hybrid_topology",
+    "merge_hybrid_communicators",
+    "validate_hybrid_topology_dict",
+]
+
+# Declarative (Hydra‑visible) communicator roles — actual wiring stays in hybrid runner.
+DEFAULT_HYBRID_COMMUNICATORS: Dict[str, str] = {
+    # Facility‑internal collectives (`TorchMPIAdapter` → process group).
+    "intra_facility": "torch_mpi",
+    # Cross‑facility federated averaging (`GrpcLeaderCommunicator` + Flora daemon).
+    "global_aggregation": "grpc",
+}
+
+
+def merge_hybrid_communicators(
+    overrides: Dict[str, Any] | None,
+) -> Dict[str, str]:
+    """Merge YAML overrides onto :data:`DEFAULT_HYBRID_COMMUNICATORS` (string roles)."""
+    out: Dict[str, str] = dict(DEFAULT_HYBRID_COMMUNICATORS)
+    if not overrides:
+        return out
+    for key, raw in overrides.items():
+        sk = str(key)
+        if raw is None:
+            continue
+        out[sk] = str(raw)
+    return out
 
 
 def _normalize_mpi_ranks_per_facility(
@@ -48,6 +76,7 @@ def build_hybrid_topology(
     facility_mpi_base_port: int = 28250,
     facility_mpi_port_stride: int = 40,
     facility_name_prefix: str = "fac",
+    communicators: Dict[str, Any] | None = None,
 ) -> Dict[str, Any]:
     """
     Build a resolved ``topology`` dict (Hydra/OmegaConf-friendly) for hybrid runs.
@@ -70,6 +99,9 @@ def build_hybrid_topology(
         Facility ``f`` uses port ``facility_mpi_base_port + f * stride``.
     facility_name_prefix:
         Names are ``{prefix}{1-based index}`` (e.g. fac1, fac2).
+    communicators:
+        Optional override mapping merged onto :data:`DEFAULT_HYBRID_COMMUNICATORS`
+        (declarative only; hybrid runner wiring is unchanged).
     """
     if not dedicated_rpc_server:
         raise NotImplementedError(
@@ -117,6 +149,7 @@ def build_hybrid_topology(
             "client_ranks": list(leader_ranks),
         },
         "facilities": facilities_out,
+        "communicators": merge_hybrid_communicators(communicators),
     }
     validate_hybrid_topology_dict(topology)
     return topology
@@ -174,3 +207,7 @@ def validate_hybrid_topology_dict(topology: Dict[str, Any]) -> None:
             f"ranks must be exactly 0..{ws - 1}; missing={sorted(missing)} "
             f"extra_or_dup={sorted(extra)}"
         )
+
+    comm = topology.get("communicators")
+    if comm is not None and not isinstance(comm, dict):
+        raise ValueError("topology.communicators must be a mapping when present")
