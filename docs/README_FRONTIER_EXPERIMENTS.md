@@ -84,13 +84,124 @@ datasets.MNIST(root=root, train=False, download=True)
 
 Every MNIST **`main.sh`** block below assumes **`download=false`** and **`root=`** aiming at this tree.
 
-### Pre-stage LM data (only if §8 Llama + C4 will run)
+### 2.D LM pre-flight (**login node only**; skip entire block if §8 Llama+C4 never runs)
 
-This is a separate, heavier story: C4 **`save_to_disk`**, Mistral tokenizer cache on disk, Llama **`snapshot_download`**. The literal script block we copied from lives in **`./archive/hybrid-engine-pipeline/HYBRID_LLAMA150M_C4_ROADMAP.md`** under **“Frontier procedure (login → data → submit)”**.
+These are **copy-pastes from the Frontier runs we traced** (`./archive/hybrid-engine-pipeline/HYBRID_LLAMA150M_C4_ROADMAP.md`) — kept here so one file is self-contained. Replace **`YOUR_USER`** everywhere (below we use scratch **`gen150`**; adjust project/paths if yours differ).
 
-After we finished that on the login node, every LM shell session reused three exports (`OMNIFED_C4_DISK`, `OMNIFED_TOKENIZER_DIR`, `OMNIFED_LLAMA_WEIGHTS`; exact subdirectory names match whatever paths we parked under **`omnifed_data/`** on scratch). Skip §8 entirely if this never runs.
+**(Once per conda env)** LM Python packages:
+
+```bash
+pip install "datasets>=2.18.0" "transformers>=4.41.0" "sentencepiece>=0.2.0" "huggingface_hub>=0.23"
+```
+
+**(Optional)** keep Hugging Face cache on Lustre instead of **`$HOME`** during **`load_dataset`** / Hub pulls:
+
+```bash
+export HF_HOME="/lustre/orion/gen150/scratch/YOUR_USER/omnifed_data/.hf_home"
+export HF_DATASETS_CACHE="${HF_HOME}/datasets"
+mkdir -p "${HF_DATASETS_CACHE}"
+```
+
+**C4 — `save_to_disk` subset** (**50 000** train **/ 2 000** val rows; tweak **`TRAIN_ROWS` / `VAL_ROWS`** as needed):
+
+```bash
+python <<'PY'
+from datasets import load_dataset, DatasetDict
+
+OUT = "/lustre/orion/gen150/scratch/YOUR_USER/omnifed_data/allenai_c4"
+TRAIN_ROWS = 50_000
+VAL_ROWS = 2_000
+
+train = load_dataset(
+    "allenai/c4",
+    "en",
+    split=f"train[:{TRAIN_ROWS}]",
+    trust_remote_code=True,
+)
+validation = load_dataset(
+    "allenai/c4",
+    "en",
+    split=f"validation[:{VAL_ROWS}]",
+    trust_remote_code=True,
+)
+DatasetDict({"train": train, "validation": validation}).save_to_disk(OUT)
+print("Saved to:", OUT)
+PY
+```
+
+Quick **C4** sanity (**`load_from_disk`**):
+
+```bash
+python -c "
+from datasets import load_from_disk
+root = '/lustre/orion/gen150/scratch/YOUR_USER/omnifed_data/allenai_c4'
+d = load_from_disk(root)
+print(d)
+print(len(d['train']), len(d['validation']))
+print(d['train'].column_names)
+"
+```
+
+**Mistral tokenizer** → Lustre (**compute stays `local_files_only`**):
+
+```bash
+python <<'PY'
+from transformers import AutoTokenizer
+TOKEN_DIR = "/lustre/orion/gen150/scratch/YOUR_USER/omnifed_data/tokenizer_Mistral-7B-v0.1"
+tok = AutoTokenizer.from_pretrained("mistralai/Mistral-7B-v0.1")
+tok.save_pretrained(TOKEN_DIR)
+print("Saved tokenizer ->", TOKEN_DIR)
+PY
+
+python -c "
+from transformers import AutoTokenizer
+p = '/lustre/orion/gen150/scratch/YOUR_USER/omnifed_data/tokenizer_Mistral-7B-v0.1'
+AutoTokenizer.from_pretrained(p, local_files_only=True)
+print('tok ok')
+"
+```
+
+**Llama‑150 M weights** — **`snapshot_download`** (repo we used):
+
+```bash
+mkdir -p /lustre/orion/gen150/scratch/YOUR_USER/omnifed_data/PrimeIntellect_llama-150m-fresh
+
+python <<'PY'
+from huggingface_hub import snapshot_download
+
+out = "/lustre/orion/gen150/scratch/YOUR_USER/omnifed_data/PrimeIntellect_llama-150m-fresh"
+snapshot_download(
+    repo_id="PrimeIntellect/llama-150m-fresh",
+    local_dir=out,
+)
+print("done ->", out)
+PY
+
+python -c "
+from transformers import LlamaForCausalLM
+p = '/lustre/orion/gen150/scratch/YOUR_USER/omnifed_data/PrimeIntellect_llama-150m-fresh'
+LlamaForCausalLM.from_pretrained(p, local_files_only=True)
+print('llama ok')
+"
+```
+
+(Optional Hub rate limits: **`export HF_TOKEN=...`** in the **same login session** before downloads.)
 
 ---
+
+**`OMNIFED_*`** — **same shell session as `./main.sh`** (Hydra embeds resolved paths into **`engine_frozen.json`**):
+
+```bash
+export OMNIFED_C4_DISK="/lustre/orion/gen150/scratch/YOUR_USER/omnifed_data/allenai_c4"
+export OMNIFED_TOKENIZER_DIR="/lustre/orion/gen150/scratch/YOUR_USER/omnifed_data/tokenizer_Mistral-7B-v0.1"
+export OMNIFED_LLAMA_WEIGHTS="/lustre/orion/gen150/scratch/YOUR_USER/omnifed_data/PrimeIntellect_llama-150m-fresh"
+```
+
+For **Llama ~400 M**, add (**only** when using **`test_hybrid_layout_fedavg_llama400m`**; path is **your** offline HF tree **`snapshot_download`**, not interchangeable with 150 M):
+
+```bash
+export OMNIFED_LLAMA400_WEIGHTS="/lustre/orion/gen150/scratch/YOUR_USER/omnifed_data/<your_llama400m_hf_folder>"
+```
 
 ## 3. Centralized SLURM baseline (Engine, **not** hybrid)
 
@@ -230,16 +341,26 @@ Standing rule **`SLURM_NTASKS == hybrid_world_size`** and **`topology.num_client
 | **Model** | Same **`load_llama_from_pretrained_checkpoint`**; weights via **`OMNIFED_LLAMA_WEIGHTS`** (150 M presets) **or** **`OMNIFED_LLAMA400_WEIGHTS`** (**`test_*_llama400m`**) |
 | **Datamodule** | **`datasets.load_from_disk`** C4 shards; **`Dataset.shard`** on **train**, driven by **`OMNIFED_FEDERATED_CLIENT_INDEX`** seeded in **`slurm_hybrid_runner.py`** |
 
-Pre-flight mirrored §2 (**login node pulls Hub assets** once). Afterwards each **150 M** submission used **`./main.sh --config-name test_hybrid_layout_fedavg_llama150m`** plus **`OMNIFED_C4_DISK`**, **`OMNIFED_TOKENIZER_DIR`**, **`OMNIFED_LLAMA_WEIGHTS`**.
+Pre-flight (**C4**, tokenizer, checkpoints, **`pip`**) is **§2.D**. Immediately before **`./main.sh`** the **`export OMNIFED_*`** lines **must live in that same shell**.
+
+**Llama‑150 M — copy-paste (**`YOUR_USER`** + **`YOUR_PROJECT`** = fill once):**
 
 ```bash
+cd "${OMNIFED_REPO}"
+export PYTHONPATH="${OMNIFED_REPO}"
+export PYEXE="${CONDA_PREFIX}/bin/python"
+
+export OMNIFED_C4_DISK="/lustre/orion/gen150/scratch/YOUR_USER/omnifed_data/allenai_c4"
+export OMNIFED_TOKENIZER_DIR="/lustre/orion/gen150/scratch/YOUR_USER/omnifed_data/tokenizer_Mistral-7B-v0.1"
+export OMNIFED_LLAMA_WEIGHTS="/lustre/orion/gen150/scratch/YOUR_USER/omnifed_data/PrimeIntellect_llama-150m-fresh"
+
 ./main.sh --config-name test_hybrid_layout_fedavg_llama150m \
    overwrite=true \
    engine.mode=slurm \
    global_rounds=2 \
    slurm.account=YOUR_PROJECT \
    slurm.partition=batch \
-   slurm.time=01:30:00 \
+   slurm.time=01:35:00 \
    slurm.nodes=7 \
    slurm.ntasks_per_node=1 \
    slurm.cpus_per_task=4 \
@@ -248,7 +369,33 @@ Pre-flight mirrored §2 (**login node pulls Hub assets** once). Afterwards each 
    slurm.gres=null
 ```
 
-**Llama ~400 M (same stack, isolated weights preset).** We added **`test_hybrid_layout_fedavg_llama400m`** (**`conf/test_hybrid_layout_fedavg_llama400m.yaml`**) and **`OMNIFED_LLAMA400_WEIGHTS`** so checkpoints never overwrite **`OMNIFED_LLAMA_WEIGHTS`** semantics for 150 M. Reuse **`OMNIFED_C4_DISK`** / **`OMNIFED_TOKENIZER_DIR`**; swap **`export OMNIFED_LLAMA400_WEIGHTS=<offline_hub_tree>`**, then **`--config-name test_hybrid_layout_fedavg_llama400m`** with the same Slurm block (expect slower steps ⇒ fewer **`global_rounds`** or more **`slurm.time`**).
+**Llama ~400 M — same data exports; weights path only swaps** (**populate folder first with your **`snapshot_download` tree**):
+
+```bash
+cd "${OMNIFED_REPO}"
+export PYTHONPATH="${OMNIFED_REPO}"
+export PYEXE="${CONDA_PREFIX}/bin/python"
+
+export OMNIFED_C4_DISK="/lustre/orion/gen150/scratch/YOUR_USER/omnifed_data/allenai_c4"
+export OMNIFED_TOKENIZER_DIR="/lustre/orion/gen150/scratch/YOUR_USER/omnifed_data/tokenizer_Mistral-7B-v0.1"
+export OMNIFED_LLAMA400_WEIGHTS="/lustre/orion/gen150/scratch/YOUR_USER/omnifed_data/<your_llama400m_hf_folder>"
+
+./main.sh --config-name test_hybrid_layout_fedavg_llama400m \
+   overwrite=true \
+   engine.mode=slurm \
+   global_rounds=2 \
+   slurm.account=YOUR_PROJECT \
+   slurm.partition=batch \
+   slurm.time=01:35:00 \
+   slurm.nodes=7 \
+   slurm.ntasks_per_node=1 \
+   slurm.cpus_per_task=4 \
+   slurm.gpus_per_node=1 \
+   slurm.gpus_per_task=1 \
+   slurm.gres=null
+```
+
+**Llama ~400 M** uses the **`OMNIFED_LLAMA400_WEIGHTS`** key so **`OMNIFED_LLAMA_WEIGHTS`** (150 M) is never repurposed accidentally. Runs are slower ⇒ often **`global_rounds=1`** under the same **`slurm.time`**.
 
 **Structural footnote (after hitting `InterpolationKeyError`):** **`datamodule.num_federated_clients`** must match **`topology.num_clients`** as **literals** in each preset / CLI overrides (`conf/datamodule/c4_lm_federated_disk.yaml` uses **`???`** until the preset fills it). We avoided **`${topology.num_clients}`** in that datamodule because **`OmegaConf.to_container`** during **`engine_frozen.json`** could fail. **`./archive/hybrid-engine-pipeline/HYBRID_LLAMA150M_C4_ROADMAP.md`** §**J** captures the remediation.
 
