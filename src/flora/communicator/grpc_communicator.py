@@ -24,6 +24,7 @@ import src.flora.communicator.grpc_communicator_pb2_grpc as flora_grpc_pb2_grpc
 
 # from src.flora.flora_rpc.central_server import CentralServerServicer
 # from src.flora.flora_rpc.grpc_client import GrpcClient
+from src.flora.communicator.grpc_limits import GRPC_MAX_MESSAGE_BYTES
 from src.flora.communicator.grpc_server import CentralServerServicer
 from src.flora.communicator.grpc_client import GrpcClient
 
@@ -52,12 +53,11 @@ class GrpcCommunicator(Communicator):
         # ``topology.rpc.server_rank`` but must still construct the server with ``id=0`` here unless
         # this branch is refactored (see Phase B Step 8 notes in docs/archive/hybrid-engine-pipeline/HYBRID_SLURM_REFERENCE.md).
         if self.id == 0:
-            # grpc send and receive message length max 100MB
             self.server = grpc.server(
                 futures.ThreadPoolExecutor(max_workers=10),
                 options=[
-                    ("grpc.max_send_message_length", 100 * 1024 * 1024),
-                    ("grpc.max_receive_message_length", 100 * 1024 * 1024),
+                    ("grpc.max_send_message_length", GRPC_MAX_MESSAGE_BYTES),
+                    ("grpc.max_receive_message_length", GRPC_MAX_MESSAGE_BYTES),
                 ],
             )
 

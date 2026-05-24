@@ -20,6 +20,7 @@ import numpy as np
 
 import src.flora.communicator.grpc_communicator_pb2 as flora_grpc_pb2
 import src.flora.communicator.grpc_communicator_pb2_grpc as flora_grpc_pb2_grpc
+from src.flora.communicator.grpc_limits import GRPC_MAX_MESSAGE_BYTES
 
 
 class GrpcClient:
@@ -27,13 +28,11 @@ class GrpcClient:
         self, client_id: str, master_addr: str = "127.0.0.1", master_port: int = 50051
     ):
         self.client_id = client_id
-        # self.channel = grpc.insecure_channel(master_addr+':'+str(master_port))
-        # 100MB
         self.channel = grpc.insecure_channel(
             master_addr + ":" + str(master_port),
             options=[
-                ("grpc.max_receive_message_length", 100 * 1024 * 1024),
-                ("grpc.max_send_message_length", 100 * 1024 * 1024),
+                ("grpc.max_receive_message_length", GRPC_MAX_MESSAGE_BYTES),
+                ("grpc.max_send_message_length", GRPC_MAX_MESSAGE_BYTES),
             ],
         )
         self.stub = flora_grpc_pb2_grpc.CentralServerStub(self.channel)

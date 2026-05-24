@@ -24,6 +24,7 @@ import numpy as np
 from src.flora.flora_rpc import SimpleModel
 import src.flora.communicator.grpc_communicator_pb2 as flora_grpc_pb2
 import src.flora.communicator.grpc_communicator_pb2_grpc as flora_grpc_pb2_grpc
+from src.flora.communicator.grpc_limits import GRPC_MAX_MESSAGE_BYTES
 
 
 class CentralServerServicer(flora_grpc_pb2_grpc.CentralServerServicer):
@@ -296,12 +297,11 @@ class CentralServerServicer(flora_grpc_pb2_grpc.CentralServerServicer):
 
 
 def start_server(model, port=50051, num_clients=3, accumulate_updates=True):
-    # max send and receive message length: 100 MB
     server = grpc.server(
         futures.ThreadPoolExecutor(max_workers=10),
         options=[
-            ("grpc.max_send_message_length", 100 * 1024 * 1024),
-            ("grpc.max_receive_message_length", 100 * 1024 * 1024),
+            ("grpc.max_send_message_length", GRPC_MAX_MESSAGE_BYTES),
+            ("grpc.max_receive_message_length", GRPC_MAX_MESSAGE_BYTES),
         ],
     )
 
