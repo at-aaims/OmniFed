@@ -220,17 +220,17 @@ Standing rule **`SLURM_NTASKS == hybrid_world_size`** and **`topology.num_client
 
 ---
 
-## 8. Llama-150M + C4 hybrid LM
+## 8. Llama + C4 hybrid LM (**150 M default; ~400 M sibling preset**)
 
 **Why this step exists.** We deliberately **reuse** the hybrid Runner—only Hydra swaps **algorithm / model / datamodule**:
 
 | Piece | Swap |
 |--------|------|
 | **Algorithm** | **`FedAvgLLM`** — HF dict-style forward, **AdamW**, batch inferred from **`input_ids`** |
-| **Model** | **`load_llama_from_pretrained_checkpoint`** with **`LlamaForCausalLM.from_pretrained(..., local_files_only=True)`** keyed off **`OMNIFED_LLAMA_WEIGHTS`** |
+| **Model** | Same **`load_llama_from_pretrained_checkpoint`**; weights via **`OMNIFED_LLAMA_WEIGHTS`** (150 M presets) **or** **`OMNIFED_LLAMA400_WEIGHTS`** (**`test_*_llama400m`**) |
 | **Datamodule** | **`datasets.load_from_disk`** C4 shards; **`Dataset.shard`** on **train**, driven by **`OMNIFED_FEDERATED_CLIENT_INDEX`** seeded in **`slurm_hybrid_runner.py`** |
 
-Pre-flight mirrored §2 (**login node pulls Hub assets** once). Afterwards each submission repeated **`./main.sh --config-name test_hybrid_layout_fedavg_llama150m`** with the **`OMNIFED_*`** exports warmed in-shell.
+Pre-flight mirrored §2 (**login node pulls Hub assets** once). Afterwards each **150 M** submission used **`./main.sh --config-name test_hybrid_layout_fedavg_llama150m`** plus **`OMNIFED_C4_DISK`**, **`OMNIFED_TOKENIZER_DIR`**, **`OMNIFED_LLAMA_WEIGHTS`**.
 
 ```bash
 ./main.sh --config-name test_hybrid_layout_fedavg_llama150m \
@@ -247,6 +247,8 @@ Pre-flight mirrored §2 (**login node pulls Hub assets** once). Afterwards each 
    slurm.gpus_per_task=1 \
    slurm.gres=null
 ```
+
+**Llama ~400 M (same stack, isolated weights preset).** We added **`test_hybrid_layout_fedavg_llama400m`** (**`conf/test_hybrid_layout_fedavg_llama400m.yaml`**) and **`OMNIFED_LLAMA400_WEIGHTS`** so checkpoints never overwrite **`OMNIFED_LLAMA_WEIGHTS`** semantics for 150 M. Reuse **`OMNIFED_C4_DISK`** / **`OMNIFED_TOKENIZER_DIR`**; swap **`export OMNIFED_LLAMA400_WEIGHTS=<offline_hub_tree>`**, then **`--config-name test_hybrid_layout_fedavg_llama400m`** with the same Slurm block (expect slower steps ⇒ fewer **`global_rounds`** or more **`slurm.time`**).
 
 **Structural footnote (after hitting `InterpolationKeyError`):** **`datamodule.num_federated_clients`** must match **`topology.num_clients`** as **literals** in each preset / CLI overrides (`conf/datamodule/c4_lm_federated_disk.yaml` uses **`???`** until the preset fills it). We avoided **`${topology.num_clients}`** in that datamodule because **`OmegaConf.to_container`** during **`engine_frozen.json`** could fail. **`./archive/hybrid-engine-pipeline/HYBRID_LLAMA150M_C4_ROADMAP.md`** §**J** captures the remediation.
 

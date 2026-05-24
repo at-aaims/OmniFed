@@ -1,0 +1,39 @@
+# ================================================================================
+# FedAvg (**FedAvgLLM**) + **Llama ~400 M** (disk) + C4 ``load_from_disk`` — centralized Torch MPI.
+#
+# Parallels ``test_fedavg_llm_centralized_torchdist`` (Llama‑150 M) but binds
+# ``llama400m_hf_disk`` and ``OMNIFED_LLAMA400_WEIGHTS``.
+#
+# Use with ``test_hybrid_layout_fedavg_llama400m`` for hybrid Slurm, or standalone TorchDist.
+#
+# Server slot (topology rank 0) disables training dataloader.
+# ================================================================================
+
+defaults:
+  - base
+  - override topology: centralized
+  - override algorithm: fedavg_llm
+  - override model: llama400m_hf_disk
+  - override datamodule: c4_lm_federated_disk
+  - _self_
+
+topology:
+  num_clients: 6
+  local_comm:
+    _target_: src.omnifed.communicator.TorchDistCommunicator
+    backend: nccl
+    master_addr: ${oc.env:MASTER_ADDR,127.0.0.1}
+    master_port: ${oc.env:MASTER_PORT,29500}
+  overrides:
+    0:
+      datamodule:
+        train: null
+
+datamodule:
+  num_federated_clients: 6
+
+algorithm:
+  local_lr: 4.0e-4
+  max_epochs_per_round: 1
+
+global_rounds: 1

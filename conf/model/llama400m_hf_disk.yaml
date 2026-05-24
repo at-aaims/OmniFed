@@ -1,0 +1,14 @@
+# ================================================================================
+# LlamaForCausalLM from a **local** HF-style directory (Frontier offline).
+#
+# Mirrors ``llama150m_hf_disk.yaml`` loader; swap weights via ``OMNIFED_LLAMA400_WEIGHTS``
+# **without** touching 150 M checkpoints (``OMNIFED_LLAMA_WEIGHTS``).
+# Uses the same factory as 150 M — Llama‑class checkpoints only — path must hold
+# ``config.json``, weights, tokenizer is separate (see ``OMNIFED_TOKENIZER_DIR``).
+# ================================================================================
+
+_target_: src.omnifed.model.hf_causal_lm.load_llama_from_pretrained_checkpoint
+pretrained_model_name_or_path: ${oc.env:OMNIFED_LLAMA400_WEIGHTS,/tmp/llama-400m-hf-disk}
+local_files_only: true
+torch_dtype_str: float32
+attn_implementation: sdpa

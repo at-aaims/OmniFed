@@ -103,7 +103,7 @@ Most of this surfaced while stitching Flora’s **`TorchMPICommunicator`** lanes
 | **`conf_hybrid/base.yaml`** **`runtime/default.yaml`** | Minor defaults / seeds—primary training toggles stayed in main **`cfg`**. |
 | **`tests/test_hybrid_phase_c_preset.py`** | Regression ensuring **`compose`** parity between **`layout`** vs **`topology_config` interpretations. |
 
-LM-specific Hydra tails (**`fedavg_llm`**, **`llama150m_hf_disk`**, **`c4_lm_federated_disk`**, **`test_hybrid_layout_fedavg_llama150m`**) sit in the LM table below—we split them consciously so MNIST regressions stayed **`test_hybrid_*`** only.
+LM-specific Hydra tails (**`fedavg_llm`**, **`llama150m_hf_disk`** / **`llama400m_hf_disk`**, **`c4_lm_federated_disk`**, **`test_hybrid_layout_fedavg_llama150m`**, **`test_hybrid_layout_fedavg_llama400m`**) sit in the LM table below—we split them consciously so MNIST regressions stayed **`test_hybrid_*`** only.
 
 ---
 
@@ -115,8 +115,11 @@ FedAvg tensors still averaged exactly as CNN runs; causal LM swapped forward/los
 |----------|----------------|
 | **`src/omnifed/algorithm/fedavg_llm.py`**, **`conf/algorithm/fedavg_llm.yaml`** | Thin FedAvg descendant accepting HF **`dict`** batches + AdamW—kept separate from **`fedavg.py`** on purpose. |
 | **`src/omnifed/data/lm_datamodule.py`**, **`conf/datamodule/c4_lm_federated_disk.yaml`**, **`tests/test_lm_collate_utils.py`** | **`build_c4_lm_datamodule`** plus collate tests; federation keyed via **`OMNIFED_*`** env set in **`slurm_hybrid_runner.py`** before **`instantiate(cfg.datamodule)`**. |
-| **`src/omnifed/model/hf_causal_lm.py`** **`conf/model/llama150m_hf_disk.yaml`** | HF **`from_pretrained`** path wired for offline Frontier trees via **`OMNIFED_LLAMA_WEIGHTS`**. |
-| **`conf/test_fedavg_llm_centralized_torchdist.yaml`**, **`conf/test_hybrid_layout_fedavg_llama150m.yaml`** | Central TorchDistrib LM stack + hybrid Slurm composition mirroring **`test_hybrid_layout_fedavg`**’s lattice. |
+| **`src/omnifed/model/hf_causal_lm.py`** | Shared **`LlamaForCausalLM.from_pretrained`** factory (disk / offline). |
+| **`conf/model/llama150m_hf_disk.yaml`** | **`OMNIFED_LLAMA_WEIGHTS`** — 150 M tree only. |
+| **`conf/model/llama400m_hf_disk.yaml`** | **`OMNIFED_LLAMA400_WEIGHTS`** — ~400 M tree; never aliases 150 M env. |
+| **`conf/test_fedavg_llm_centralized_torchdist.yaml`**, **`conf/test_hybrid_layout_fedavg_llama150m.yaml`** | Central + hybrid Llama‑150 M LM stack (mirrors **`test_hybrid_layout_fedavg`** lattice). |
+| **`conf/test_fedavg_llm_centralized_torchdist_llama400m.yaml`**, **`conf/test_hybrid_layout_fedavg_llama400m.yaml`** | Same for ~400 M (only model env + presets differ). |
 | **`requirements.txt`** | Declared **`datasets`**, **`transformers`**, **`sentencepiece`**, **`huggingface_hub`** so Frontier login prep matched compute constraints. |
 
 ---
