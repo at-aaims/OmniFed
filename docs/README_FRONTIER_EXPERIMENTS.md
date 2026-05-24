@@ -399,7 +399,10 @@ export OMNIFED_LLAMA400_WEIGHTS="/lustre/orion/gen150/scratch/YOUR_USER/omnifed_
 
 **Structural footnote (after hitting `InterpolationKeyError`):** **`datamodule.num_federated_clients`** must match **`topology.num_clients`** as **literals** in each preset / CLI overrides (`conf/datamodule/c4_lm_federated_disk.yaml` uses **`???`** until the preset fills it). We avoided **`${topology.num_clients}`** in that datamodule because **`OmegaConf.to_container`** during **`engine_frozen.json`** could fail. **`./archive/hybrid-engine-pipeline/HYBRID_LLAMA150M_C4_ROADMAP.md`** §**J** captures the remediation.
 
-**Flora gRPC / LM (`RESOURCE_EXHAUSTED`):** Hybrid FedAvg **`SendUpdate`** ships a protobuf with full **`float32`** weights. The old **100 MiB** **`grpc.max_*_message_length`** cap is CN-scale only; Llama‑class runs hit **`CLIENT: Sent message larger than max (... vs 104857600)`** during **`global_agg`**. OmniFed bumps the shared **`GRPC_MAX_MESSAGE_BYTES`** in **`src/flora/communicator/grpc_limits.py`** (daemon **and** stub must stay aligned).
+**Flora gRPC / LM (`RESOURCE_EXHAUSTED`):** Hybrid FedAvg **`SendUpdate`** ships a protobuf with full **`float32`** weights. The old **100 MiB** **`grpc.max_*_message_length`** cap is CN-scale only; Llama‑class runs hit **`CLIENT: Sent message larger than max (... vs 104857600)`** during **`global_agg`**. OmniFed raises the shared **`GRPC_MAX_MESSAGE_BYTES`** in **`src/flora/communicator/grpc_limits.py`** (daemon **and** stub must stay aligned).
+
+**grpcio sizing:** **`2147483648`** (literally **2 GiB**) overflows grpcio **signed int32** channel args with **`OverflowError`**; the constant caps at **`INT32_MAX`** (**`2147483647`**).
+
 
 ---
 
