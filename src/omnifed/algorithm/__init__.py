@@ -24,6 +24,7 @@ from .base import BaseAlgorithm
 from .diloco import DiLoCo
 from .ditto import Ditto
 from .fedavg import FedAvg, FedAvgCustom
+from .fedavg_llm import FedAvgLLM
 from .fedbn import FedBN
 from .feddyn import FedDyn
 from .fedmom import FedMom

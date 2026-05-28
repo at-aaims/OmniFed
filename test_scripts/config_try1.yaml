@@ -1,0 +1,32 @@
+worldsize: 7
+
+rpc:
+  server:
+    global_rank: 0
+    addr: "127.0.0.1"
+    port: 50051
+  clients:
+    - 1
+    - 2
+  total_clients: 3
+  accumulate_updates: true
+
+mpi_groups:
+  - name: mpi_group_1
+    addr: "127.0.0.1"
+    port: 28250
+    world_size: 3
+    members:
+      1: 0
+      3: 1
+      4: 2
+
+  - name: mpi_group_2
+    addr: "127.0.0.1"
+    port: 28290
+    world_size: 3
+    members:
+      2: 0
+      5: 1
+      6: 2
+

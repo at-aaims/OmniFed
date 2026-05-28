@@ -56,7 +56,7 @@ class TorchDistCommunicator(BaseCommunicator):
         init_method: InitMethod = InitMethod.TCP,
         backend: str = "gloo",
         sharedfile: str = "sharedfile",
-        timeout: int = 60,
+        timeout: int = 600,
         max_retries: int = 5,
     ) -> None:
         """
@@ -87,9 +87,11 @@ class TorchDistCommunicator(BaseCommunicator):
         # ---
         self.init_method: str = init_method
         self.backend: str = backend
+        #self.backend: str = "nccl"
         self.sharedfile: str = sharedfile
         self.timeout: datetime.timedelta = datetime.timedelta(seconds=timeout)
         self.max_retries: int = max_retries
+        print(f"Inside torchdist communicator init {self.backend}")
 
         # Backend validation with automatic fallback
         if self.backend == "nccl" and not torch.cuda.is_available():
@@ -133,6 +135,10 @@ class TorchDistCommunicator(BaseCommunicator):
                 raise ValueError(
                     f"Unknown init_method: {self.init_method}. Supported: {[m.value for m in InitMethod]}"
                 )
+        
+        print(f"[TorchDistCommunicator->_setup] init complete rank={self.rank}")
+        dist.barrier()
+        print(f"[TorchDistCommunicator->_setup] barrier complete rank={self.rank}")
 
     def broadcast(
         self,
@@ -156,6 +162,8 @@ class TorchDistCommunicator(BaseCommunicator):
         Returns:
             Message with broadcasted values
         """
+
+        print(f"Inside broadcast function of torchdist rank {self.rank}")
         print(f"{get_msg_info(msg)} | src={src}")
 
         if isinstance(msg, nn.Module):
@@ -203,6 +211,7 @@ class TorchDistCommunicator(BaseCommunicator):
             Message with aggregated values distributed to all ranks
         """
 
+        print(f"Inside aggregate function of torchdist rank {self.rank}")
         print(f"{get_msg_info(msg)} | reduction={reduction}")
 
         # Map reduction type to PyTorch operation
@@ -216,6 +225,9 @@ class TorchDistCommunicator(BaseCommunicator):
             raise ValueError(f"Unsupported reduction type: {reduction}")
 
         op = reduction_ops[reduction]
+
+        print(f"[aggregate] BEFORE all_reduce rank={self.rank}")
+
 
         if isinstance(msg, nn.Module):
             # Aggregate all trainable parameters
@@ -237,6 +249,8 @@ class TorchDistCommunicator(BaseCommunicator):
         else:
             # Aggregate single tensor
             dist.all_reduce(msg, op=op)
+
+        print(f"[aggregate] AFTER all_reduce rank={self.rank}")
 
         return msg
 

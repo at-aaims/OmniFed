@@ -1,0 +1,16 @@
+seed: 1234
+determinism: 0
+dir: "/home/shruti/omnifed_data/flora_test/"
+bsz: 32
+test_bsz: 32
+comm_freq: 7
+backend: "gloo"
+model: "resnet18"
+dataset: "cifar10"
+epochs: 1000
+momentum: 0.9
+weight_decay: 1.0e-4
+gamma: 0.1
+lr: 0.01
+train_dir: "/home/shruti/omnifed_data/flora_test/"
+test_dir: "/home/shruti/omnifed_data/flora_test/"

@@ -42,6 +42,13 @@ from .utils import (
     print,
     print_rule,
 )
+# from dataclasses import asdict
+from dataclasses import asdict, is_dataclass
+from omegaconf import OmegaConf
+
+from .slurm_launcher import SlurmConfig, SlurmOnlyLauncher
+from .engine_communication import communication_mode, resolve_slurm_ntasks
+import sys
 
 LOG_FLUSH_DELAY = 2.0
 
@@ -124,6 +131,11 @@ class EngineConfig:
 
     # Infrastructure configurations
     ray: RayConfig = field(default_factory=RayConfig)
+    slurm: SlurmConfig = field(default_factory=SlurmConfig)
+    # mode: ray | slurm; communication_mode: classic | hybrid (Slurm + conf_hybrid layout).
+    engine: Dict[str, Any] = field(
+        default_factory=lambda: {"mode": "ray", "communication_mode": "classic"}
+    )
 
 
 # Register the config with Hydra's ConfigStore for structured configs
@@ -254,62 +266,202 @@ class Engine(RequiredSetup):
             default_datamodule_cfg=self.cfg.datamodule,
         )
 
-        # Initialize Ray cluster
-        ray.init(**self.ray_cfg)
+        mode = str(OmegaConf.select(self.cfg, "engine.mode", default="ray")).lower()
+        if mode not in ("ray", "slurm"):
+            raise ValueError(f"engine.mode must be 'ray' or 'slurm', got {mode!r}")
 
-        # Smart GPU allocation: detect single-node vs multi-node scenarios
-        ray_available_resources = ray.available_resources()
-        print("ray.available_resources()")
-        pprint(ray_available_resources)
-
-        # Check if single node
-        ray_nodes = ray.nodes()
-        print("ray.nodes()")
-        pprint(ray_nodes)
-
-        # Save Ray cluster information to engine directory
-        _savepath_ray_resources = os.path.join(
-            self.engine_dir, "ray_available_resources.json"
-        )
-        _savepath_ray_nodes = os.path.join(self.engine_dir, "ray_nodes.json")
-
-        with open(_savepath_ray_resources, "w") as f:
-            json.dump(ray_available_resources, f, indent=2, default=str)
-            print(f"Saved Ray resources info to: {_savepath_ray_resources}")
-
-        with open(_savepath_ray_nodes, "w") as f:
-            json.dump(ray_nodes, f, indent=2, default=str)
-            print(f"Saved Ray nodes info to: {_savepath_ray_nodes}")
-
-        ray_nodes_alive = [node for node in ray_nodes if node["Alive"]]
-        is_single_node = len(ray_nodes_alive) == 1
-
-        available_gpus = ray_available_resources.get("GPU", 0)
-        print(f"Available GPUs: {available_gpus}")
-
-        total_actors = len(self.topology)
-
-        # Determine GPU allocation strategy
-        use_fractional_gpu = (
-            is_single_node and total_actors > available_gpus and available_gpus > 0
-        )
-
-        # gpus_per_actor = available_gpus / total_actors if use_fractional_gpu else 1.0
-        # Enable CPU-only training
-        gpus_per_actor = available_gpus / total_actors if use_fractional_gpu else 0.0
-
-        print(f"Launching {len(list(self.topology))} Ray Actors")
-
-        self._ray_actor_refs = self._init_ray_actors(gpus_per_actor)
-
-        print(f"Calling setup() on {len(self._ray_actor_refs)} Nodes")
-        setup_futures = [
-            node.setup.remote(
-                total_rounds=self.global_rounds,
+        comm = communication_mode(self.cfg)
+        if comm == "hybrid" and mode != "slurm":
+            raise ValueError(
+                "engine.communication_mode=hybrid is only valid with engine.mode=slurm (Phase B)."
             )
-            for node in self._ray_actor_refs
-        ]
-        ray.get(setup_futures)
+
+        if mode == "slurm":
+            if "SLURM_JOB_ID" not in os.environ:
+                # 1) Freeze run description once (write to SHARED path)
+                outputs_root = os.path.dirname(os.path.dirname(self.output_dir))
+                cfg_json_shared = os.path.abspath(os.path.join(outputs_root, "engine_frozen.json"))
+                ckpt_dir = getattr(self.cfg.slurm, "checkpoint_dir", None) or os.path.join(self.engine_dir, "ckpt")
+
+                frozen = {
+                    "cfg": OmegaConf.to_container(self.cfg, resolve=True),
+                    "hydra_output_dir": self.hydra_cfg.runtime.output_dir,
+                    "slurm_checkpoint_dir": ckpt_dir,
+                }
+                os.makedirs(outputs_root, exist_ok=True)
+                with open(cfg_json_shared, "w") as f:
+                    json.dump(frozen, f, indent=2)
+
+                # 2) Build Slurm config dataclass
+                slurm_dict = OmegaConf.to_container(self.cfg.slurm, resolve=True)
+                sconf = SlurmConfig(**slurm_dict)
+
+                # 3) Runtime fields
+                repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+                sconf.work_dir = repo_root
+                sconf.cfg_json_path = cfg_json_shared
+                topo_nodes = len(list(self.topology))
+                sconf.ntasks = resolve_slurm_ntasks(self.cfg, topo_nodes)
+                if comm == "hybrid":
+                    from src.omnifed.hybrid.hydra_loader import engine_has_runtime_hybrid_layout
+
+                    if engine_has_runtime_hybrid_layout(self.cfg):
+                        desc = "engine.hybrid.runtime layout"
+                    else:
+                        desc = f"conf_hybrid {OmegaConf.select(self.cfg, 'engine.hybrid.topology_config')!r}"
+                    print(
+                        f"[Engine] communication_mode=hybrid: Slurm --ntasks={sconf.ntasks} "
+                        f"({desc}, len(topology)={topo_nodes}).",
+                        flush=True,
+                    )
+
+                if sconf.ntasks_per_node and sconf.ntasks_per_node > 0:
+                    needed_nodes = (sconf.ntasks + sconf.ntasks_per_node - 1) // sconf.ntasks_per_node
+                    prev_nodes = sconf.nodes
+                    sconf.nodes = max(sconf.nodes, needed_nodes)
+                    if sconf.nodes != prev_nodes:
+                        print(
+                            f"[Engine] slurm.nodes raised {prev_nodes} -> {sconf.nodes} "
+                            f"(need >= ceil(ntasks={sconf.ntasks}/ntasks_per_node={sconf.ntasks_per_node})={needed_nodes})",
+                            flush=True,
+                        )
+
+                sconf.stdout = os.path.join(self.hydra_cfg.runtime.output_dir, "slurm-%j.out")
+                sconf.stderr = os.path.join(self.hydra_cfg.runtime.output_dir, "slurm-%j.err")
+
+                # IMPORTANT: this python is only used before setup_lines runs
+                sconf.pyexe = "python"
+
+                # 4) Frontier / site environment (edit paths for your user + conda env)
+                sconf.setup_lines = [
+                    "module load PrgEnv-gnu/8.6.0",
+                    "module load rocm/6.4.1",
+                    "module load craype-accel-amd-gfx90a",
+                    "module load miniforge3/23.11.0-0",
+                    # MNIST + caches (torchvision reads OMNIFED_DATA_DIR)
+                    'export OMNIFED_DATA_DIR="/lustre/orion/gen150/scratch/shruti2395/omnifed_data"',
+                    'mkdir -p "$OMNIFED_DATA_DIR"',
+                    'echo "[setup] OMNIFED_DATA_DIR=$OMNIFED_DATA_DIR"',
+                    # Use your conda env Python on compute nodes (no conda-pack / sbcast)
+                    'export PYEXE="/ccs/home/shruti2395/.conda/envs/pytorch_rocm/bin/python"',
+                    'echo "[setup] PYEXE=$PYEXE"',
+                    '"$PYEXE" -c "import torch; print(torch.__version__)"',
+                    "",
+                    "export MIOPEN_USER_DB_PATH=/tmp/${USER}/miopen-cache",
+                    "export MIOPEN_CUSTOM_CACHE_DIR=${MIOPEN_USER_DB_PATH}",
+                    "export MIOPEN_FIND_MODE=1",
+                    "mkdir -p \"$MIOPEN_USER_DB_PATH\"",
+                ]
+
+                # Submit & exit parent; Slurm tasks will run slurm_worker.py
+                SlurmOnlyLauncher.submit_or_exit(sconf)
+                return
+            else:
+                print("[Engine] Inside Slurm allocation; slurm_worker.py handles execution.")
+                raise SystemExit(0)
+        
+
+        else:
+            # Initialize Ray cluster
+            # ray.init(**self.ray_cfg)
+            # rcfg = asdict(self.ray_cfg)  # convert dataclass to a plain dict
+            # addr = rcfg.get("address")
+
+            # # If attaching to an existing cluster, strip disallowed args
+            # if addr not in (None, "", "local"):
+            #     for k in ("num_cpus", "num_gpus", "resources", "object_store_memory",
+            #             "include_dashboard", "dashboard_host", "dashboard_port"):
+            #         rcfg.pop(k, None)
+
+            # ray.init(**rcfg)
+            # Convert Ray config to a plain dict (supports dataclass, DictConfig, or dict)
+            if is_dataclass(self.ray_cfg):
+                rcfg = asdict(self.ray_cfg)
+            else:
+                # OmegaConf DictConfig -> dict, or leave dict as-is
+                try:
+                    rcfg = OmegaConf.to_container(self.ray_cfg, resolve=True)
+                except Exception:
+                    rcfg = dict(self.ray_cfg)
+
+            addr = rcfg.get("address")
+
+            # If attaching to an existing cluster, Ray forbids resource/allocation args.
+            if addr not in (None, "", "local"):
+                for k in (
+                    "num_cpus",
+                    "num_gpus",
+                    "resources",
+                    "object_store_memory",
+                    "include_dashboard",
+                    "dashboard_host",
+                    "dashboard_port",
+                    "runtime_env",   # safe to drop on attach
+                ):
+                    rcfg.pop(k, None)
+
+            ray.init(**rcfg)
+
+            # Smart GPU allocation: detect single-node vs multi-node scenarios
+            ray_available_resources = ray.available_resources()
+            print("ray.available_resources()")
+            pprint(ray_available_resources)
+
+            # Check if single node
+            ray_nodes = ray.nodes()
+            print("ray.nodes()")
+            pprint(ray_nodes)
+
+            # Save Ray cluster information to engine directory
+            _savepath_ray_resources = os.path.join(
+                self.engine_dir, "ray_available_resources.json"
+            )
+            _savepath_ray_nodes = os.path.join(self.engine_dir, "ray_nodes.json")
+
+            with open(_savepath_ray_resources, "w") as f:
+                json.dump(ray_available_resources, f, indent=2, default=str)
+                print(f"Saved Ray resources info to: {_savepath_ray_resources}")
+
+            with open(_savepath_ray_nodes, "w") as f:
+                json.dump(ray_nodes, f, indent=2, default=str)
+                print(f"Saved Ray nodes info to: {_savepath_ray_nodes}")
+
+            ray_nodes_alive = [node for node in ray_nodes if node["Alive"]]
+            is_single_node = len(ray_nodes_alive) == 1
+
+            available_gpus = ray_available_resources.get("GPU", 0)
+            print(f"Available GPUs: {available_gpus}")
+
+            total_actors = len(self.topology)
+
+            # Determine GPU allocation strategy
+            use_fractional_gpu = (
+                is_single_node and total_actors > available_gpus and available_gpus > 0
+            )
+
+            # gpus_per_actor = available_gpus / total_actors if use_fractional_gpu else 1.0
+            # Enable CPU-only training
+            #gpus_per_actor = available_gpus / total_actors if use_fractional_gpu else 0.0
+            if available_gpus == 0:
+                gpus_per_actor = 0.0
+            elif total_actors <= available_gpus:
+                gpus_per_actor = 1.0
+            else:
+                # allow fractional even in multi-node
+                gpus_per_actor = max(available_gpus / total_actors, 0.25)
+                
+            print(f"Launching {len(list(self.topology))} Ray Actors")
+
+            self._ray_actor_refs = self._init_ray_actors(gpus_per_actor)
+
+            print(f"Calling setup() on {len(self._ray_actor_refs)} Nodes")
+            setup_futures = [
+                node.setup.remote(
+                    total_rounds=self.global_rounds,
+                )
+                for node in self._ray_actor_refs
+            ]
+            ray.get(setup_futures)
 
     def _init_ray_actors(self, gpus_per_actor: float = 1.0) -> List[Node]:
         ray_actor_refs: List[Node] = []

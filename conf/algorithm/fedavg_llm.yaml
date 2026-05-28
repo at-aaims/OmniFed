@@ -1,0 +1,9 @@
+# ================================================================================
+# FedAvg + Hugging Face causal LM (decoder) batches — see ``FedAvgLLM``.
+# ================================================================================
+
+defaults:
+  - base
+  - _self_
+
+_target_: src.omnifed.algorithm.FedAvgLLM

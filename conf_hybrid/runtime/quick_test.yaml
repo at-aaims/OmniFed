@@ -1,0 +1,9 @@
+# Shorter runs for hybrid communication smoke tests.
+# Omega launch does not auto-read this file yet; use the same values as CLI flags, e.g.:
+#   --epochs 1 --max-steps 32
+# Or set env vars when using test_scripts/generic_hybrid_comm.sh (see script header).
+epochs: 1
+comm_freq: 2
+bsz: 8
+test_bsz: 8
+seed: 1234

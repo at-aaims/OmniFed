@@ -1,0 +1,46 @@
+# ================================================================================
+# Hybrid Slurm Engine + centralized FedAvg (Phase B Steps 6–7+).
+#
+# **Phase C sibling (layout‑only YAML, same 7‑rank lattice):**
+# **`conf/test_hybrid_layout_fedavg.yaml`** — use **`engine.hybrid.layout`** and omit
+# **`conf_hybrid/topology/built_symmetric_2x3.yaml`**.
+#
+# * Login node: submit Slurm bundle with --ntasks = conf_hybrid world_size
+#   (built_symmetric_2x3 → 7 ranks; centralized num_clients must be 6 so
+#   len(topology)==7 matches hybrid world_size).
+# * Compute nodes: facility TorchMPI + gRPC leaders; FedAvg loop via slurm_worker
+#   hybrid branch (run_hybrid_training).
+#
+# Frontier OLCF: MNIST offline on lustre recommended (compute nodes timeout on
+# public download unless you disable download=false and match dataset root — see README).
+#
+# Example:
+#   ./main.sh --config-name test_hybrid_engine_contract engine.mode=slurm \
+#     datamodule.train.dataset.download=false datamodule.eval.dataset.download=false \
+#     datamodule.{train,eval}.dataset.root=/path/to/torchvision-mnist \
+#     slurm.account=YOUR_PROJECT slurm.partition=batch slurm.nodes=7 slurm.ntasks_per_node=1 ...
+# ================================================================================
+
+defaults:
+  - test_fedavg_centralized_torchdist
+  - _self_
+
+engine:
+  mode: slurm
+  communication_mode: hybrid
+  hybrid:
+    topology_config: built_symmetric_2x3.yaml
+    # Optional: runtime layout (``build_hybrid_topology`` kwargs; same schema as yaml ``layout:`` blocks).
+    # When ``layout`` is set, Slurm sizing and hybrid runner use it; ``topology_config`` is ignored.
+    # Example (equivalent symmetric 2×3 + RPC; keep topology.num_clients = world_size - 1):
+    # layout:
+    #   num_facilities: 2
+    #   mpi_ranks_per_facility: 3
+    #   dedicated_rpc_server: true
+    # training:
+    #   dataset_total_clients: 6
+
+topology:
+  num_clients: 6
+
+global_rounds: 1

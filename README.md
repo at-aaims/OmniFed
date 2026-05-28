@@ -12,6 +12,58 @@ A federated learning framework built on [Ray](https://ray.io/) and [Hydra](https
 
 ## Quick Start
 
+### OmniFed with SLURM
+
+```bash
+# Run basic federated learning experiment with SLURM
+./main.sh --config-name test_fedavg_centralized_torchdist   engine.mode=slurm   slurm.enabled=true   slurm.partition=debug   slurm.nodes=2   slurm.ntasks_per_node=1   slurm.time=02:00:00   slurm.gres="gpu:1"
+```
+
+### Hybrid Slurm (`engine.communication_mode=hybrid`)
+
+**Documentation:** **[`docs/README.md`](docs/README.md)** (index) · **[`docs/README_FRONTIER_EXPERIMENTS.md`](docs/README_FRONTIER_EXPERIMENTS.md)** (Frontier runs) · **[`docs/README_PIPELINE_IMPLEMENTATION_ARTIFACTS.md`](docs/README_PIPELINE_IMPLEMENTATION_ARTIFACTS.md)** (code map).
+
+Cross-facility gRPC plus per-facility Torch MPI; full reference **`docs/archive/hybrid-engine-pipeline/HYBRID_SLURM_REFERENCE.md`**.
+
+**Hydra presets (Phase C):**
+
+- **`--config-name test_hybrid_engine_contract`** — **`engine.hybrid.topology_config`** → **`conf_hybrid/topology/built_symmetric_2x3.yaml`** (named reproducible lattice).
+- **`--config-name test_hybrid_layout_fedavg`** — **same experiment** (**`world_size`** 7, **`topology.num_clients: 6`**) via **`engine.hybrid.layout`** only (Figure‑2 style: lattice next to **`topology`** / **`engine`** blocks — no **`conf_hybrid`** YAML path).
+
+How **`slurm.nodes`** / **`ntasks_per_node`** relate to **`#SBATCH --ntasks`** (**hybrid `world_size`**): **`docs/archive/hybrid-engine-pipeline/HYBRID_SLURM_REFERENCE.md`** §**4.3** (**Phase D**).
+
+**Centralized baseline (not hybrid):** For classic **MNIST FedAvg** over a **single** Torch collective world (TorchDist/NCCL, rank-0 server with train dataloader stubbed), use **`--config-name test_fedavg_centralized_torchdist`** — that pulls **`conf/test_fedavg_centralized_torchdist.yaml`**, keeps default **`engine.communication_mode=classic`**, and is **different** from the hybrid presets. Examples:
+- **Ray:** `./main.sh --config-name test_fedavg_centralized_torchdist`
+- **Slurm:** same `--config-name` with **`engine.mode=slurm`** and **`slurm.*`** knobs (same pattern as **OmniFed with SLURM** above).
+
+Prerequisites:
+
+- Frozen config + **`slurm_worker`** on each task (**`PYTHONPATH`** to repo root; **`PYEXE`** for ROCm stack on compute nodes is often injected via **`engine.py`** `setup_lines` on Frontier).
+- **MNIST offline** on OLCF Frontier: compute nodes may not reach the public internet — pre-stage torchvision MNIST under Lustre and pass **`download=false`** and matching **`dataset.root`** for train and eval.
+
+Minimal Frontier-style submit (seven tasks, seven nodes; substitute **`test_hybrid_layout_fedavg`** for the **`--config-name`** line if you prefer **`engine.hybrid.layout`**):
+
+```bash
+./main.sh --config-name test_hybrid_engine_contract \
+  overwrite=true \
+  engine.mode=slurm \
+  datamodule.train.dataset.download=false \
+  datamodule.eval.dataset.download=false \
+  datamodule.train.dataset.root=/lustre/orion/gen150/scratch/YOUR_USER/omnifed_data/torchvision-mnist \
+  datamodule.eval.dataset.root=/lustre/orion/gen150/scratch/YOUR_USER/omnifed_data/torchvision-mnist \
+  slurm.account=YOUR_PROJECT \
+  slurm.partition=batch \
+  slurm.time=00:45:00 \
+  slurm.nodes=7 \
+  slurm.ntasks_per_node=1 \
+  slurm.cpus_per_task=4 \
+  slurm.gpus_per_node=1 \
+  slurm.gpus_per_task=1 \
+  slurm.gres=null
+```
+
+Optional knobs (see **`conf/base.yaml`** **`engine.hybrid`**): **`server_shutdown: leader_done`** (default — wait for leader marker files plus a wall-time cap), **`leader_done_poll_sec`**, **`sleep`** fallback, **`server_sec_per_round`**.
+
 ```bash
 # Clone and install
 git clone <repository-url>

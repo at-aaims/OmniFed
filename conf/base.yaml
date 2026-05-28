@@ -126,3 +126,58 @@ hydra:
     # dir: outputs/${now:%Y-%m-%d}/${now:%H-%M-%S}              # Group by date/time
     # dir: outputs/${hydra.job.name}/${now:%Y-%m-%d_%H-%M-%S}   # Group by job name
     # dir: outputs/${algorithm._target_}/${now:%Y-%m-%d}        # Group by algorithm
+
+# ─────────────────────────────────────────
+# Slurm Cluster Configuration
+# ─────────────────────────────────────────
+# Controls distributed compute infrastructure for federated learning
+# Docs: https://slurm.schedmd.com/overview.html
+
+slurm:
+  # Hybrid (``engine.communication_mode=hybrid``): Engine sets ``#SBATCH --ntasks=W`` where
+  # ``W`` = hybrid ``world_size``. Choose ``nodes × ntasks_per_node >= W`` (``docs/archive/hybrid-engine-pipeline/HYBRID_SLURM_REFERENCE.md`` §4.3);
+  # if ``nodes`` is too small, Engine may raise it and log ``[Engine] slurm.nodes raised …``.
+  enabled: false
+  account: null
+  partition: debug
+  qos: null
+  time: "02:00:00"
+  nodes: 2
+  ntasks_per_node: 1
+  cpus_per_task: 8
+  gpus_per_node: 1
+  gpus_per_task: 1
+  gres: gpu:1
+  job_name: "omnifed"
+  constraint: null
+  reservation: null
+  setup_lines:
+    # site modules/env (edit for Frontier/site)
+    - 'module load cray-python || true'
+    - 'export OMP_NUM_THREADS=8'
+  checkpoint_dir: null
+  preempt_signal: "USR1"
+  preempt_notice_sec: 180
+  # When resuming a previous run:
+  resume_from: null
+
+
+engine:
+  mode: ray   # one of: ray, slurm
+  # Slurm-only (Phase B): classic = one process group (TorchDist); hybrid = conf_hybrid layout + step 7 worker.
+  communication_mode: classic
+  hybrid:
+    # File under conf_hybrid/topology/*.yaml OR leave null when using runtime ``layout`` below.
+    topology_config: null
+    # Runtime topology: kwargs for ``build_hybrid_topology`` (omit or null to use ``topology_config`` only).
+    # Optional nested ``communicators:`` merges labels onto topology_builder.DEFAULT_HYBRID_COMMUNICATORS (declarative; wiring unchanged).
+    # If both are set, ``layout`` wins. Example symmetric 2×3 + RPC: num_facilities: 2, mpi_ranks_per_facility: 3, dedicated_rpc_server: true (plus rpc_port / facility_mpi_* as needed).
+    layout: null
+    # Optional; merged onto hybrid cfg ``training`` (e.g. dataset_total_clients) when using ``layout``.
+    training: null
+    # Hybrid Slurm RPC server lifetime (see docs/archive/hybrid-engine-pipeline/HYBRID_SLURM_REFERENCE.md).
+    server_run_extra_sec: 120
+    server_sec_per_round: 300
+    # sleep = fixed heuristic; leader_done = wait until each gRPC leader rank touches a marker (max wait below).
+    server_shutdown: leader_done
+    leader_done_poll_sec: 5.0

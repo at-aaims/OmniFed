@@ -1,0 +1,19 @@
+# Generated topology via src/omnifed/hybrid/topology_builder (same ranks as try1_hybrid_topo).
+# Usage: load_hybrid_cfg("built_symmetric_2x3.yaml") or Hydra override topology=built_symmetric_2x3
+layout:
+  num_facilities: 2
+  mpi_ranks_per_facility: 3
+  dedicated_rpc_server: true
+  rpc_addr: "127.0.0.1"
+  rpc_port: 50051
+  facility_mpi_addr: "127.0.0.1"
+  facility_mpi_base_port: 28250
+  facility_mpi_port_stride: 40
+  facility_name_prefix: "fac"
+  # Optional overrides merged onto topology_builder.DEFAULT_HYBRID_COMMUNICATORS.
+  communicators:
+    intra_facility: torch_mpi
+    global_aggregation: grpc
+
+training:
+  dataset_total_clients: 6

@@ -1,0 +1,33 @@
+topology:
+  # total processes launched (7 for now)
+  world_size: 7
+
+  rpc:
+    server_rank: 0
+    addr: "127.0.0.1"
+    port: 50051
+    client_ranks: [1, 2]   # facility leaders that talk to gRPC server
+
+  facilities:
+    - name: "fac1"
+      mpi:
+        addr: "127.0.0.1"
+        port: 28250
+        world_size: 3
+        members: [1, 3, 4]     # global ranks in this facility
+        leader_rank: 1         # must be in members
+    - name: "fac2"
+      mpi:
+        addr: "127.0.0.1"
+        port: 28290
+        world_size: 3
+        members: [2, 5, 6]
+        leader_rank: 2
+
+  communicators:
+    intra_facility: torch_mpi      # Torch process group inside each facility (declarative).
+    global_aggregation: grpc        # Flora gRPC daemon + facility leaders as clients.
+
+training:
+  # how many actual workers
+  dataset_total_clients: 6

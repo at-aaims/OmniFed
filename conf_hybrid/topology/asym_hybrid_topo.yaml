@@ -1,0 +1,32 @@
+topology:
+  world_size: 11   # rpc server + fac1 + fac2 = 11
+
+  rpc:
+    server_rank: 0
+    addr: "127.0.0.1"
+    port: 50051
+    client_ranks: [1, 3]      # facility leaders (choose ranks that belong to each facility)
+
+  facilities:
+    - name: "fac1"
+      mpi:
+        addr: "127.0.0.1"
+        port: 28250
+        world_size: 2
+        members: [1, 2]       # leader is 1 (local_rank 0), worker is 2 (local_rank 1)
+        leader_rank: 1
+
+    - name: "fac2"
+      mpi:
+        addr: "127.0.0.1"
+        port: 28290
+        world_size: 8
+        members: [3, 4, 5, 6, 7, 8, 9, 10]   # leader is 3 (local_rank 0)
+        leader_rank: 3
+
+  communicators:
+    intra_facility: torch_mpi
+    global_aggregation: grpc
+
+training:
+  dataset_total_clients: 10

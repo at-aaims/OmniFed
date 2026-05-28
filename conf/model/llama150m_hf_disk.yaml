@@ -1,0 +1,12 @@
+# ================================================================================
+# LlamaForCausalLM from a local HF-style directory (Frontier offline caches).
+#
+# Populate ``OMNIFED_LLAMA_WEIGHTS`` (or override ``pretrained_model_name_or_path``).
+# Matches ``Frontier`` layout: sanitized Hub id folder, e.g. ``.../PrimeIntellect_llama-150m-fresh``.
+# ================================================================================
+
+_target_: src.omnifed.model.hf_causal_lm.load_llama_from_pretrained_checkpoint
+pretrained_model_name_or_path: ${oc.env:OMNIFED_LLAMA_WEIGHTS,/tmp/PrimeIntellect_llama-150m-fresh}
+local_files_only: true
+torch_dtype_str: float32
+attn_implementation: sdpa
