@@ -8,7 +8,7 @@ A federated learning framework built on [Ray](https://ray.io/) and [Hydra](https
 - **📊 Flexible**: Local, HPC, and cross-network deployments with multiple communication backends
 - **⚙️ Extensible**: Custom algorithms, communicators, and topologies with minimal code requirements
 - **🔬 Research-Friendly**: Easy experimentation with lifecycle hooks and [PyTorch](https://pytorch.org/) compatibility
-- **🚀 Scalable**: [Ray](https://ray.io/)-powered distributed coordination from laptops to HPC clusters
+- **🚀 Scalable**: Works with [Ray](https://ray.io/) and [Slurm](https://slurm.schedmd.com/overview.html) for distributed coordination from laptops to HPC clusters
 
 ## Quick Start
 
