@@ -1,6 +1,6 @@
 # OmniFed (Beta)
 
-A federated learning framework built on [Ray](https://ray.io/) and [Hydra](https://hydra.cc/). OmniFed scales from local experiments to HPC clusters and cross-institutional scenarios with 10+ built-in algorithms and extensible architecture.
+OmniFed is a federated learning framework built with an extensible architecture that scales from local experiments to HPC clusters and cross-institutional scenarios with 10+ built-in algorithms.
 
 ## Key Features
 
