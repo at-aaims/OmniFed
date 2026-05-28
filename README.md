@@ -165,7 +165,7 @@ OmniFed orchestrates federated learning experiments through a modular architectu
 
 ```
 OmniFed/
-├── src/flora/              # Main framework code
+├── src/omnifed/              # Main framework code
 │   ├── algorithm/          # Federated learning algorithms
 │   │   ├── base.py         # Base algorithm class
 │   │   ├── fedavg.py       # FedAvg
