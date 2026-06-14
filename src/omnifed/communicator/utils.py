@@ -20,8 +20,285 @@ import torch
 import torch.nn as nn
 
 from . import grpc_pb2
-from collections import defaultdict
-from .compression.sparsification import TopKCompression
+from .compression.sparsification import _sparse_compression_
+from .compression.quantization import QSGDQuantCompression
+
+
+DTYPE_MAPPING = {
+    "torch.float32": np.float32,
+    "torch.float64": np.float64,
+    "torch.int8": np.int8,
+    "torch.int16": np.int16,
+    "torch.int32": np.int32,
+    "torch.int64": np.int64,
+    "torch.bool": np.bool_,
+}
+
+
+def _numpy_dtype(dtype):
+    if dtype not in DTYPE_MAPPING:
+        raise ValueError(
+            f"Unsupported dtype: {dtype}. Supported: {list(DTYPE_MAPPING.keys())}"
+        )
+    return DTYPE_MAPPING[dtype]
+
+
+def _tensor_entry(
+    key,
+    tensor,
+    compression_type=None,
+    meta_tensor=None,
+    original_shape=None,
+    width=0,
+    level=0,
+):
+    assert isinstance(tensor, torch.Tensor), (
+        f"Expected torch.Tensor, but got {type(tensor)}. value={tensor}"
+    )
+
+    tensor_cpu = tensor.detach().cpu().contiguous()
+    data_bytes = tensor_cpu.numpy().tobytes()
+
+    kwargs = {
+        "key": key,
+        "data": data_bytes,
+        "shape": list(tensor_cpu.shape),
+        "dtype": str(tensor_cpu.dtype),
+        "device": str(tensor.device),
+        "data_size": len(data_bytes),
+        "compression_type": compression_type or "",
+    }
+
+    if original_shape is not None:
+        kwargs["original_shape"] = list(original_shape)
+    if meta_tensor is not None:
+        meta_tensor_cpu = torch.as_tensor(meta_tensor).detach().cpu().contiguous()
+        kwargs.update(
+            {
+                "meta_tensor": meta_tensor_cpu.numpy().tobytes(),
+                "meta_tensor_shape": list(meta_tensor_cpu.shape),
+                "meta_tensor_dtype": str(meta_tensor_cpu.dtype),
+            }
+        )
+    if width:
+        kwargs["width"] = width
+    if level:
+        kwargs["level"] = level
+
+    return grpc_pb2.TensorEntry(**kwargs)
+
+
+def _dense_entry(key, item):
+    tensor = item["values"] if isinstance(item, dict) and "values" in item else item
+    return _tensor_entry(key, tensor)
+
+
+def _dense_numpy_array(entry):
+    if len(entry.data) != entry.data_size:
+        raise ValueError(
+            f"Data size mismatch for tensor {entry.key}: "
+            f"expected {entry.data_size}, got {len(entry.data)}"
+        )
+    return np.frombuffer(entry.data, dtype=_numpy_dtype(entry.dtype)).reshape(
+        tuple(entry.shape)
+    )
+
+
+class SparseTensorCodec:
+    @staticmethod
+    def compress(compressor, tensor, name):
+        (values, indices), ctx = compressor.compress(tensor=tensor, name=name)
+        return {
+            "values": values,
+            "indices": indices,
+            "original_shape": tensor.shape,
+            "ctx": ctx,
+        }
+
+    @staticmethod
+    def can_serialize(item):
+        return isinstance(item, dict) and "values" in item and "indices" in item
+
+    @staticmethod
+    def to_entry(key, item, compression_type):
+        indices = item["indices"]
+        if indices.numel() == 0:
+            return _dense_entry(key, item)
+
+        return _tensor_entry(
+            key,
+            item["values"],
+            compression_type=compression_type,
+            meta_tensor=indices,
+            original_shape=item["original_shape"],
+        )
+
+    @staticmethod
+    def from_entry(entry, server_model):
+        numpy_dtype = _numpy_dtype(entry.dtype)
+        if not entry.meta_tensor:
+            raise ValueError(f"Missing meta_tensor for compressed tensor {entry.key}")
+
+        values = np.frombuffer(entry.data, dtype=numpy_dtype)
+        indices = np.frombuffer(
+            entry.meta_tensor, dtype=_numpy_dtype(entry.meta_tensor_dtype)
+        )
+        if len(indices) != len(values):
+            raise RuntimeError(
+                f"Mismatch: meta_tensor ({len(indices)}) != values ({len(values)})"
+            )
+        if indices.size == 0:
+            raise RuntimeError(
+                f"proto_to_tensordict -> meta_tensor array is empty for {entry.compression_type}"
+            )
+
+        numel = int(np.prod(entry.original_shape))
+        dense = np.zeros(numel, dtype=numpy_dtype)
+        is_model_communicated = False
+
+        try:
+            flat = server_model[entry.key].detach().cpu().numpy().reshape(-1).copy()
+            flat[indices] = values
+            dense = flat.reshape(entry.original_shape)
+            is_model_communicated = True
+        except Exception:
+            dense[indices] = values
+
+        return dense.reshape(tuple(entry.original_shape)), is_model_communicated
+
+
+class QSGDTensorCodec:
+    _STORAGE_DTYPES = {
+        8: torch.int8,
+        16: torch.int16,
+        32: torch.int32,
+    }
+    _NUMPY_STORAGE_DTYPES = {
+        8: np.int8,
+        16: np.int16,
+        32: np.int32,
+    }
+
+    @classmethod
+    def _assert_reduced_tensor(cls, values, width, level, norm, where):
+        assert width in cls._STORAGE_DTYPES, (
+            f"{where}: QSGD width must be one of {sorted(cls._STORAGE_DTYPES)}, "
+            f"got {width}"
+        )
+        assert level > 0, f"{where}: QSGD level must be positive, got {level}"
+        assert norm is not None, f"{where}: QSGD norm is missing"
+        assert isinstance(values, torch.Tensor), (
+            f"{where}: QSGD values must be a torch.Tensor, got {type(values)}"
+        )
+        assert values.dtype == cls._STORAGE_DTYPES[width], (
+            f"{where}: QSGD values must be reduced integer levels with dtype "
+            f"{cls._STORAGE_DTYPES[width]}, got {values.dtype}"
+        )
+
+    @classmethod
+    def _assert_reduced_entry(cls, entry):
+        assert entry.compression_type == QSGDQuantCompression.__name__, (
+            f"QSGD proto entry has wrong compression_type={entry.compression_type!r}"
+        )
+        assert entry.width in cls._NUMPY_STORAGE_DTYPES, (
+            f"QSGD proto width must be one of {sorted(cls._NUMPY_STORAGE_DTYPES)}, "
+            f"got {entry.width}"
+        )
+        assert entry.level > 0, f"QSGD proto level must be positive, got {entry.level}"
+        assert entry.meta_tensor, f"QSGD proto entry {entry.key} is missing norm"
+        expected_dtype = cls._NUMPY_STORAGE_DTYPES[entry.width]
+        assert _numpy_dtype(entry.dtype) == expected_dtype, (
+            f"QSGD proto entry {entry.key} must store reduced integer levels as "
+            f"{expected_dtype}, got {entry.dtype}"
+        )
+        expected_size = int(np.prod(entry.shape)) * np.dtype(expected_dtype).itemsize
+        assert len(entry.data) == expected_size, (
+            f"QSGD proto entry {entry.key} data size mismatch for reduced payload: "
+            f"expected {expected_size}, got {len(entry.data)}"
+        )
+
+    @staticmethod
+    def compress(compressor, tensor, name):
+        values, norm, width, levels = compressor.compress(tensor=tensor, name=name)
+        if width == -1 or levels == -1 or norm is None:
+            values = tensor
+        else:
+            QSGDTensorCodec._assert_reduced_tensor(
+                values, width, levels, norm, f"QSGD compress({name})"
+            )
+        return {
+            "values": values,
+            "norm": norm,
+            "width": width,
+            "level": levels,
+            "original_shape": tensor.shape,
+        }
+
+    @staticmethod
+    def can_serialize(item):
+        return isinstance(item, dict) and "values" in item and "width" in item
+
+    @staticmethod
+    def to_entry(key, item, compression_type):
+        width = item.get("width", -1)
+        level = item.get("level", -1)
+        norm = item.get("norm")
+
+        if width == -1 or level == -1 or norm is None:
+            return _dense_entry(key, item)
+
+        QSGDTensorCodec._assert_reduced_tensor(
+            item["values"], width, level, norm, f"QSGD serialize({key})"
+        )
+        return _tensor_entry(
+            key,
+            item["values"],
+            compression_type=compression_type,
+            meta_tensor=torch.as_tensor(norm, dtype=torch.float32),
+            original_shape=item["original_shape"],
+            width=width,
+            level=level,
+        )
+
+    @staticmethod
+    def from_entry(entry, server_model):
+        if entry.width == -1 or entry.level == -1:
+            return _dense_numpy_array(entry), False
+
+        QSGDTensorCodec._assert_reduced_entry(entry)
+        qsgd_numpy_dtype = QSGDTensorCodec._NUMPY_STORAGE_DTYPES[entry.width]
+
+        encoded_array = np.frombuffer(entry.data, dtype=qsgd_numpy_dtype).reshape(
+            tuple(entry.shape)
+        )
+        norm_array = np.frombuffer(
+            entry.meta_tensor, dtype=_numpy_dtype(entry.meta_tensor_dtype)
+        ).reshape(tuple(entry.meta_tensor_shape))
+        numpy_array = (
+            float(norm_array.reshape(-1)[0])
+            * encoded_array.astype(np.float32)
+            / entry.level
+        )
+        if entry.original_shape:
+            numpy_array = numpy_array.reshape(tuple(entry.original_shape))
+        return numpy_array, False
+
+
+_COMPRESSION_CODECS = {
+    **{name: SparseTensorCodec for name in _sparse_compression_},
+    QSGDQuantCompression.__name__: QSGDTensorCodec,
+}
+
+
+def _codec_for_compressor(compressor):
+    compression_type = compressor.__class__.__name__
+    try:
+        return compression_type, _COMPRESSION_CODECS[compression_type]
+    except KeyError as exc:
+        raise ValueError(
+            f"Unsupported compressor: {compression_type}. "
+            f"Register a codec in _COMPRESSION_CODECS."
+        ) from exc
 
 
 def get_class_from_str(path: str):
@@ -60,7 +337,7 @@ def extract_tensordict(msg, aggregation_metric):
     elif isinstance(msg, nn.Module):
         # assume dict[str, Tensor]
         tensordict = {}
-        print(msg)
+        # print(msg)
         for name, param in msg.named_parameters():
             # print(f"name = {name} , param = {param}")
             if aggregation_metric == "grad":
@@ -82,40 +359,23 @@ def compress_message_tensors(msg, compressor, aggregation_metric):
     """
     Returns a compressed representation with 1-1 key correspondence.
     """
-    compressed = {}
-
-    if compressor is None:
+    if compressor is None or isinstance(msg, torch.Tensor):
         return msg
 
-    if isinstance(msg, torch.Tensor):
-        return msg
-
-    
-
+    compression_type, codec = _codec_for_compressor(compressor)
     tensordict = extract_tensordict(msg, aggregation_metric)
+    compressed = {}
 
     with torch.no_grad():
         for key, tensor in tensordict.items():
-            # print(f"key = {key}")
-            (values, indices), ctx = compressor.compress(
-                tensor=tensor,
-                name=key,
-            )
-
-            # print(f"Inside compressor: key = {key}, values = {values}, value shape = {values.shape}, indices = {indices}, index shape = {indices.shape}")
-            compressed[key] = {
-                "values": values,
-                "indices": indices,
-                "original_shape": tensor.shape,
-                "ctx": ctx,  # (numel, shape)
-            }
-
+            compressed[key] = codec.compress(compressor, tensor, key)
+            compressed[key]["compression_type"] = compression_type
     return compressed
 
 
 
 
-def tensordict_to_proto(
+def tensordict_to_proto_extended(
     tensordict: Dict[str, torch.Tensor], compression_type=None
 ) -> grpc_pb2.TensorDict:
     """
@@ -133,94 +393,30 @@ def tensordict_to_proto(
         TensorDict protobuf message ready for gRPC transmission
     """
     entries = []
-
     for key, item in tensordict.items():
+        item_compression_type = (
+            item.get("compression_type", compression_type)
+            if isinstance(item, dict)
+            else compression_type
+        )
+        codec = _COMPRESSION_CODECS.get(item_compression_type)
 
-        indices_empty = True
-        try:
-            indices_empty = item["indices"].numel() == 0
-        except Exception as e:
-            indices_empty = True
-
-        # ----------------------------------------------------
-        # CASE 1: COMPRESSED ENTRY (Top-K)
-        # ----------------------------------------------------
-        if isinstance(item, dict) and compression_type == TopKCompression.__name__ and not indices_empty:
-            values  = item["values"]
-            indices = item["indices"]
-            numel, shape = item["ctx"]
-            original_shape = item["original_shape"]
-
-            original_device = str(values.device)
-
-            # print(f"TopKCompression, client submitting indices = {indices}, shape = {indices.shape}")
-            # print(f"TopKCompression, client submitting indices with type {type(indices)} and values with type {type(values)}")
-
-            values_cpu  = values.cpu()
-            indices_cpu = indices.cpu()
-
-            data_bytes = values_cpu.numpy().tobytes()
-            index_bytes = indices_cpu.numpy().tobytes()
-
-            # print(f"tensordict_to_proto =>  TopKCompression, client submitting indices_cpu = {indices_cpu}, shape = {indices_cpu.shape}")
-            # print(f"tensordict_to_proto => TopKCompression, client submitting index_bytes = {index_bytes}, shape = {indices_cpu.shape}")
-            # print(f"tensordict_to_proto => TopKCompression, client submitting index_bytes = {index_bytes}, shape = {list(indices_cpu.shape)}")
-            # print(f"tensordict_to_proto => TopKCompression, client submitting data = {values_cpu}")
-            # print(f"tensordict_to_proto => TopKCompression, client submitting data_bytes = {data_bytes}")
-            # print(f"tensordict_to_proto => TopKCompression, client submitting data_shape = {values_cpu.shape}")
-            compression_type = "TopKCompression" if len(indices_cpu) != 0 else None
-
-            # print(f"TopKCompression, index dtype is {indices_cpu.dtype}")
-            entry = grpc_pb2.TensorEntry(
-                key=key,
-                data=data_bytes,                 # VALUES
-                shape=list(values_cpu.shape),               # ORIGINAL tensor shape
-                dtype=str(values_cpu.dtype),
-                device=original_device,
-                data_size=len(data_bytes),
-                compression_type=compression_type,
-                index=index_bytes,               # INDICES
-                index_shape=list(indices_cpu.shape),  # usually [k]
-                index_dtype=str(indices_cpu.dtype),
-                original_shape=original_shape
-            )
-
-        # ----------------------------------------------------
-        # CASE 2: UNCOMPRESSED DENSE TENSOR
-        # ----------------------------------------------------
+        if codec is not None and codec.can_serialize(item):
+            entry = codec.to_entry(key, item, item_compression_type)
         else:
-            # print(f"Inside tensordict_to_proto: No compressor found, compressor = {compression_type}")
-            tensor = item
-
-            # print(f"Tensor type = {type(tensor)}, tensor = {tensor}")
-
-            original_device = str(tensor.device)
-            tensor_cpu = tensor.cpu()
-
-            data_bytes = tensor_cpu.numpy().tobytes()
-
-            entry = grpc_pb2.TensorEntry(
-                key=key,
-                data=data_bytes,
-                shape=list(tensor_cpu.shape),
-                dtype=str(tensor_cpu.dtype),
-                device=original_device,
-                data_size=len(data_bytes),
-                # index omitted → defaults to b""
-                # idx_shape omitted → defaults to []
-            )
-
+            entry = _dense_entry(key, item)
 
         entries.append(entry)
-
 
     return grpc_pb2.TensorDict(entries=entries)
 
 
+def tensordict_to_proto(
+    tensordict: Dict[str, torch.Tensor], compression_type=None
+) -> grpc_pb2.TensorDict:
+    return tensordict_to_proto_extended(tensordict, compression_type)
 
-from typing import Dict
-import numpy as np
-import torch
+
 
 def proto_to_tensordict(
     proto_tensordict,
@@ -230,42 +426,8 @@ def proto_to_tensordict(
     """
     tensordict = {}
 
-    dtype_mapping = {
-        "torch.float32": np.float32,
-        "torch.float64": np.float64,
-        "torch.int32": np.int32,
-        "torch.int64": np.int64,
-        "torch.bool": np.bool_,
-    }
-
     for entry in proto_tensordict.entries:
-        # ----------------------------
-        # Validate dtype
-        # ----------------------------
-        if entry.dtype not in dtype_mapping:
-            raise ValueError(
-                f"Unsupported dtype: {entry.dtype}. "
-                f"Supported: {list(dtype_mapping.keys())}"
-            )
-
-        numpy_dtype = dtype_mapping[entry.dtype]
-
-        # Validate data size (dense case only)
-        if len(entry.data) != entry.data_size:
-            raise ValueError(
-                f"Data size mismatch for tensor {entry.key}: "
-                f"expected {entry.data_size}, got {len(entry.data)}"
-            )
-
-        numpy_array = np.frombuffer(entry.data, dtype=numpy_dtype)
-        # print(f"No compression; numpy_array.shape = {numpy_array.shape}, entry.shape = {entry.shape}")
-        numpy_array = numpy_array.reshape(tuple(entry.shape))
-
-
-        # ----------------------------
-        # Convert to torch.Tensor
-        # ----------------------------
-        # .copy() because frombuffer gives a read-only view
+        numpy_array = _dense_numpy_array(entry)
         tensor = torch.from_numpy(numpy_array.copy()).to(entry.device)
         tensordict[entry.key] = tensor
 
@@ -277,125 +439,25 @@ def proto_to_tensordict_extended(
 ) -> Dict[str, torch.Tensor]:
     """
     Convert protobuf TensorDict back to PyTorch tensors.
-    Supports both uncompressed and Top-K compressed tensors.
+    Supports registered compression codecs and uncompressed dense tensors.
     """
     tensordict = {}
-
     is_model_communicated = False
 
-    # print(f"Model is {server_model}")
-
-    dtype_mapping = {
-        "torch.float32": np.float32,
-        "torch.float64": np.float64,
-        "torch.int32": np.int32,
-        "torch.int64": np.int64,
-        "torch.bool": np.bool_,
-    }
-
     for entry in proto_tensordict.entries:
-        # ----------------------------
-        # Validate dtype
-        # ----------------------------
-        if entry.dtype not in dtype_mapping:
-            raise ValueError(
-                f"Unsupported dtype: {entry.dtype}. "
-                f"Supported: {list(dtype_mapping.keys())}"
-            )
-
-        numpy_dtype = dtype_mapping[entry.dtype]
-        # print(f"entry.key = {entry.key}")
-        # Normalize compression type (proto3 default is "")
         compression_type = entry.compression_type or None
-
-        # print(f"Compression = {compression_type}, type = {type(compression_type)}")
-
-        # print(f"TopKCompression.__class__.__name__ = {TopKCompression.__name__}")
-        # ----------------------------
-        # CASE 1: Top-K compressed
-        # ----------------------------
-        if compression_type == TopKCompression.__name__:
-            # print(f"Data is compressed. Decompressing the data")
-            # Sanity checks
-            if not entry.index:
-                raise ValueError(
-                    f"Missing indices for compressed tensor {entry.key}"
-                )
-
-            index_dtype = dtype_mapping[entry.index_dtype]
-            # Decode values
-            values = np.frombuffer(entry.data, dtype=numpy_dtype)
-
-            # Decode indices
-            indices = np.frombuffer(entry.index, dtype=index_dtype)
-            # indices = indices.reshape(entry.idx_shape)
-            numel = int(np.prod(entry.original_shape))
-            dense = np.zeros(numel, dtype=numpy_dtype)
-
-            # print("proto_to_tensordict => indices.shape:", indices.shape)
-            # print("proto_to_tensordict =>  values.shape:", values.shape)
-            # print("proto_to_tensordict =>  indices:", indices)
-            # print("proto_to_tensordict =>  values:", values)
-
-            if len(indices) != len(values):
-                # print(f"Error: protodict_to_tensordict => {entry.dtype}")
-                raise RuntimeError(
-                    f"Mismatch: indices ({len(indices)}) != values ({len(values)})"
-                )
-
-
-
-            if(indices.size == 0):
-                raise RuntimeError("proto_to_tensordict -> Index array is empty for TopKCompression")
-            try:
-                # Reconstruct dense tensor
-                # Get server tensor
-                server_tensor = server_model[entry.key]
-
-
-                # print(f"entry.key = {entry.key} is contained in the server_model")
-
-                # Move to CPU if needed and flatten
-                flat = server_tensor.detach().cpu().numpy().reshape(-1).copy()
-
-                # Overwrite only transmitted indices
-                flat[indices] = values
-
-                # Reshape back
-                dense = flat.reshape(entry.original_shape)
-                is_model_communicated = True
-                # print(f"Compressed data communicated is the model itself")
-            except Exception as e:
-                # print(f"Inside extended the error is {e}")
-                dense[indices] = values
-
-            # print(f"TopKCompression; dense.shape = {dense.shape}, entry.shape = {entry.shape}")
-            numpy_array = dense.reshape(tuple(entry.original_shape))
-
-        # ----------------------------
-        # CASE 2: Uncompressed (dense)
-        # ----------------------------
-        elif compression_type is None:
-            # Validate data size (dense case only)
-            if len(entry.data) != entry.data_size:
-                raise ValueError(
-                    f"Data size mismatch for tensor {entry.key}: "
-                    f"expected {entry.data_size}, got {len(entry.data)}"
-                )
-
-            numpy_array = np.frombuffer(entry.data, dtype=numpy_dtype)
-            # print(f"No compression; numpy_array.shape = {numpy_array.shape}, entry.shape = {entry.shape}")
-            numpy_array = numpy_array.reshape(tuple(entry.shape))
-
+        codec = _COMPRESSION_CODECS.get(compression_type)
+        if compression_type is None:
+            numpy_array = _dense_numpy_array(entry)
+        elif codec is not None:
+            numpy_array, communicated_model = codec.from_entry(entry, server_model)
+            is_model_communicated = is_model_communicated or communicated_model
         else:
             raise ValueError(
-                f"Unsupported compression type: {compression_type}, the type is {type(compression_type)}"
+                f"Unsupported compression type: {compression_type}, "
+                f"the type is {type(compression_type)}"
             )
 
-        # ----------------------------
-        # Convert to torch.Tensor
-        # ----------------------------
-        # .copy() because frombuffer gives a read-only view
         tensor = torch.from_numpy(numpy_array.copy()).to(entry.device)
         tensordict[entry.key] = tensor
 
