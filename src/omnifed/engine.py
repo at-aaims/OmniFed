@@ -281,7 +281,13 @@ class Engine(RequiredSetup):
                 # 1) Freeze run description once (write to SHARED path)
                 outputs_root = os.path.dirname(os.path.dirname(self.output_dir))
                 cfg_json_shared = os.path.abspath(os.path.join(outputs_root, "engine_frozen.json"))
-                ckpt_dir = getattr(self.cfg.slurm, "checkpoint_dir", None) or os.path.join(self.engine_dir, "ckpt")
+                from src.omnifed.checkpoint.hybrid_round_checkpoint import (
+                    resolve_experiment_checkpoint_dir,
+                )
+
+                ckpt_dir = resolve_experiment_checkpoint_dir(self.cfg) or os.path.join(
+                    self.engine_dir, "ckpt"
+                )
 
                 frozen = {
                     "cfg": OmegaConf.to_container(self.cfg, resolve=True),

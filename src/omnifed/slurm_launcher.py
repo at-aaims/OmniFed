@@ -30,11 +30,15 @@ class SlurmConfig:
     gpu_bind: str = "closest"
 
     job_name: str = "omnifed"
+    exclusive: bool = False
     constraint: Optional[str] = None
     reservation: Optional[str] = None
     setup_lines: List[str] = field(default_factory=list)
 
     checkpoint_dir: Optional[str] = None
+    experiment_id: Optional[str] = None
+    resume: bool = False
+    dependency_singleton: bool = False
     preempt_signal: str = "USR1"
     preempt_notice_sec: int = 180
     resume_from: Optional[str] = None
@@ -65,6 +69,10 @@ class SlurmConfig:
             lines.append(f"#SBATCH --account={self.account}")
         if self.partition:
             lines.append(f"#SBATCH --partition={self.partition}")
+        if self.exclusive:
+            lines.append("#SBATCH --exclusive")
+        if self.dependency_singleton:
+            lines.append("#SBATCH -d singleton")
         if self.qos:
             lines.append(f"#SBATCH --qos={self.qos}")
         if self.constraint:

@@ -3,7 +3,7 @@
 import grpc
 import warnings
 
-from src.flora.communicator import grpc_communicator_pb2 as src_dot_flora_dot_communicator_dot_grpc__communicator__pb2
+from src.omnifed.hybrid.communicator import global_grpc_pb2 as src_dot_omnifed_dot_hybrid_dot_communicator_dot_global__grpc__pb2
 
 GRPC_GENERATED_VERSION = '1.71.2'
 GRPC_VERSION = grpc.__version__
@@ -18,7 +18,7 @@ except ImportError:
 if _version_not_supported:
     raise RuntimeError(
         f'The grpc package installed is at version {GRPC_VERSION},'
-        + f' but the generated code in src/flora/communicator/grpc_communicator_pb2_grpc.py depends on'
+        + f' but the generated code in src/omnifed/hybrid/communicator/global_grpc_pb2_grpc.py depends on'
         + f' grpcio>={GRPC_GENERATED_VERSION}.'
         + f' Please upgrade your grpc module to grpcio>={GRPC_GENERATED_VERSION}'
         + f' or downgrade your generated code using grpcio-tools<={GRPC_VERSION}.'
@@ -26,8 +26,7 @@ if _version_not_supported:
 
 
 class CentralServerStub(object):
-    """Service definition for central aggregation server
-    """
+    """Missing associated documentation comment in .proto file."""
 
     def __init__(self, channel):
         """Constructor.
@@ -36,43 +35,39 @@ class CentralServerStub(object):
             channel: A grpc.Channel.
         """
         self.SendUpdate = channel.unary_unary(
-                '/src.flora.communicator.CentralServer/SendUpdate',
-                request_serializer=src_dot_flora_dot_communicator_dot_grpc__communicator__pb2.ModelUpdate.SerializeToString,
-                response_deserializer=src_dot_flora_dot_communicator_dot_grpc__communicator__pb2.UpdateResponse.FromString,
+                '/src.omnifed.hybrid.communicator.CentralServer/SendUpdate',
+                request_serializer=src_dot_omnifed_dot_hybrid_dot_communicator_dot_global__grpc__pb2.ModelUpdate.SerializeToString,
+                response_deserializer=src_dot_omnifed_dot_hybrid_dot_communicator_dot_global__grpc__pb2.UpdateResponse.FromString,
                 _registered_method=True)
         self.GetUpdatedModel = channel.unary_unary(
-                '/src.flora.communicator.CentralServer/GetUpdatedModel',
-                request_serializer=src_dot_flora_dot_communicator_dot_grpc__communicator__pb2.GetModelRequest.SerializeToString,
-                response_deserializer=src_dot_flora_dot_communicator_dot_grpc__communicator__pb2.ModelParameters.FromString,
+                '/src.omnifed.hybrid.communicator.CentralServer/GetUpdatedModel',
+                request_serializer=src_dot_omnifed_dot_hybrid_dot_communicator_dot_global__grpc__pb2.GetModelRequest.SerializeToString,
+                response_deserializer=src_dot_omnifed_dot_hybrid_dot_communicator_dot_global__grpc__pb2.ModelParameters.FromString,
                 _registered_method=True)
         self.RegisterClient = channel.unary_unary(
-                '/src.flora.communicator.CentralServer/RegisterClient',
-                request_serializer=src_dot_flora_dot_communicator_dot_grpc__communicator__pb2.ClientInfo.SerializeToString,
-                response_deserializer=src_dot_flora_dot_communicator_dot_grpc__communicator__pb2.RegistrationResponse.FromString,
+                '/src.omnifed.hybrid.communicator.CentralServer/RegisterClient',
+                request_serializer=src_dot_omnifed_dot_hybrid_dot_communicator_dot_global__grpc__pb2.ClientInfo.SerializeToString,
+                response_deserializer=src_dot_omnifed_dot_hybrid_dot_communicator_dot_global__grpc__pb2.RegistrationResponse.FromString,
                 _registered_method=True)
 
 
 class CentralServerServicer(object):
-    """Service definition for central aggregation server
-    """
+    """Missing associated documentation comment in .proto file."""
 
     def SendUpdate(self, request, context):
-        """send updates to server
-        """
+        """Missing associated documentation comment in .proto file."""
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
     def GetUpdatedModel(self, request, context):
-        """Get updated model from server
-        """
+        """Missing associated documentation comment in .proto file."""
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
     def RegisterClient(self, request, context):
-        """Register client with server
-        """
+        """Missing associated documentation comment in .proto file."""
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
@@ -82,30 +77,29 @@ def add_CentralServerServicer_to_server(servicer, server):
     rpc_method_handlers = {
             'SendUpdate': grpc.unary_unary_rpc_method_handler(
                     servicer.SendUpdate,
-                    request_deserializer=src_dot_flora_dot_communicator_dot_grpc__communicator__pb2.ModelUpdate.FromString,
-                    response_serializer=src_dot_flora_dot_communicator_dot_grpc__communicator__pb2.UpdateResponse.SerializeToString,
+                    request_deserializer=src_dot_omnifed_dot_hybrid_dot_communicator_dot_global__grpc__pb2.ModelUpdate.FromString,
+                    response_serializer=src_dot_omnifed_dot_hybrid_dot_communicator_dot_global__grpc__pb2.UpdateResponse.SerializeToString,
             ),
             'GetUpdatedModel': grpc.unary_unary_rpc_method_handler(
                     servicer.GetUpdatedModel,
-                    request_deserializer=src_dot_flora_dot_communicator_dot_grpc__communicator__pb2.GetModelRequest.FromString,
-                    response_serializer=src_dot_flora_dot_communicator_dot_grpc__communicator__pb2.ModelParameters.SerializeToString,
+                    request_deserializer=src_dot_omnifed_dot_hybrid_dot_communicator_dot_global__grpc__pb2.GetModelRequest.FromString,
+                    response_serializer=src_dot_omnifed_dot_hybrid_dot_communicator_dot_global__grpc__pb2.ModelParameters.SerializeToString,
             ),
             'RegisterClient': grpc.unary_unary_rpc_method_handler(
                     servicer.RegisterClient,
-                    request_deserializer=src_dot_flora_dot_communicator_dot_grpc__communicator__pb2.ClientInfo.FromString,
-                    response_serializer=src_dot_flora_dot_communicator_dot_grpc__communicator__pb2.RegistrationResponse.SerializeToString,
+                    request_deserializer=src_dot_omnifed_dot_hybrid_dot_communicator_dot_global__grpc__pb2.ClientInfo.FromString,
+                    response_serializer=src_dot_omnifed_dot_hybrid_dot_communicator_dot_global__grpc__pb2.RegistrationResponse.SerializeToString,
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
-            'src.flora.communicator.CentralServer', rpc_method_handlers)
+            'src.omnifed.hybrid.communicator.CentralServer', rpc_method_handlers)
     server.add_generic_rpc_handlers((generic_handler,))
-    server.add_registered_method_handlers('src.flora.communicator.CentralServer', rpc_method_handlers)
+    server.add_registered_method_handlers('src.omnifed.hybrid.communicator.CentralServer', rpc_method_handlers)
 
 
  # This class is part of an EXPERIMENTAL API.
 class CentralServer(object):
-    """Service definition for central aggregation server
-    """
+    """Missing associated documentation comment in .proto file."""
 
     @staticmethod
     def SendUpdate(request,
@@ -121,9 +115,9 @@ class CentralServer(object):
         return grpc.experimental.unary_unary(
             request,
             target,
-            '/src.flora.communicator.CentralServer/SendUpdate',
-            src_dot_flora_dot_communicator_dot_grpc__communicator__pb2.ModelUpdate.SerializeToString,
-            src_dot_flora_dot_communicator_dot_grpc__communicator__pb2.UpdateResponse.FromString,
+            '/src.omnifed.hybrid.communicator.CentralServer/SendUpdate',
+            src_dot_omnifed_dot_hybrid_dot_communicator_dot_global__grpc__pb2.ModelUpdate.SerializeToString,
+            src_dot_omnifed_dot_hybrid_dot_communicator_dot_global__grpc__pb2.UpdateResponse.FromString,
             options,
             channel_credentials,
             insecure,
@@ -148,9 +142,9 @@ class CentralServer(object):
         return grpc.experimental.unary_unary(
             request,
             target,
-            '/src.flora.communicator.CentralServer/GetUpdatedModel',
-            src_dot_flora_dot_communicator_dot_grpc__communicator__pb2.GetModelRequest.SerializeToString,
-            src_dot_flora_dot_communicator_dot_grpc__communicator__pb2.ModelParameters.FromString,
+            '/src.omnifed.hybrid.communicator.CentralServer/GetUpdatedModel',
+            src_dot_omnifed_dot_hybrid_dot_communicator_dot_global__grpc__pb2.GetModelRequest.SerializeToString,
+            src_dot_omnifed_dot_hybrid_dot_communicator_dot_global__grpc__pb2.ModelParameters.FromString,
             options,
             channel_credentials,
             insecure,
@@ -175,9 +169,9 @@ class CentralServer(object):
         return grpc.experimental.unary_unary(
             request,
             target,
-            '/src.flora.communicator.CentralServer/RegisterClient',
-            src_dot_flora_dot_communicator_dot_grpc__communicator__pb2.ClientInfo.SerializeToString,
-            src_dot_flora_dot_communicator_dot_grpc__communicator__pb2.RegistrationResponse.FromString,
+            '/src.omnifed.hybrid.communicator.CentralServer/RegisterClient',
+            src_dot_omnifed_dot_hybrid_dot_communicator_dot_global__grpc__pb2.ClientInfo.SerializeToString,
+            src_dot_omnifed_dot_hybrid_dot_communicator_dot_global__grpc__pb2.RegistrationResponse.FromString,
             options,
             channel_credentials,
             insecure,

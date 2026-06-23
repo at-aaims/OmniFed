@@ -29,8 +29,8 @@ import time
 import torch
 import torch.nn as nn
 
-from src.flora.communicator import grpc_communicator as rpc_comm
-from src.flora.communicator import torch_mpi
+from src.omnifed.hybrid.communicator import global_grpc as rpc_comm
+from src.omnifed.hybrid.communicator import torch_mpi
 from src.omnifed.hybrid.addr_env import apply_hybrid_addr_env_overrides
 from src.omnifed.hybrid.hydra_loader import load_hybrid_cfg
 from src.omnifed.hybrid.topology_roles import (
