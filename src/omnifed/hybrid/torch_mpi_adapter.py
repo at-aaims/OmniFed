@@ -6,7 +6,7 @@ import torch
 import torch.distributed as dist
 from torch import nn
 
-from src.flora.communicator.torch_mpi import TorchMPICommunicator
+from src.omnifed.hybrid.communicator.torch_mpi import TorchMPICommunicator
 from src.omnifed.communicator.base import AggregationOp, BaseCommunicator
 
 __all__ = ["TorchMPIAdapter"]

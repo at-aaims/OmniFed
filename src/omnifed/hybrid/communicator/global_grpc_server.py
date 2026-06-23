@@ -1,18 +1,5 @@
 # Copyright (c) 2025, Oak Ridge National Laboratory.  All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
-import time
 import grpc
 from concurrent import futures
 import threading
@@ -20,18 +7,17 @@ from typing import Dict, Optional
 
 import torch
 
-from src.flora.flora_rpc import SimpleModel
-import src.flora.communicator.grpc_communicator_pb2 as flora_grpc_pb2
-import src.flora.communicator.grpc_communicator_pb2_grpc as flora_grpc_pb2_grpc
-from src.flora.communicator.grpc_compression_utils import (
+import src.omnifed.hybrid.communicator.global_grpc_pb2 as global_grpc_pb2
+import src.omnifed.hybrid.communicator.global_grpc_pb2_grpc as global_grpc_pb2_grpc
+from src.omnifed.hybrid.communicator.global_grpc_compression import (
     decode_updates_dict,
     encode_layer_state,
 )
-from src.flora.communicator.grpc_limits import GRPC_MAX_MESSAGE_BYTES
-from src.flora.compression.sparsification import TopKCompression
+from src.omnifed.hybrid.communicator.global_grpc_limits import GRPC_MAX_MESSAGE_BYTES
+from src.omnifed.hybrid.compression.topk import TopKCompression
 
 
-class CentralServerServicer(flora_grpc_pb2_grpc.CentralServerServicer):
+class CentralServerServicer(global_grpc_pb2_grpc.CentralServerServicer):
     def __init__(
         self,
         num_clients: int,
@@ -49,18 +35,16 @@ class CentralServerServicer(flora_grpc_pb2_grpc.CentralServerServicer):
         self.compute_mean = compute_mean
 
         self.registered_clients = set()
-        self.current_round = -1  # Start with -1 so first round (0) is properly handled
+        self.current_round = -1
         self.lock = threading.Lock()
 
-        # Single event that gets reset for each new round
         self.round_complete_event = threading.Event()
-        self.round_in_progress = -1  # Track which round is currently being processed
+        self.round_in_progress = -1
 
-        # For gradient accumulation approach
         if accumulate_updates:
             self.accumulated_updates = {}
             self.update_count = 0
-            self.total_samples = 0  # Sum of samples from all clients
+            self.total_samples = 0
             self._initialize_accumulated_updates()
 
         print(
@@ -94,38 +78,31 @@ class CentralServerServicer(flora_grpc_pb2_grpc.CentralServerServicer):
             round_number = request.round_number
 
             try:
-                # Check if this is a new round
                 if round_number > self.round_in_progress:
-                    # New round started, reset the event and tracking
                     print(f"Starting new round {round_number}")
                     self.round_in_progress = round_number
                     self.round_complete_event.clear()
-                    self.update_count = 0  # Reset for new round
-                    self.total_samples = 0  # Reset sample count for new round
-                    self._initialize_accumulated_updates()  # Reset accumulation
+                    self.update_count = 0
+                    self.total_samples = 0
+                    self._initialize_accumulated_updates()
 
-                # Only process updates for the current round
                 if round_number != self.round_in_progress:
                     print(
                         f"Ignoring update from {client_id} for round {round_number}, current round is {self.round_in_progress}"
                     )
-                    return flora_grpc_pb2.UpdateResponse(
+                    return global_grpc_pb2.UpdateResponse(
                         success=False,
                         message=f"Round {round_number} is not the current round ({self.round_in_progress})",
                         clients_registered=len(self.registered_clients),
                         updates_received=self.update_count,
                     )
 
-                # Convert protobuf to model parameters
                 update_data = self._protobuf_to_model_params_efficient(request.layers)
 
                 if self.accumulate_updates:
-                    # Updates' accumulation approach - more memory efficient
                     self._accumulate_model_updates(update_data)
                     self.update_count += 1
-                    self.total_samples += (
-                        request.number_samples
-                    )  # Accumulate sample count
+                    self.total_samples += request.number_samples
                     print(
                         f"Accumulated gradient from {client_id} for round {round_number}. "
                         f"Count: {self.update_count}/{self.num_clients}, "
@@ -142,15 +119,14 @@ class CentralServerServicer(flora_grpc_pb2_grpc.CentralServerServicer):
                             f"DEBUG:successfully applied updates for round {round_number}"
                         )
 
-                        # Update current round and signal completion
                         self.current_round = round_number
-                        self.round_complete_event.set()  # Signal all waiting clients
+                        self.round_complete_event.set()
 
                         print(
                             f"DEBUG:successfully completed round {self.current_round}"
                         )
 
-                return flora_grpc_pb2.UpdateResponse(
+                return global_grpc_pb2.UpdateResponse(
                     success=True,
                     message="Update received successfully",
                     clients_registered=len(self.registered_clients),
@@ -159,7 +135,7 @@ class CentralServerServicer(flora_grpc_pb2_grpc.CentralServerServicer):
 
             except Exception as e:
                 print(f"Error processing update from {client_id}: {e}")
-                return flora_grpc_pb2.UpdateResponse(
+                return global_grpc_pb2.UpdateResponse(
                     success=False,
                     message=f"Error processing update: {str(e)}",
                     clients_registered=len(self.registered_clients),
@@ -180,8 +156,6 @@ class CentralServerServicer(flora_grpc_pb2_grpc.CentralServerServicer):
             for name, param in self.model.named_parameters():
                 if name in self.accumulated_updates:
                     if self.compute_mean:
-                        # Divide by total samples instead of number of clients
-                        # This gives proper weighted averaging based on data size
                         avg_update = self.accumulated_updates[name] / self.total_samples
                         print(
                             f"DEBUG: Averaging {name} with total_samples={self.total_samples}"
@@ -202,41 +176,35 @@ class CentralServerServicer(flora_grpc_pb2_grpc.CentralServerServicer):
         try:
             print(f"Client {client_id} requesting model for round {round_number}")
 
-            # Check if the requested round is already completed
             with self.lock:
                 if round_number <= self.current_round:
-                    # Round is already completed, send the model immediately
                     print(
                         f"Round {round_number} already completed (current: {self.current_round}), sending model to {client_id}"
                     )
                     return self._send_current_model(round_number, client_id)
 
-                # Check if this round is currently in progress
                 if round_number != self.round_in_progress:
                     print(
                         f"Round {round_number} not in progress (current: {self.round_in_progress})"
                     )
-                    return flora_grpc_pb2.ModelParameters(
+                    return global_grpc_pb2.ModelParameters(
                         round_number=round_number, layers=[], is_ready=False
                     )
 
-            # Round is in progress, wait for it to complete
             print(f"Client {client_id} waiting for round {round_number} to complete...")
-            # 10 second timeout
             if self.round_complete_event.wait(timeout=10):
                 with self.lock:
                     if round_number <= self.current_round:
                         return self._send_current_model(round_number, client_id)
 
-            # Timeout
             print(f"Timeout waiting for round {round_number} for client {client_id}")
-            return flora_grpc_pb2.ModelParameters(
+            return global_grpc_pb2.ModelParameters(
                 round_number=round_number, layers=[], is_ready=False
             )
 
         except Exception as e:
             print(f"Error sending model to {client_id}: {e}")
-            return flora_grpc_pb2.ModelParameters(
+            return global_grpc_pb2.ModelParameters(
                 round_number=round_number, layers=[], is_ready=False
             )
 
@@ -250,17 +218,16 @@ class CentralServerServicer(flora_grpc_pb2_grpc.CentralServerServicer):
                 else:
                     model_updates[name] = param.grad
 
-            # Convert to protobuf format
             proto_layers = self._model_updates_to_protobuf_efficient(model_updates)
             print(f"Sending current model to {client_id} for round {round_number}")
 
-            return flora_grpc_pb2.ModelParameters(
+            return global_grpc_pb2.ModelParameters(
                 round_number=round_number,
                 layers=proto_layers,
                 is_ready=True,
             )
 
-        return flora_grpc_pb2.ModelParameters(
+        return global_grpc_pb2.ModelParameters(
             round_number=round_number, layers=[], is_ready=False
         )
 
@@ -274,44 +241,8 @@ class CentralServerServicer(flora_grpc_pb2_grpc.CentralServerServicer):
                 f"Client {request.client_id} registered. Total clients: {total_clients}"
             )
 
-            return flora_grpc_pb2.RegistrationResponse(
+            return global_grpc_pb2.RegistrationResponse(
                 success=True,
                 message=f"Client {request.client_id} registered successfully",
                 total_clients=total_clients,
             )
-
-
-def start_server(model, port=50051, num_clients=3, accumulate_updates=True):
-    server = grpc.server(
-        futures.ThreadPoolExecutor(max_workers=10),
-        options=[
-            ("grpc.max_send_message_length", GRPC_MAX_MESSAGE_BYTES),
-            ("grpc.max_receive_message_length", GRPC_MAX_MESSAGE_BYTES),
-        ],
-    )
-
-    flora_grpc_pb2_grpc.add_CentralServerServicer_to_server(
-        CentralServerServicer(
-            num_clients, model, accumulate_updates=accumulate_updates
-        ),
-        server,
-    )
-
-    listen_addr = f"[::]:{port}"
-    server.add_insecure_port(listen_addr)
-
-    print(f"Compatible Scalable Parameter server starting on {listen_addr}")
-    server.start()
-
-    try:
-        while True:
-            time.sleep(86400)
-    except KeyboardInterrupt:
-        print("Shutting down parameter server...")
-        server.stop(0)
-
-
-if __name__ == "__main__":
-    start_server(
-        model=SimpleModel(), port=50051, num_clients=3, accumulate_updates=True
-    )

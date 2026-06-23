@@ -15,8 +15,9 @@ import torch
 from hydra.utils import instantiate
 from omegaconf import OmegaConf
 
-from src.flora.communicator import grpc_communicator as FloraGrpcComm
-from src.flora.communicator import torch_mpi
+from src.omnifed.hybrid.communicator import global_grpc as HybridGrpcComm
+from src.omnifed.hybrid.communicator import torch_mpi
+from src.omnifed.hybrid.communicator.global_grpc_compression import hybrid_global_compressor_from_cfg
 from src.omnifed.communicator import AggregationOp
 from src.omnifed.engine_communication import (
     hybrid_topology_config_for_slurm,
@@ -41,6 +42,13 @@ from src.omnifed.hybrid.topology_roles import (
     hybrid_rank_to_centralized_node_index,
 )
 from src.omnifed.hybrid.torch_mpi_adapter import TorchMPIAdapter
+from src.omnifed.checkpoint.hybrid_round_checkpoint import (
+    load_manifest,
+    load_round_model_state,
+    resume_start_round,
+    save_round_checkpoint,
+    should_resume,
+)
 from src.omnifed.utils import print
 
 __all__ = ["run_hybrid_training"]
@@ -102,7 +110,7 @@ def _leader_markers_all_present(hydra_out_dir: str, grpc_client_ranks: set[int])
 
 
 def run_hybrid_training(cfg, hydra_out_dir: str, ckpt_dir: str) -> None:
-    _ = ckpt_dir
+    os.makedirs(ckpt_dir, exist_ok=True)
     rank = int(os.environ.get("SLURM_PROCID", "0"))
     world = int(os.environ.get("SLURM_NTASKS", "1"))
 
@@ -233,6 +241,7 @@ def run_hybrid_training(cfg, hydra_out_dir: str, ckpt_dir: str) -> None:
             master_addr=rpc_addr,
             master_port=rpc_port,
             rpc_total_clients=rpc_total_clients,
+            cfg=cfg,
         )
         global_comm.attach_model(model)
 
@@ -273,9 +282,58 @@ def run_hybrid_training(cfg, hydra_out_dir: str, ckpt_dir: str) -> None:
     install_hybrid_slurm_sync(algorithm, bridge)
     algorithm.local_model = algorithm.local_model.to(device, non_blocking=True)
 
+    start_round = resume_start_round(cfg, ckpt_dir)
+    if start_round > 0:
+        manifest = load_manifest(ckpt_dir)
+        if manifest is None:
+            print(
+                f"[hybrid] rank={rank} resume requested but no manifest in {ckpt_dir}; "
+                "starting round 0",
+                flush=True,
+            )
+            start_round = 0
+        else:
+            last = int(manifest["last_completed_round"])
+            if load_round_model_state(algorithm.local_model, ckpt_dir, last, rank):
+                print(
+                    f"[hybrid] rank={rank} loaded checkpoint round_{last:03d}; "
+                    f"next round_idx={start_round}",
+                    flush=True,
+                )
+            else:
+                print(
+                    f"[hybrid] rank={rank} WARN: missing shard for round {last}; "
+                    "starting round 0",
+                    flush=True,
+                )
+                start_round = 0
+    elif should_resume(cfg):
+        print(
+            f"[hybrid] rank={rank} slurm.resume=true but no prior manifest; fresh start",
+            flush=True,
+        )
+
+    manifest_writer_rank = min(client_ranks) if client_ranks else None
+    exp_id = OmegaConf.select(cfg, "slurm.experiment_id", default=None)
+
     try:
-        for r in range(algorithm.max_rounds):
+        for r in range(start_round, algorithm.max_rounds):
             algorithm.round_exec(r, algorithm.max_rounds)
+            save_round_checkpoint(
+                exp_dir=ckpt_dir,
+                round_idx=r,
+                rank=rank,
+                model=algorithm.local_model,
+                target_global_rounds=total_rounds,
+                is_manifest_writer=(manifest_writer_rank is not None and rank == manifest_writer_rank),
+                experiment_id=str(exp_id) if exp_id else None,
+                topology_num_clients=int(cfg.topology.num_clients),
+            )
+            if manifest_writer_rank is not None and rank == manifest_writer_rank:
+                print(
+                    f"[hybrid] checkpoint manifest updated after round {r} -> {ckpt_dir}",
+                    flush=True,
+                )
         if rank in client_ranks:
             _write_leader_done_marker(hydra_out_dir, rank)
     finally:
@@ -342,7 +400,7 @@ def _run_grpc_server_only(
 
     # Flora daemon path requires id==0 (parameter-server role bit), independent of rpc.server_rank /
     # this process's SLURM_PROCID. See grpc_communicator.py and docs/archive/hybrid-engine-pipeline/HYBRID_SLURM_REFERENCE.md §6.
-    comm = FloraGrpcComm.GrpcCommunicator(
+    comm = HybridGrpcComm.GrpcCommunicator(
         model=model,
         id=0,
         total_clients=rpc_total_clients,
@@ -350,6 +408,7 @@ def _run_grpc_server_only(
         master_port=int(rpc_port),
         accumulate_updates=True,
         daemon_server=True,
+        compressor=hybrid_global_compressor_from_cfg(cfg, device="cpu"),
     )
     print(
         f"[hybrid] rank={rank} gRPC daemon (Flora id=0 PS) shutdown_mode={shutdown_mode!r}; "

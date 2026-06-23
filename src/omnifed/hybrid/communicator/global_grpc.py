@@ -1,16 +1,4 @@
 # Copyright (c) 2025, Oak Ridge National Laboratory.  All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 import time
 import grpc
@@ -19,13 +7,13 @@ from typing import Optional, Union
 
 import torch.nn
 
-from src.flora.communicator import Communicator
-import src.flora.communicator.grpc_communicator_pb2_grpc as flora_grpc_pb2_grpc
+from src.omnifed.hybrid.communicator import Communicator
+import src.omnifed.hybrid.communicator.global_grpc_pb2_grpc as global_grpc_pb2_grpc
 
-from src.flora.communicator.grpc_limits import GRPC_MAX_MESSAGE_BYTES
-from src.flora.communicator.grpc_server import CentralServerServicer
-from src.flora.communicator.grpc_client import GrpcClient
-from src.flora.compression.sparsification import TopKCompression
+from src.omnifed.hybrid.communicator.global_grpc_limits import GRPC_MAX_MESSAGE_BYTES
+from src.omnifed.hybrid.communicator.global_grpc_server import CentralServerServicer
+from src.omnifed.hybrid.communicator.global_grpc_client import GrpcClient
+from src.omnifed.hybrid.compression.topk import TopKCompression
 
 
 class GrpcCommunicator(Communicator):
@@ -42,17 +30,13 @@ class GrpcCommunicator(Communicator):
     ):
         super().__init__(protocol_type="RPC")
         self.id = id
-        # total clients excluding parameter server
         self.total_clients = total_clients - 1
         self.master_port = master_port
         self.accumulate_updates = accumulate_updates
         self.compressor = compressor
         self.server = None
 
-        # Flora: only ``id == 0`` starts the daemon gRPC server. That is the *communicator role id*,
-        # not OmniFed hybrid ``SLURM_PROCID``. Hybrid Slurm runs the server **process** on
-        # ``topology.rpc.server_rank`` but must still construct the server with ``id=0`` here unless
-        # this branch is refactored (see Phase B Step 8 notes in docs/archive/hybrid-engine-pipeline/HYBRID_SLURM_REFERENCE.md).
+        # Only id == 0 starts the daemon gRPC server (communicator role id, not SLURM_PROCID).
         if self.id == 0:
             self.server = grpc.server(
                 futures.ThreadPoolExecutor(max_workers=10),
@@ -62,7 +46,7 @@ class GrpcCommunicator(Communicator):
                 ],
             )
 
-            flora_grpc_pb2_grpc.add_CentralServerServicer_to_server(
+            global_grpc_pb2_grpc.add_CentralServerServicer_to_server(
                 CentralServerServicer(
                     self.total_clients,
                     model,
@@ -111,15 +95,12 @@ class GrpcCommunicator(Communicator):
         compute_mean: bool = True,
     ):
         if isinstance(msg, torch.nn.Module):
-            # communicate either model parameters or gradients
             if communicate_params:
-                # for weighted aggregation, summed updates are divided by total_samples on the server
                 updates = {
                     name: torch.mul(param.data.detach(), batch_samples)
                     for (name, param) in msg.named_parameters()
                 }
             else:
-                # for weighted aggregation, summed updates are divided by total_samples on the server
                 updates = {
                     name: torch.mul(param.grad.detach(), batch_samples)
                     for (name, param) in msg.named_parameters()

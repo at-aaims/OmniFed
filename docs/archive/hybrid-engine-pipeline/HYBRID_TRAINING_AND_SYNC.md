@@ -1,6 +1,6 @@
 # Hybrid Slurm training loop & synchronization (FedAvg + Engine)
 
-Plain-language companion to **`HYBRID_SLURM_REFERENCE.md`**. Applies when **`engine.communication_mode=hybrid`** and **`slurm_worker`** runs **`run_hybrid_training`**. Sections **7–9** summarize **Llama + C4** training, **`global_rounds`**, and **Flora gRPC** size / **`leader_done`** walltime knobs used on Frontier-scale LM hybrids.
+Plain-language companion to **`HYBRID_SLURM_REFERENCE.md`**. Applies when **`engine.communication_mode=hybrid`** and **`slurm_worker`** runs **`run_hybrid_training`**. Sections **7–9** summarize **Llama + C4** training, **`global_rounds`**, and **Flora gRPC** size / **`leader_done`** walltime knobs used on Frontier-scale LM hybrids. **Section 10** lists tunable **training**, **aggregation frequency**, **eval**, **hybrid wall**, and **scale** parameters. **Sections 11–12** cover **data sharding vs Slurm rank** and **parallelism / scaling with model size**.
 
 ---
 
@@ -127,6 +127,107 @@ Operational copy‑paste (**env**, staging): **`README_FRONTIER_EXPERIMENTS.md`*
 
 - **JSON rollup:** **`engine/node_results/node_*_results.json`** — **`sync/global_agg_time`**, **`sync/local_agg_time`**, **`sync/local_bcast_time`**.
 - **CSV:** **`hybrid_per_round_summary.csv`** — **`gRPC_F1_ms` / `gRPC_F2_ms`** (leaders’ **`global_agg`** in ms; asymmetric ordering vs PS is normal). Example Llama‑150 M hybrid: **`global_agg_time` ~107–133 s** dominated by serialization + WAN + averaging **~sub‑GiB** tensors.
+
+---
+
+## 10. What you can tune — **training** vs **communication**
+
+Use this as a map of terminology and Hydra knobs. Changing **aggregation triggers** increases or decreases **how often** **`__sync()`** runs (each **`__sync`** is always Section 3’s full trio: **`local_agg` → `global_agg` (leaders / gRPC) → `local_bcast`**).
+
+### 10.1 Terminology (**global / local “rounds”**)
+
+| Phrase | In OmniFed / cfg | Typical meaning |
+|--------|------------------|----------------|
+| **Global round** / **Fed round** | One **`algorithm.round_exec`** cycle (**Engine** advances **`ROUND_IDX`**). Controlled by **`global_rounds`** (total cycles). | One **scheduled** **`__sync()`** batch at **round end** when **`round_end`** is enabled (default presets). |
+| **Local training depth per Fed round** | **`algorithm.max_epochs_per_round`** | How many **local epochs** (**passes over each trainer’s loader**) run **inside** **`round_exec`** **before** triggers like **`round_end`** are evaluated. |
+| **Local sync frequency** (inside a Fed round) | **`algorithm.schedules.aggregation.*`** (**`epoch_end`**, **`batch_end`**) | Extra **`__sync()`** calls **between** **`round_end`** events — e.g. sync after **every** local epoch (**`epoch_end`**) or every **K** minibatches (**`batch_end`**). Disabled in default **`round_end.yaml`**. |
+| **Global / Flora aggregation frequency** | Same as **`__sync()` frequency** | There is **no** standalone Flora pulse in hybrid FedAvg; **`global_agg`** runs whenever **`__sync()`** runs. |
+
+Presets swap or override **`conf/algorithm/schedules/aggregation/*.yaml`** (**`round_end`**, **`epoch_end`**, **`batch_end`**) or set **`enabled`** / **`every`** / **`at`** under **`algorithm.schedules.aggregation`** (YAML comments illustrate **`at: [...]`** for sparse rounds).
+
+### 10.2 Training-side knobs (**optimization & data throughput**)
+
+| Parameter | Typical location | Notes |
+|-----------|-----------------|--------|
+| **Learning rate** | **`algorithm.local_lr`** | LM presets use **`4e-4`**; sweep if needed. |
+| **Batch sizes** | **`datamodule.train_batch_size`**, **`eval_batch_size`** | LM C4 presets use **`1`** (memory); CNN hybrids may use **`128`**. |
+| **Sequence length (LM)** | **`datamodule.max_length`** | Trades throughput vs memory. |
+| **`num_workers`** | **`datamodule.num_workers`** | DataLoader parallelism (often **`0`** on small GPU jobs). |
+
+These change **compute per step/epoch**. They do not by themselves decide **whether** **`__sync()`** fires — unless wall-clock length affects **`slurm.time`** / **`leader_done`** (Section 9).
+
+### 10.3 When **`__sync()`** runs (**communication frequency**)
+
+| Parameter | Typical location | Effect |
+|-----------|-----------------|--------|
+| **`global_rounds`** | **`global_rounds`** (top-level cfg) | **Total** **`round_exec`** loops ⇒ caps how many Fed rounds run. |
+| **`max_epochs_per_round`** | **`algorithm.max_epochs_per_round`** | Local epochs **within** each **`round_exec`** before **`round_end`** aggregation is evaluated. |
+| **`round_end`** trigger | **`algorithm.schedules.aggregation.round_end`** | **`enabled`** / **`every`** / **`at`**: **`__sync()`** after every **N‑th `round_exec`** completion (usually **`every: 1`**). |
+| **`epoch_end`** trigger | **`algorithm.schedules.aggregation.epoch_end`** | See **`aggregation/epoch_end.yaml`**: disables **`round_end`**, aggregates **every epoch** ⇒ **many more** Flora + NCCL rounds per **`round_exec`**. |
+| **`batch_end`** trigger | **`algorithm.schedules.aggregation.batch_end`** | See **`aggregation/batch_end.yaml`**: **`__sync()`** once per **`every`** minibatches ⇒ **heavy** overhead unless model/data are tiny. |
+
+
+**Default LM hybrids:** **`max_epochs_per_round=1`** + **`round_end` only** ⇒ **one **`global_agg` per **`global_round`**. Enable **`epoch_end`** or **`batch_end`** only when you **intentionally** average more often across facilities.
+
+### 10.4 Evaluation (**not **`__sync`**, separate schedule**)
+
+| Parameter | Location | Role |
+|-----------|----------|------|
+| **`algorithm.schedules.evaluation`** | e.g. **`evaluation/standard.yaml`** | **`experiment_start`**, **`post_aggregation`**, **`experiment_end`**, **`every`** — controls **eval passes**; orthogonal to **`local_agg` / `global_agg` / `local_bcast`** unless you enable **`epoch_end`** / **`batch_end`** aggregation as well (Section 5). |
+
+### 10.5 Hybrid infrastructure (**timeouts & payload limits**)
+
+| Parameter | Location | Role |
+|-----------|----------|------|
+| **`server_run_extra_sec`**, **`server_sec_per_round`**, **`global_rounds`** | **`engine.hybrid.*`** | **`leader_done`** RPC nap budget (**Section 9**) —must cover cumulative training wall. |
+| **`leader_done_poll_sec`** | **`engine.hybrid.leader_done_poll_sec`** | PS rank marker poll interval. |
+| **`GRPC_MAX_MESSAGE_BYTES`** | **`src/flora/communicator/grpc_limits.py`** | Max serialized Flora message (**`INT32_MAX`** boundary); LM full-weight uploads. |
+
+### 10.6 Scale (**who participates in facility collectives**)
+
+| Parameter | Location | Role |
+|-----------|----------|------|
+| **`mpi_ranks_per_facility`**, **`num_facilities`**, **`topology.num_clients`**, **`datamodule.num_federated_clients`**, **`engine.hybrid.training.dataset_total_clients`** | Hybrid layout + presets | Larger facility ⇒ **costlier** facility **`local_agg`** / **`local_bcast`** each time **`__sync()`** runs; Flora **leader-only** **`global_agg`** pattern unchanged. Keep client-count literals aligned (**Roadmap**, section **J**). |
+
+---
+
+## 11. Data split logic (who sees which shards)
+
+### 11.1 Train / eval partitioning (**C4 LM path**)
+
+- Implementation: **`src.omnifed.data.lm_datamodule.build_c4_lm_datamodule`**.  
+- **Train:** if **`shard_train`** and **`num_federated_clients > 1`**, the HF dataset uses **`train_ds.shard(num_shards=N, index=client_idx)`** with **`N = num_federated_clients`**. Rows are split into **N** disjoint shards (sizes equal within **±1** row).  
+- **Eval:** default **`shard_eval: false`** ⇒ **every** logical client sees the **same full** **`validation`** split (no per-client eval partition).
+
+### 11.2 How **`client_idx`** is chosen on hybrid Slurm
+
+- **`OMNIFED_FEDERATED_CLIENT_INDEX`** is set in **`run_hybrid_training`** to **`cen_idx - 1`**, where **`cen_idx`** is the **`CentralizedTopology`** node index (**`0`** = server, **`1 … num_clients`** = trainers).
+- **`hybrid_rank_to_centralized_node_index`** (**`topology_roles.py`**) maps **`SLURM_PROCID`** → **`cen_idx`**: the dedicated **RPC rank** maps to **`0`** (server); **trainer ranks** (all other **`SLURM_PROCID`** values) become **`1 … num_clients`** in **ascending hybrid rank order** (excluding **`rpc_server_rank`**).
+
+**Implication:** **each trainer Slurm task** behaves as **one logical federated client** for the datamodule (its own **`Dataset.shard`** index). Tasks in the **same facility** are **different** logical clients—they **do not** subdivide **one** client’s shard across GPUs in this stack; they carry **distinct** shards and then **facility `local_agg`** combines their weighted updates.
+
+---
+
+## 12. “Parallelism” as model size grows (**what this stack does *not* do**)
+
+### 12.1 Model placement (**full replica per trainer rank**)
+
+- Hybrid workers **`instantiate(cfg.model)`** and move to **`device`** (**`slurm_hybrid_runner`**) — **one full copy of the model per trainer process** (standard **data-parallel–style replication**, not **tensor / pipeline / sequence** parallelism).
+- There is **no** built-in **FSDP / ZeRO / Megatron**-style sharding in the hybrid Slurm path described here; **all** parameters participate in **`local_agg`**/**`local_bcast`** and leader **`global_agg`** as **dense** tensors.
+
+### 12.2 What scales with bigger models (Llama 150 M → ~400 M → …)
+
+| Concern | How it behaves in this codebase |
+|--------|--------------------------------|
+| **GPU RAM** | Each rank needs enough memory for **full weights + optimizer state + activations** at **`train_batch_size`**. Larger models ⇒ lower batch / shorter sequences / fewer tricks **unless** you add new parallelism outside this pipeline. |
+| **Facility `local_agg` / `local_bcast`** | Collectives operate over **whole** parameter tensors aggregated across **all ranks in the facility subgroup** ⇒ **communication volume ∝ parameter count × facility_size** each **`__sync()`**. |
+| **Flora `global_agg` (leaders)** | **Two** leader uploads/downloads of **serialized full state** (see **`grpc_limits`**) per **`__sync()`** in the default **2‑facility** layout — **payload ∝ model size** in **fp32** protobuf form; must stay **below** **`GRPC_MAX_MESSAGE_BYTES`**. |
+| **Wall time** | Heavier forward/backward and **larger** MPI/gRPC transfers; **`server_sec_per_round`** and **`slurm.time`** usually need to grow with model class. |
+
+### 12.3 Adding more GPUs (**throughput vs identity**)
+
+- **More ranks** in a facility speeds up **nothing automatically** for a **single** logical client—they are **different** federated identities with **different** data shards (Section 11). You get **more samples per Fed round per facility** in aggregate, plus **higher** facility **`local_agg` / `local_bcast`** cost.
+- True **single-client multi-GPU data parallel** inside one federated participant would require a **different** mapping (same **`OMNIFED_FEDERATED_CLIENT_INDEX`**, replicated loader, **`DistributedDataParallel`**, etc.) — **not** the current LM hybrid preset semantics.
 
 ---
 

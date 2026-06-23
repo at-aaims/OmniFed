@@ -1,30 +1,18 @@
 # Copyright (c) 2025, Oak Ridge National Laboratory.  All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 import grpc
 from typing import Dict, Optional
 
 import torch
 
-import src.flora.communicator.grpc_communicator_pb2 as flora_grpc_pb2
-import src.flora.communicator.grpc_communicator_pb2_grpc as flora_grpc_pb2_grpc
-from src.flora.communicator.grpc_compression_utils import (
+import src.omnifed.hybrid.communicator.global_grpc_pb2 as global_grpc_pb2
+import src.omnifed.hybrid.communicator.global_grpc_pb2_grpc as global_grpc_pb2_grpc
+from src.omnifed.hybrid.communicator.global_grpc_compression import (
     decode_layer_tensor,
     encode_layer_state,
 )
-from src.flora.communicator.grpc_limits import GRPC_MAX_MESSAGE_BYTES
-from src.flora.compression.sparsification import TopKCompression
+from src.omnifed.hybrid.communicator.global_grpc_limits import GRPC_MAX_MESSAGE_BYTES
+from src.omnifed.hybrid.compression.topk import TopKCompression
 
 
 class GrpcClient:
@@ -45,7 +33,7 @@ class GrpcClient:
                 ("grpc.max_send_message_length", GRPC_MAX_MESSAGE_BYTES),
             ],
         )
-        self.stub = flora_grpc_pb2_grpc.CentralServerStub(self.channel)
+        self.stub = global_grpc_pb2_grpc.CentralServerStub(self.channel)
         self.round_number = 0
 
         mode = "TopK" if compressor is not None else "dense"
@@ -57,7 +45,7 @@ class GrpcClient:
     def _register_with_server(self):
         """Register this client with the parameter server"""
         try:
-            request = flora_grpc_pb2.ClientInfo(client_id=self.client_id)
+            request = global_grpc_pb2.ClientInfo(client_id=self.client_id)
             response = self.stub.RegisterClient(request)
 
             if response.success:
@@ -83,7 +71,7 @@ class GrpcClient:
             self._last_updates = {k: v.detach().clone() for k, v in updates.items()}
             proto_layers = self._model_params_to_protobuf(updates)
 
-            request = flora_grpc_pb2.ModelUpdate(
+            request = global_grpc_pb2.ModelUpdate(
                 client_id=self.client_id,
                 round_number=self.round_number,
                 layers=proto_layers,
@@ -126,7 +114,7 @@ class GrpcClient:
         print(f"Round {self.round_number}: Waiting for averaged model from server...")
         while True:
             try:
-                request = flora_grpc_pb2.GetModelRequest(
+                request = global_grpc_pb2.GetModelRequest(
                     client_id=self.client_id, round_number=self.round_number
                 )
                 response = self.stub.GetUpdatedModel(request)

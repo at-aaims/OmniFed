@@ -1,0 +1,40 @@
+# ================================================================================
+# CIFAR-10 FedAvg Centralized Experiment with TorchDist Communication
+# ResNet-18 (torchvision) + CIFAR-10 datamodule — sibling of
+# test_fedavg_centralized_torchdist (MNIST + simple_cnn).
+# ================================================================================
+
+defaults:
+  - base
+  - override topology: centralized
+  - override algorithm: fedavg
+  - override model: resnet18
+  - override datamodule: cifar10
+  - _self_
+
+topology:
+  num_clients: 27
+  local_comm:
+    _target_: src.omnifed.communicator.TorchDistCommunicator
+    backend: nccl
+    master_addr: ${oc.env:MASTER_ADDR,127.0.0.1}
+    master_port: ${oc.env:MASTER_PORT,29500}
+  overrides:
+    0:
+      datamodule:
+        train: null
+
+algorithm:
+  local_lr: 0.001
+  max_epochs_per_round: 4
+
+model:
+  num_classes: 10
+
+datamodule:
+  train:
+    batch_size: 128
+  eval:
+    batch_size: 128
+
+global_rounds: 2

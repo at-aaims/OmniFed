@@ -149,16 +149,25 @@ slurm:
   gpus_per_task: 1
   gres: gpu:1
   job_name: "omnifed"
+  # When true, emitted as ``#SBATCH --exclusive`` (whole-node allocation; Frontier ``batch`` is often exclusive already).
+  exclusive: false
   constraint: null
   reservation: null
   setup_lines:
     # site modules/env (edit for Frontier/site)
     - 'module load cray-python || true'
     - 'export OMP_NUM_THREADS=8'
+  # Parent Lustre dir for hybrid round checkpoints; use with ``experiment_id``.
   checkpoint_dir: null
+  # Subdirectory under ``checkpoint_dir`` (stable across resubmits). See ``docs/CHECKPOINTING_HYBRID_SLURM_PLAN.md``.
+  experiment_id: null
+  # When true, load ``manifest.json`` + latest round weights and continue from ``next_round_idx``.
+  resume: false
+  # Emit ``#SBATCH -d singleton`` (one chain job at a time). Use with ``scripts/hybrid_checkpoint_autochain.sh``.
+  dependency_singleton: false
   preempt_signal: "USR1"
   preempt_notice_sec: 180
-  # When resuming a previous run:
+  # Legacy / unused for hybrid round ckpt (use ``resume`` + ``checkpoint_dir`` + ``experiment_id``).
   resume_from: null
 
 
@@ -181,3 +190,8 @@ engine:
     # sleep = fixed heuristic; leader_done = wait until each gRPC leader rank touches a marker (max wait below).
     server_shutdown: leader_done
     leader_done_poll_sec: 5.0
+    # Global (cross-facility) Flora gRPC compression — facility TorchMPI stays dense.
+    global_compression:
+      enabled: false
+      scheme: topk
+      compress_ratio: 0.01

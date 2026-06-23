@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from typing import Any, Dict, Optional
 
 import torch
@@ -22,8 +23,17 @@ def load_llama_from_pretrained_checkpoint(
     """
     from transformers import LlamaForCausalLM
 
+    resolved = os.path.expanduser(str(pretrained_model_name_or_path))
+    if local_files_only and not os.path.isdir(resolved):
+        raise FileNotFoundError(
+            "Llama checkpoint path is missing or not a directory "
+            f"(local_files_only=True): {resolved!r}. "
+            "Set OMNIFED_LLAMA400_WEIGHTS (or OMNIFED_LLAMA_WEIGHTS) to the real "
+            "offline snapshot directory that contains config.json and weight files."
+        )
+
     kwargs: Dict[str, Any] = dict(
-        pretrained_model_name_or_path=pretrained_model_name_or_path,
+        pretrained_model_name_or_path=resolved,
         local_files_only=bool(local_files_only),
     )
 
