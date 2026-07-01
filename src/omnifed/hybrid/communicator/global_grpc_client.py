@@ -8,11 +8,12 @@ import torch
 import src.omnifed.hybrid.communicator.global_grpc_pb2 as global_grpc_pb2
 import src.omnifed.hybrid.communicator.global_grpc_pb2_grpc as global_grpc_pb2_grpc
 from src.omnifed.hybrid.communicator.global_grpc_compression import (
+    GlobalHybridCompressor,
+    compression_mode_name,
     decode_layer_tensor,
     encode_layer_state,
 )
 from src.omnifed.hybrid.communicator.global_grpc_limits import GRPC_MAX_MESSAGE_BYTES
-from src.omnifed.hybrid.compression.topk import TopKCompression
 
 
 class GrpcClient:
@@ -21,7 +22,7 @@ class GrpcClient:
         client_id: str,
         master_addr: str = "127.0.0.1",
         master_port: int = 50051,
-        compressor: Optional[TopKCompression] = None,
+        compressor: Optional[GlobalHybridCompressor] = None,
     ):
         self.client_id = client_id
         self.compressor = compressor
@@ -36,7 +37,7 @@ class GrpcClient:
         self.stub = global_grpc_pb2_grpc.CentralServerStub(self.channel)
         self.round_number = 0
 
-        mode = "TopK" if compressor is not None else "dense"
+        mode = compression_mode_name(compressor)
         print(
             f"Client {client_id} initialized ({mode}), connecting to {master_addr}:{master_port}"
         )

@@ -25,6 +25,14 @@ def _all_reduce_tensor(t: torch.Tensor, reduction: AggregationOp, world_size: in
     return t
 
 
+def _missing_grad_param_names(model: nn.Module) -> list[str]:
+    return [
+        name
+        for name, param in model.named_parameters()
+        if param.requires_grad and param.grad is None
+    ]
+
+
 class TorchMPIAdapter(BaseCommunicator):
     """
     Uses an already-initialized :class:`TorchMPICommunicator` process group
@@ -39,9 +47,11 @@ class TorchMPIAdapter(BaseCommunicator):
         world_size: int,
         master_addr: str,
         master_port: int,
+        communicate_params: bool = True,
     ) -> None:
         super().__init__(rank, world_size, master_addr, int(master_port))
         self._mpi = mpi
+        self.communicate_params = bool(communicate_params)
 
     def _setup(self) -> None:
         return
@@ -81,17 +91,31 @@ class TorchMPIAdapter(BaseCommunicator):
                 dist.ReduceOp, "AVG"
             )
 
-            for _, p in msg.named_parameters():
-                if p.requires_grad:
-                    dist.all_reduce(p.data, op=red_op)
+            if self.communicate_params:
+                for _, p in msg.named_parameters():
+                    if p.requires_grad:
+                        dist.all_reduce(p.data, op=red_op)
+                        if manual_mean:
+                            p.data.div_(max(self.world_size, 1))
+                for _, buffer in msg.named_buffers():
+                    if buffer is None or not buffer.dtype.is_floating_point:
+                        continue
+                    dist.all_reduce(buffer.data, op=red_op)
                     if manual_mean:
-                        p.data /= max(self.world_size, 1)
-            for _, buffer in msg.named_buffers():
-                if buffer is None or not buffer.dtype.is_floating_point:
-                    continue
-                dist.all_reduce(buffer.data, op=red_op)
-                if manual_mean:
-                    buffer.data /= max(self.world_size, 1)
+                        buffer.data.div_(max(self.world_size, 1))
+            else:
+                missing = _missing_grad_param_names(msg)
+                if missing:
+                    raise RuntimeError(
+                        "TorchMPIAdapter gradient aggregate requires param.grad on every "
+                        f"trainable parameter (missing {len(missing)}, e.g. {missing[:3]})."
+                    )
+                for _, p in msg.named_parameters():
+                    if not p.requires_grad:
+                        continue
+                    dist.all_reduce(p.grad, op=red_op)
+                    if manual_mean:
+                        p.grad.div_(max(self.world_size, 1))
         elif isinstance(msg, dict):
             for t in msg.values():
                 _all_reduce_tensor(t, reduction, self.world_size)

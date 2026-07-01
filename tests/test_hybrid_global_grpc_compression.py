@@ -4,8 +4,10 @@ import numpy as np
 import torch
 
 import src.omnifed.hybrid.communicator.global_grpc_pb2 as global_grpc_pb2
+from src.omnifed.hybrid.compression.qsgd import QSGD_COMPRESSION_NAME, QSGDQuantCompression
 from src.omnifed.hybrid.compression.topk import TOPK_COMPRESSION_NAME, TopKCompression
 from src.omnifed.hybrid.communicator.global_grpc_compression import (
+    build_global_compressor,
     decode_layer_tensor,
     encode_layer_state,
 )
@@ -45,3 +47,23 @@ def test_layer_state_dense_legacy_path():
     assert layer.compression_type == ""
     out = decode_layer_tensor(layer)
     assert torch.allclose(out, t)
+
+
+def test_qsgd_layer_state_encode_decode():
+    compressor = QSGDQuantCompression(bit_width=4, device="cpu")
+    base = torch.randn(8)
+    layer = encode_layer_state("fc.weight", base, compressor)
+    assert layer.compression_type == QSGD_COMPRESSION_NAME
+    assert layer.values_data
+    assert layer.meta_tensor
+    assert layer.width == 8
+    assert layer.level == 16
+
+    decoded = decode_layer_tensor(layer)
+    assert decoded.shape == base.shape
+
+
+def test_build_global_compressor_qsgd_from_scheme():
+    c = build_global_compressor(enabled=True, scheme="qsgd", bit_width=3)
+    assert isinstance(c, QSGDQuantCompression)
+    assert c.s == 3

@@ -123,6 +123,7 @@ def save_round_checkpoint(
     experiment_id: Optional[str] = None,
     preset_name: Optional[str] = None,
     topology_num_clients: Optional[int] = None,
+    aggregate_payload: Optional[str] = None,
 ) -> None:
     os.makedirs(exp_dir, exist_ok=True)
     shard_path = model_shard_path(exp_dir, round_idx, rank)
@@ -149,6 +150,8 @@ def save_round_checkpoint(
         "latest_round_dir": ROUND_DIR_FMT.format(last),
         "updated_at": datetime.now(timezone.utc).isoformat(),
     }
+    if aggregate_payload is not None:
+        manifest["aggregate_payload"] = str(aggregate_payload)
     prev = load_manifest(exp_dir)
     if prev:
         manifest["created_at"] = prev.get("created_at", manifest["updated_at"])

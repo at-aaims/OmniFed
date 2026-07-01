@@ -167,6 +167,47 @@ def scale_params(
     )
 
 
+def scale_grads(
+    model: nn.Module,
+    scale_factor: float,
+    *,
+    requires_grad: Optional[bool] = None,
+    filter_fn: Optional[Callable[[str, torch.Tensor], bool]] = None,
+) -> None:
+    """
+    Scale parameter gradients in-place for sample-weighted gradient aggregation.
+
+    Raises if any selected parameter has ``grad is None`` (caller must accumulate
+    gradients before sync when using ``aggregate_payload=gradients``).
+    """
+
+    def should_scale(name: str, tensor: torch.Tensor) -> bool:
+        if requires_grad is not None and tensor.requires_grad != requires_grad:
+            return False
+        if filter_fn is not None and not filter_fn(name, tensor):
+            return False
+        return True
+
+    grads_scaled = grads_total = 0
+
+    with torch.no_grad():
+        for name, param in model.named_parameters():
+            grads_total += 1
+            if not should_scale(name, param):
+                continue
+            if param.grad is None:
+                raise RuntimeError(
+                    f"scale_grads: missing grad for parameter {name!r}. "
+                    "Gradient aggregation requires accumulated grads before sync."
+                )
+            param.grad.mul_(scale_factor)
+            grads_scaled += 1
+
+    print(
+        f"scaled {grads_scaled}/{grads_total} grads | scale_factor={scale_factor:.4f}"
+    )
+
+
 def weighted_avg_models(
     models: List[nn.Module],
     weights: List[float],

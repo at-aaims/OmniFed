@@ -190,8 +190,11 @@ engine:
     # sleep = fixed heuristic; leader_done = wait until each gRPC leader rank touches a marker (max wait below).
     server_shutdown: leader_done
     leader_done_poll_sec: 5.0
-    # Global (cross-facility) Flora gRPC compression — facility TorchMPI stays dense.
+    # What local MPI and global gRPC aggregate: params (FedAvg) or gradients (FedSGD).
+    aggregate_payload: params   # params | gradients
+    # Global (cross-facility) hybrid gRPC compression — facility TorchMPI stays dense.
     global_compression:
       enabled: false
-      scheme: topk
+      scheme: topk   # topk | qsgd
       compress_ratio: 0.01
+      bit_width: 8   # qsgd only: s where levels = 2^s

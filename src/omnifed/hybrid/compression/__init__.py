@@ -6,6 +6,7 @@ from .core import (
     ResidualUpdates,
     layerwise_decompress,
 )
+from .qsgd import QSGD_COMPRESSION_NAME, QSGDQuantCompression
 from .topk import TOPK_COMPRESSION_NAME, TopKCompression
 
 __all__ = [
@@ -14,5 +15,7 @@ __all__ = [
     "ResidualUpdates",
     "TopKCompression",
     "TOPK_COMPRESSION_NAME",
+    "QSGDQuantCompression",
+    "QSGD_COMPRESSION_NAME",
     "layerwise_decompress",
 ]

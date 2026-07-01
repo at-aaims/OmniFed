@@ -10,6 +10,7 @@ from torch import nn
 
 from src.omnifed.hybrid.communicator import global_grpc as rpc_comm
 from src.omnifed.hybrid.communicator.global_grpc_compression import hybrid_global_compressor_from_cfg
+from src.omnifed.hybrid.hybrid_aggregate_config import hybrid_communicate_params_from_cfg
 from src.omnifed.communicator.base import AggregationOp, BaseCommunicator
 
 if TYPE_CHECKING:
@@ -42,6 +43,9 @@ class GrpcLeaderCommunicator(BaseCommunicator):
         self._bridge = bridge
         self._rpc_total = int(rpc_total_clients)
         self._cfg = cfg
+        self._communicate_params = (
+            hybrid_communicate_params_from_cfg(cfg) if cfg is not None else True
+        )
         self._grpc: Optional[rpc_comm.GrpcCommunicator] = None
 
     def _setup(self) -> None:
@@ -62,6 +66,7 @@ class GrpcLeaderCommunicator(BaseCommunicator):
             accumulate_updates=True,
             daemon_server=False,
             compressor=compressor,
+            communicate_params=self._communicate_params,
         )
 
     def broadcast(self, msg: BaseCommunicator.MsgT, src: int = 0) -> BaseCommunicator.MsgT:
@@ -93,7 +98,7 @@ class GrpcLeaderCommunicator(BaseCommunicator):
         return self._grpc.aggregate(
             msg=msg,
             batch_samples=bs,
-            communicate_params=True,
+            communicate_params=self._communicate_params,
             compute_mean=True,
         )
 

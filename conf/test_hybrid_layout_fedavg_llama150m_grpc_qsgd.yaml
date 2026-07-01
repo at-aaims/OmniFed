@@ -1,0 +1,19 @@
+# ================================================================================
+# Hybrid FedAvg: Llama-150M + QSGD on global gRPC only (facility TorchMPI dense).
+#
+# Same lattice as test_hybrid_layout_fedavg_llama150m (7 nodes default).
+# Prerequisites: OMNIFED_C4_DISK, OMNIFED_TOKENIZER_DIR, OMNIFED_LLAMA_WEIGHTS.
+#
+# CLI bit-width sweep: engine.hybrid.global_compression.bit_width=2|4|8
+# ================================================================================
+
+defaults:
+  - test_hybrid_layout_fedavg_llama150m
+  - _self_
+
+engine:
+  hybrid:
+    global_compression:
+      enabled: true
+      scheme: qsgd
+      bit_width: 4

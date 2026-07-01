@@ -5,7 +5,7 @@ import warnings
 
 from src.omnifed.hybrid.communicator import global_grpc_pb2 as src_dot_omnifed_dot_hybrid_dot_communicator_dot_global__grpc__pb2
 
-GRPC_GENERATED_VERSION = '1.71.2'
+GRPC_GENERATED_VERSION = '1.78.0'
 GRPC_VERSION = grpc.__version__
 _version_not_supported = False
 
@@ -18,7 +18,7 @@ except ImportError:
 if _version_not_supported:
     raise RuntimeError(
         f'The grpc package installed is at version {GRPC_VERSION},'
-        + f' but the generated code in src/omnifed/hybrid/communicator/global_grpc_pb2_grpc.py depends on'
+        + ' but the generated code in src/omnifed/hybrid/communicator/global_grpc_pb2_grpc.py depends on'
         + f' grpcio>={GRPC_GENERATED_VERSION}.'
         + f' Please upgrade your grpc module to grpcio>={GRPC_GENERATED_VERSION}'
         + f' or downgrade your generated code using grpcio-tools<={GRPC_VERSION}.'

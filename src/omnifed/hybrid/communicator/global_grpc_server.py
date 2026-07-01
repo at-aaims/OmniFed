@@ -10,11 +10,11 @@ import torch
 import src.omnifed.hybrid.communicator.global_grpc_pb2 as global_grpc_pb2
 import src.omnifed.hybrid.communicator.global_grpc_pb2_grpc as global_grpc_pb2_grpc
 from src.omnifed.hybrid.communicator.global_grpc_compression import (
+    GlobalHybridCompressor,
     decode_updates_dict,
     encode_layer_state,
 )
 from src.omnifed.hybrid.communicator.global_grpc_limits import GRPC_MAX_MESSAGE_BYTES
-from src.omnifed.hybrid.compression.topk import TopKCompression
 
 
 class CentralServerServicer(global_grpc_pb2_grpc.CentralServerServicer):
@@ -22,7 +22,7 @@ class CentralServerServicer(global_grpc_pb2_grpc.CentralServerServicer):
         self,
         num_clients: int,
         model: torch.nn.Module,
-        compressor: Optional[TopKCompression] = None,
+        compressor: Optional[GlobalHybridCompressor] = None,
         accumulate_updates: bool = True,
         communicate_params: bool = True,
         compute_mean: bool = True,
@@ -51,7 +51,9 @@ class CentralServerServicer(global_grpc_pb2_grpc.CentralServerServicer):
             f"Compatible Scalable Parameter Server initialized for {num_clients} clients"
         )
         print(
-            f"Compression: {compressor is not None}, Updates' Accumulation: {accumulate_updates}"
+            f"Compression: {compressor is not None}, "
+            f"Aggregate payload: {'params' if communicate_params else 'gradients'}, "
+            f"Updates' Accumulation: {accumulate_updates}"
         )
 
     def _initialize_accumulated_updates(self):

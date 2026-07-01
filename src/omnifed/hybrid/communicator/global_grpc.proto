@@ -25,11 +25,17 @@ message LayerState {
     repeated float param_update = 2;
     repeated int32 param_shape = 3;
     string compression_type = 4;
+    // TopK: values_data + indices_data. QSGD: values_data = signed quant levels.
     bytes values_data = 5;
     bytes indices_data = 6;
     string values_dtype = 7;
     string indices_dtype = 8;
     repeated int32 original_shape = 9;
+    // QSGD (PR #86 parity): meta_tensor holds norm; width/level for dequantize.
+    bytes meta_tensor = 10;
+    string meta_tensor_dtype = 11;
+    int32 width = 12;
+    int32 level = 13;
 }
 
 message ModelParameters {

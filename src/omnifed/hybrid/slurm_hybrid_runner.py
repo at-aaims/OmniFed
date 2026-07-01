@@ -23,7 +23,10 @@ from src.omnifed.engine_communication import (
     hybrid_topology_config_for_slurm,
     validate_hybrid_slurm_topology_alignment,
 )
-from src.omnifed.hybrid.addr_env import apply_hybrid_addr_env_overrides
+from src.omnifed.hybrid.hybrid_aggregate_config import (
+    hybrid_aggregate_payload_from_cfg,
+    hybrid_communicate_params_from_cfg,
+)
 from src.omnifed.hybrid.comm_bridge import HybridCommBridge
 from src.omnifed.hybrid.hybrid_run_summary import write_hybrid_slurm_per_round_summary
 from src.omnifed.hybrid.grpc_leader_comm import GrpcLeaderCommunicator
@@ -140,7 +143,8 @@ def run_hybrid_training(cfg, hydra_out_dir: str, ckpt_dir: str) -> None:
 
     print(
         f"[hybrid] rank={rank}/{world} rpc_server={rpc_server_rank} "
-        f"rpc_addr={rpc_addr}:{rpc_port} hosts_patched=1",
+        f"rpc_addr={rpc_addr}:{rpc_port} hosts_patched=1 "
+        f"aggregate_payload={hybrid_aggregate_payload_from_cfg(cfg)!r}",
         flush=True,
     )
 
@@ -224,12 +228,14 @@ def run_hybrid_training(cfg, hydra_out_dir: str, ckpt_dir: str) -> None:
         master_port=mpi_port,
     )
     bridge = HybridCommBridge()
+    communicate_params = hybrid_communicate_params_from_cfg(cfg)
     local_comm = TorchMPIAdapter(
         mpi,
         rank=local_rank,
         world_size=mpi_ws,
         master_addr=mpi_addr,
         master_port=int(mpi_port),
+        communicate_params=communicate_params,
     )
 
     global_comm: Optional[GrpcLeaderCommunicator] = None
@@ -279,7 +285,11 @@ def run_hybrid_training(cfg, hydra_out_dir: str, ckpt_dir: str) -> None:
         epochs_per_round,
         total_rounds,
     )
-    install_hybrid_slurm_sync(algorithm, bridge)
+    install_hybrid_slurm_sync(
+        algorithm,
+        bridge,
+        communicate_params=communicate_params,
+    )
     algorithm.local_model = algorithm.local_model.to(device, non_blocking=True)
 
     start_round = resume_start_round(cfg, ckpt_dir)
@@ -294,6 +304,14 @@ def run_hybrid_training(cfg, hydra_out_dir: str, ckpt_dir: str) -> None:
             start_round = 0
         else:
             last = int(manifest["last_completed_round"])
+            saved_payload = manifest.get("aggregate_payload")
+            current_payload = hybrid_aggregate_payload_from_cfg(cfg)
+            if saved_payload is not None and str(saved_payload) != str(current_payload):
+                raise ValueError(
+                    f"[hybrid] rank={rank} checkpoint aggregate_payload={saved_payload!r} "
+                    f"does not match current config {current_payload!r}; "
+                    "start a new experiment_id or match engine.hybrid.aggregate_payload."
+                )
             if load_round_model_state(algorithm.local_model, ckpt_dir, last, rank):
                 print(
                     f"[hybrid] rank={rank} loaded checkpoint round_{last:03d}; "
@@ -328,6 +346,7 @@ def run_hybrid_training(cfg, hydra_out_dir: str, ckpt_dir: str) -> None:
                 is_manifest_writer=(manifest_writer_rank is not None and rank == manifest_writer_rank),
                 experiment_id=str(exp_id) if exp_id else None,
                 topology_num_clients=int(cfg.topology.num_clients),
+                aggregate_payload=hybrid_aggregate_payload_from_cfg(cfg),
             )
             if manifest_writer_rank is not None and rank == manifest_writer_rank:
                 print(
@@ -376,6 +395,11 @@ def _run_grpc_server_only(
     *,
     grpc_client_ranks: set[int],
 ) -> None:
+    print(
+        f"[hybrid] rank={rank} gRPC server aggregate_payload="
+        f"{hybrid_aggregate_payload_from_cfg(cfg)!r}",
+        flush=True,
+    )
     model = instantiate(cfg.model)
     model = model.to(torch.device("cpu"))
 
@@ -409,6 +433,7 @@ def _run_grpc_server_only(
         accumulate_updates=True,
         daemon_server=True,
         compressor=hybrid_global_compressor_from_cfg(cfg, device="cpu"),
+        communicate_params=hybrid_communicate_params_from_cfg(cfg),
     )
     print(
         f"[hybrid] rank={rank} gRPC daemon (Flora id=0 PS) shutdown_mode={shutdown_mode!r}; "

@@ -16,9 +16,10 @@ SLURM support inside the Engine itself—freeze config on the login node, emit `
 6. Run the **layout-first** hybrid preset (same lattice, no separate topology YAML).
 7. Scale the hybrid run up (e.g. 17 or 129 ranks).
 8. Run **ResNet-18 + CIFAR-10** hybrid FedAvg (vision regression sibling to MNIST + `simple_cnn`).
-9. Run the Llama-150M + C4 hybrid LM experiment (and scale it the same way in principle).
-10. Run the Llama ~400M + C4 hybrid LM experiment (same lattice knobs as 150M).
-11. Read and interpret result artifacts.
+9. Run **hybrid QSGD** on global gRPC (ResNet-18 and/or Llama-150M smoke) — **§7.3**.
+10. Run the Llama-150M + C4 hybrid LM experiment (and scale it the same way in principle).
+11. Run the Llama ~400M + C4 hybrid LM experiment (same lattice knobs as 150M).
+12. Read and interpret result artifacts.
 
 Long-form references (job numbers, roadmap phases, artefact glossary) stayed in **`./archive/hybrid-engine-pipeline/`** so newcomers are not drowned in prose; this README stays chronological.
 
@@ -436,6 +437,147 @@ Preset default **`server_run_extra_sec=120`** + **`server_sec_per_round=300`** �
   slurm.gpus_per_node=1 slurm.gpus_per_task=1 slurm.gres=null \
   slurm.exclusive=true
 ```
+
+---
+
+## 7.3 Hybrid QSGD on global gRPC (ResNet-18 + Llama-150M)
+
+**Presets:** **`test_hybrid_layout_fedavg_cifar10_resnet18_grpc_qsgd`**, **`test_hybrid_layout_fedavg_llama150m_grpc_qsgd`**.  
+**Helpers:** **`test_scripts/frontier_hybrid_cifar10_resnet18_7_qsgd.sh`**, **`test_scripts/frontier_hybrid_llama150m_7_qsgd.sh`**.
+
+After **`rsync`** from your dev machine, on the **login node**:
+
+```bash
+module load miniforge3/23.11.0-0
+conda activate pytorch_rocm
+
+cd "${OMNIFED_REPO}"
+export PYTHONPATH="${OMNIFED_REPO}"
+export PYEXE="${CONDA_PREFIX}/bin/python"
+```
+
+**`./main.sh`** regenerates hybrid gRPC stubs from **`global_grpc.proto`** on each submit; if you hit protobuf errors, run once manually:
+
+```bash
+python -m grpc_tools.protoc -I. --python_out=. --grpc_python_out=. \
+  ./src/omnifed/hybrid/communicator/global_grpc.proto
+```
+
+**Frontier `batch` partition:** max walltime is **120 minutes** — use **`slurm.time=02:00:00`** (or **`01:35:00`** for Llama smoke).
+
+### ResNet-18 + CIFAR-10 — dense baseline (7 nodes, 5 rounds)
+
+Pre-stage CIFAR: **§2.D**.
+
+```bash
+cd "${OMNIFED_REPO}"
+export PYTHONPATH="${OMNIFED_REPO}"
+export PYEXE="${CONDA_PREFIX}/bin/python"
+
+CIFAR_ROOT="/lustre/orion/gen150/scratch/YOUR_USER/omnifed_data/cifar10"
+
+./main.sh --config-name test_hybrid_layout_fedavg_cifar10_resnet18 \
+  overwrite=true \
+  engine.mode=slurm \
+  global_rounds=5 \
+  datamodule.train.dataset.download=false \
+  datamodule.eval.dataset.download=false \
+  datamodule.train.dataset.root="${CIFAR_ROOT}" \
+  datamodule.eval.dataset.root="${CIFAR_ROOT}" \
+  slurm.account=YOUR_PROJECT \
+  slurm.partition=batch \
+  slurm.time=02:00:00 \
+  slurm.nodes=7 \
+  slurm.ntasks_per_node=1 \
+  slurm.cpus_per_task=4 \
+  slurm.gpus_per_node=1 \
+  slurm.gpus_per_task=1 \
+  slurm.gres=null \
+  slurm.exclusive=true
+```
+
+### ResNet-18 + CIFAR-10 — QSGD (7 nodes, 5 rounds)
+
+```bash
+cd "${OMNIFED_REPO}"
+export PYTHONPATH="${OMNIFED_REPO}"
+export PYEXE="${CONDA_PREFIX}/bin/python"
+
+export OMNIFED_REPO="/lustre/orion/gen150/scratch/YOUR_USER/OmniFed_VT"
+export OMNIFED_CIFAR10_ROOT="/lustre/orion/gen150/scratch/YOUR_USER/omnifed_data/cifar10"
+export SLURM_ACCOUNT=YOUR_PROJECT
+
+# QSGD bit width s → 2^s quantization levels (default s=4)
+QSGD_BIT_WIDTH=4 ./test_scripts/frontier_hybrid_cifar10_resnet18_7_qsgd.sh
+
+QSGD_BIT_WIDTH=8 ./test_scripts/frontier_hybrid_cifar10_resnet18_7_qsgd.sh
+```
+
+Override walltime on the CLI if the script default differs:
+
+```bash
+QSGD_BIT_WIDTH=4 ./test_scripts/frontier_hybrid_cifar10_resnet18_7_qsgd.sh slurm.time=02:00:00
+```
+
+**Equivalent `main.sh` (no helper script):**
+
+```bash
+./main.sh --config-name test_hybrid_layout_fedavg_cifar10_resnet18_grpc_qsgd \
+  overwrite=true \
+  engine.mode=slurm \
+  global_rounds=5 \
+  engine.hybrid.global_compression.enabled=true \
+  engine.hybrid.global_compression.scheme=qsgd \
+  engine.hybrid.global_compression.bit_width=4 \
+  datamodule.train.dataset.download=false \
+  datamodule.eval.dataset.download=false \
+  datamodule.train.dataset.root="${OMNIFED_CIFAR10_ROOT}" \
+  datamodule.eval.dataset.root="${OMNIFED_CIFAR10_ROOT}" \
+  slurm.account="${SLURM_ACCOUNT}" \
+  slurm.partition=batch \
+  slurm.time=02:00:00 \
+  slurm.nodes=7 \
+  slurm.ntasks_per_node=1 \
+  slurm.cpus_per_task=4 \
+  slurm.gpus_per_node=1 \
+  slurm.gpus_per_task=1 \
+  slurm.gres=null \
+  slurm.exclusive=true
+```
+
+### Llama-150M + C4 — QSGD smoke (7 nodes, 2 rounds)
+
+Pre-flight (**C4**, tokenizer, weights): **§2.E**. Export **`OMNIFED_*`** in the **same shell** as **`./main.sh`**.
+
+```bash
+cd "${OMNIFED_REPO}"
+export PYTHONPATH="${OMNIFED_REPO}"
+export PYEXE="${CONDA_PREFIX}/bin/python"
+
+export OMNIFED_REPO="/lustre/orion/gen150/scratch/YOUR_USER/OmniFed_VT"
+export OMNIFED_C4_DISK="/lustre/orion/gen150/scratch/YOUR_USER/omnifed_data/allenai_c4"
+export OMNIFED_TOKENIZER_DIR="/lustre/orion/gen150/scratch/YOUR_USER/omnifed_data/tokenizer_Mistral-7B-v0.1"
+export OMNIFED_LLAMA_WEIGHTS="/lustre/orion/gen150/scratch/YOUR_USER/omnifed_data/PrimeIntellect_llama-150m-fresh"
+export SLURM_ACCOUNT=YOUR_PROJECT
+
+QSGD_BIT_WIDTH=4 ./test_scripts/frontier_hybrid_llama150m_7_qsgd.sh
+```
+
+### Job status and outputs
+
+```bash
+squeue -u YOUR_USER
+
+sacct -j <JOBID> --format=JobID,State,ExitCode,Elapsed -P -X
+
+find "${OMNIFED_REPO}/outputs" -name "slurm-<JOBID>.out"
+
+cat outputs/<timestamp>/test_hybrid_layout_fedavg_cifar10_resnet18_grpc_qsgd/hybrid_per_round_summary.csv
+# or: .../test_hybrid_layout_fedavg_cifar10_resnet18/hybrid_per_round_summary.csv  (dense)
+# or: .../test_hybrid_layout_fedavg_llama150m_grpc_qsgd/hybrid_per_round_summary.csv
+```
+
+More detail: **`docs/HYBRID_QSGD_IMPLEMENTATION_STEPS.md`**.
 
 ---
 

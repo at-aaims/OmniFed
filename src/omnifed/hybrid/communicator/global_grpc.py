@@ -5,6 +5,7 @@ import grpc
 from concurrent import futures
 from typing import Optional, Union
 
+import torch
 import torch.nn
 
 from src.omnifed.hybrid.communicator import Communicator
@@ -13,7 +14,7 @@ import src.omnifed.hybrid.communicator.global_grpc_pb2_grpc as global_grpc_pb2_g
 from src.omnifed.hybrid.communicator.global_grpc_limits import GRPC_MAX_MESSAGE_BYTES
 from src.omnifed.hybrid.communicator.global_grpc_server import CentralServerServicer
 from src.omnifed.hybrid.communicator.global_grpc_client import GrpcClient
-from src.omnifed.hybrid.compression.topk import TopKCompression
+from src.omnifed.hybrid.communicator.global_grpc_compression import GlobalHybridCompressor
 
 
 class GrpcCommunicator(Communicator):
@@ -26,7 +27,8 @@ class GrpcCommunicator(Communicator):
         master_port: int = 50051,
         accumulate_updates: bool = True,
         daemon_server: bool = False,
-        compressor: Optional[TopKCompression] = None,
+        compressor: Optional[GlobalHybridCompressor] = None,
+        communicate_params: bool = True,
     ):
         super().__init__(protocol_type="RPC")
         self.id = id
@@ -34,6 +36,7 @@ class GrpcCommunicator(Communicator):
         self.master_port = master_port
         self.accumulate_updates = accumulate_updates
         self.compressor = compressor
+        self.communicate_params = bool(communicate_params)
         self.server = None
 
         # Only id == 0 starts the daemon gRPC server (communicator role id, not SLURM_PROCID).
@@ -52,6 +55,7 @@ class GrpcCommunicator(Communicator):
                     model,
                     compressor=self.compressor,
                     accumulate_updates=self.accumulate_updates,
+                    communicate_params=self.communicate_params,
                 ),
                 self.server,
             )
@@ -101,6 +105,18 @@ class GrpcCommunicator(Communicator):
                     for (name, param) in msg.named_parameters()
                 }
             else:
+                missing = [
+                    name
+                    for name, param in msg.named_parameters()
+                    if param.grad is None
+                ]
+                if missing:
+                    raise RuntimeError(
+                        "gRPC gradient aggregation requires param.grad on every parameter "
+                        f"before sync (missing {len(missing)} tensors, e.g. {missing[:3]}). "
+                        "Use aggregate_payload=gradients only after the deferred-optimizer "
+                        "training path is enabled."
+                    )
                 updates = {
                     name: torch.mul(param.grad.detach(), batch_samples)
                     for (name, param) in msg.named_parameters()
