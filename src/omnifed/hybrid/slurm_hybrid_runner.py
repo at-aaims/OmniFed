@@ -27,6 +27,8 @@ from src.omnifed.hybrid.hybrid_aggregate_config import (
     hybrid_aggregate_payload_from_cfg,
     hybrid_communicate_params_from_cfg,
 )
+from src.omnifed.hybrid.addr_env import apply_hybrid_addr_env_overrides
+
 from src.omnifed.hybrid.comm_bridge import HybridCommBridge
 from src.omnifed.hybrid.hybrid_run_summary import write_hybrid_slurm_per_round_summary
 from src.omnifed.hybrid.grpc_leader_comm import GrpcLeaderCommunicator
