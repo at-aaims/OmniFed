@@ -14,9 +14,12 @@ SLURM support inside the Engine itself—freeze config on the login node, emit `
 4. Run the Phase-A hybrid communication smoke (TorchMPI + gRPC, **no** Engine FedAvg loop).
 5. Run the full Engine hybrid FedAvg experiment (**file-topology** preset).
 6. Run the **layout-first** hybrid preset (same lattice, no separate topology YAML).
-7. Scale the hybrid run up (e.g. 129 ranks).
-8. Run the Llama-150M + C4 hybrid LM experiment (and scale it the same way in principle).
-9. Read and interpret result artifacts.
+7. Scale the hybrid run up (e.g. 17 or 129 ranks).
+8. Run **ResNet-18 + CIFAR-10** hybrid FedAvg (vision regression sibling to MNIST + `simple_cnn`).
+9. Run **hybrid QSGD** on global gRPC (ResNet-18 and/or Llama-150M smoke) — **§7.3**.
+10. Run the Llama-150M + C4 hybrid LM experiment (and scale it the same way in principle).
+11. Run the Llama ~400M + C4 hybrid LM experiment (same lattice knobs as 150M).
+12. Read and interpret result artifacts.
 
 Long-form references (job numbers, roadmap phases, artefact glossary) stayed in **`./archive/hybrid-engine-pipeline/`** so newcomers are not drowned in prose; this README stays chronological.
 
@@ -36,6 +39,10 @@ Deep references worth opening when debugging: `./archive/hybrid-engine-pipeline/
 | **`W`** | Hybrid world size **`topology.num_clients + 1`** (one rank per participant, including dedicated RPC rank when configured). |
 
 Frontier compute nodes typically **cannot** reach the public internet. Datasets and model weights **must be pre-staged on Lustre** from the **login** node; Hydra overrides then point `root=` at those paths together with **`download=false`**.
+
+### Slurm **exclusive** mode (`slurm.exclusive=true`)
+
+For **multi-node hybrid** jobs (MNIST, CIFAR+ResNet18, Llama‑150M, Llama ~400M), pass **`slurm.exclusive=true`** on **`./main.sh`**. The Engine emits **`#SBATCH --exclusive`** so each allocated node is not shared with other jobs (helps GPU/MPI stability on large allocations). Default in **`conf/base.yaml`** is **`slurm.exclusive: false`**; Frontier **`batch`** jobs are often whole-node already, but we **recommend exclusive for all production hybrid submits** at 7 / 17 / 129 nodes.
 
 ---
 
@@ -84,7 +91,23 @@ datasets.MNIST(root=root, train=False, download=True)
 
 Every MNIST **`main.sh`** block below assumes **`download=false`** and **`root=`** aiming at this tree.
 
-### 2.D LM pre-flight (**login node only**; skip entire block if §8 Llama+C4 never runs)
+### 2.D Pre-stage CIFAR-10 on Lustre (ResNet-18 hybrid)
+
+```bash
+mkdir -p /lustre/orion/gen150/scratch/YOUR_USER/omnifed_data/cifar10
+python -c "
+from torchvision import datasets
+root = '/lustre/orion/gen150/scratch/YOUR_USER/omnifed_data/cifar10'
+datasets.CIFAR10(root=root, train=True,  download=True)
+datasets.CIFAR10(root=root, train=False, download=True)
+"
+```
+
+ResNet-18 hybrid presets use **`conf/test_hybrid_layout_fedavg_cifar10_resnet18.yaml`** ( **`torchvision.models.resnet18`** + **`torchvision.datasets.CIFAR10`** ). Every CIFAR block below uses **`download=false`** and the same **`root=`** for train and eval.
+
+Optional helpers: **`test_scripts/frontier_hybrid_cifar10_resnet18_17.sh`** and **`test_scripts/frontier_hybrid_cifar10_resnet18_129.sh`** (set **`OMNIFED_REPO`**, **`OMNIFED_CIFAR10_ROOT`**, **`SLURM_ACCOUNT`** if paths differ).
+
+### 2.E LM pre-flight (**login node only**; skip entire block if §8 Llama+C4 never runs)
 
 These are **copy-pastes from the Frontier runs we traced** (`./archive/hybrid-engine-pipeline/HYBRID_LLAMA150M_C4_ROADMAP.md`) — kept here so one file is self-contained. Replace **`YOUR_USER`** everywhere (below we use scratch **`gen150`**; adjust project/paths if yours differ).
 
@@ -274,7 +297,8 @@ sbatch test_scripts/slurm_frontier/hybrid_comm_smoke.slurm
    slurm.cpus_per_task=4 \
    slurm.gpus_per_node=1 \
    slurm.gpus_per_task=1 \
-   slurm.gres=null
+   slurm.gres=null \
+   slurm.exclusive=true
 ```
 
 **How we sanity-checked.**
@@ -309,7 +333,8 @@ Frontier reality check we already absorbed: **`4625007`** failed when MNIST down
    slurm.cpus_per_task=4 \
    slurm.gpus_per_node=1 \
    slurm.gpus_per_task=1 \
-   slurm.gres=null
+   slurm.gres=null \
+   slurm.exclusive=true
 ```
 
 Acceptance mirrored §5 (**same **`--ntasks`** semantics**) while Hydra’s folder naming reflected **`test_hybrid_layout_fedavg`**.
@@ -318,16 +343,241 @@ Acceptance mirrored §5 (**same **`--ntasks`** semantics**) while Hydra’s fold
 
 ---
 
-## 7. Larger-scale hybrid demo (e.g. 129 ranks)
+## 7. Larger-scale hybrid (17 or 129 ranks)
 
-We never needed new Python for this tier—pure Hydra choreography. MNIST hybrids on this branch already validated:
+We never needed new Python for this tier—pure Hydra choreography. **Same layout knobs** apply to MNIST, CIFAR+ResNet18, and Llama presets.
 
-- **`topology.num_clients = 128`**
-- **`engine.hybrid.layout.mpi_ranks_per_facility = 64`** (**2 × 64** trainers)
-- **`slurm.nodes = 129`**, **`slurm.ntasks_per_node = 1`** ⇒ **129** tasks ⇒ **`W = 129`**
-- **`engine.hybrid.training.dataset_total_clients = 128`** (stay aligned with **`topology.num_clients`**)
+| Scale | `mpi_ranks_per_facility` | `topology.num_clients` | `dataset_total_clients` | `slurm.nodes` | `W` |
+|-------|--------------------------|------------------------|-------------------------|---------------|-----|
+| 7 (default in presets) | 3 | 6 | 6 | 7 | 7 |
+| 17 | 8 | 16 | 16 | 17 | 17 |
+| 129 | 64 | 128 | 128 | 129 | 129 |
 
-Standing rule **`SLURM_NTASKS == hybrid_world_size`** and **`topology.num_clients == W − 1`**. Appendix-style narrative for knobs sits in **`./archive/hybrid-engine-pipeline/HYBRID_USER_KNOBS_AND_ROADMAP.md`**.
+Standing rules: **`SLURM_NTASKS == hybrid_world_size`**, **`topology.num_clients == W − 1`**, and for LM runs **`datamodule.num_federated_clients`** must equal **`topology.num_clients`** (literal integers). Appendix narrative: **`./archive/hybrid-engine-pipeline/HYBRID_USER_KNOBS_AND_ROADMAP.md`**.
+
+**MNIST — 129-node example** (add **`engine.hybrid.server_*`** if **`global_rounds > 1`** and the rank‑0 gRPC server dies early—see §7.1):
+
+```bash
+./main.sh --config-name test_hybrid_layout_fedavg \
+  overwrite=true engine.mode=slurm global_rounds=10 \
+  engine.hybrid.layout.mpi_ranks_per_facility=64 \
+  topology.num_clients=128 \
+  engine.hybrid.training.dataset_total_clients=128 \
+  engine.hybrid.server_run_extra_sec=600 \
+  engine.hybrid.server_sec_per_round=5000 \
+  datamodule.train.dataset.download=false \
+  datamodule.eval.dataset.download=false \
+  datamodule.train.dataset.root=/lustre/orion/gen150/scratch/YOUR_USER/omnifed_data/torchvision-mnist \
+  datamodule.eval.dataset.root=/lustre/orion/gen150/scratch/YOUR_USER/omnifed_data/torchvision-mnist \
+  slurm.account=YOUR_PROJECT slurm.partition=batch slurm.time=04:00:00 \
+  slurm.nodes=129 slurm.ntasks_per_node=1 slurm.cpus_per_task=4 \
+  slurm.gpus_per_node=1 slurm.gpus_per_task=1 slurm.gres=null \
+  slurm.exclusive=true
+```
+
+Confirm login output: **`[Engine] communication_mode=hybrid: Slurm --ntasks=129`**.
+
+### 7.1 gRPC server walltime (MNIST / CIFAR at many rounds)
+
+Preset default **`server_run_extra_sec=120`** + **`server_sec_per_round=300`** ⇒ **`max_wall ≈ 120 + global_rounds×300`**. Long MNIST runs at 129 nodes with **`global_rounds=10`** can shut down rank‑0 before trainers finish (**`Connection refused` on :50051**). Override **`engine.hybrid.server_run_extra_sec=600`** and **`engine.hybrid.server_sec_per_round=5000`** (already set in **`test_hybrid_layout_fedavg_cifar10_resnet18`** and Llama presets).
+
+---
+
+## 7.2 ResNet-18 + CIFAR-10 hybrid FedAvg
+
+**Preset:** **`conf/test_hybrid_layout_fedavg_cifar10_resnet18.yaml`** (composes **`test_fedavg_centralized_torchdist_cifar10_resnet18`** — **not** MNIST/`simple_cnn`). Pre-stage CIFAR: **§2.D**.
+
+**7-node smoke** (preset defaults; add offline paths):
+
+```bash
+./main.sh --config-name test_hybrid_layout_fedavg_cifar10_resnet18 \
+  overwrite=true engine.mode=slurm global_rounds=2 \
+  datamodule.train.dataset.download=false \
+  datamodule.eval.dataset.download=false \
+  datamodule.train.dataset.root=/lustre/orion/gen150/scratch/YOUR_USER/omnifed_data/cifar10 \
+  datamodule.eval.dataset.root=/lustre/orion/gen150/scratch/YOUR_USER/omnifed_data/cifar10 \
+  slurm.account=YOUR_PROJECT slurm.partition=batch slurm.time=00:45:00 \
+  slurm.nodes=7 slurm.ntasks_per_node=1 slurm.cpus_per_task=4 \
+  slurm.gpus_per_node=1 slurm.gpus_per_task=1 slurm.gres=null \
+  slurm.exclusive=true
+```
+
+**17-node:**
+
+```bash
+./main.sh --config-name test_hybrid_layout_fedavg_cifar10_resnet18 \
+  overwrite=true engine.mode=slurm global_rounds=2 \
+  engine.hybrid.layout.mpi_ranks_per_facility=8 \
+  topology.num_clients=16 \
+  engine.hybrid.training.dataset_total_clients=16 \
+  datamodule.train.dataset.download=false \
+  datamodule.eval.dataset.download=false \
+  datamodule.train.dataset.root=/lustre/orion/gen150/scratch/YOUR_USER/omnifed_data/cifar10 \
+  datamodule.eval.dataset.root=/lustre/orion/gen150/scratch/YOUR_USER/omnifed_data/cifar10 \
+  slurm.account=YOUR_PROJECT slurm.partition=batch slurm.time=02:00:00 \
+  slurm.nodes=17 slurm.ntasks_per_node=1 slurm.cpus_per_task=4 \
+  slurm.gpus_per_node=1 slurm.gpus_per_task=1 slurm.gres=null \
+  slurm.exclusive=true
+```
+
+**129-node** (extended server budget is in the preset):
+
+```bash
+./main.sh --config-name test_hybrid_layout_fedavg_cifar10_resnet18 \
+  overwrite=true engine.mode=slurm global_rounds=10 \
+  engine.hybrid.layout.mpi_ranks_per_facility=64 \
+  topology.num_clients=128 \
+  engine.hybrid.training.dataset_total_clients=128 \
+  datamodule.train.dataset.download=false \
+  datamodule.eval.dataset.download=false \
+  datamodule.train.dataset.root=/lustre/orion/gen150/scratch/YOUR_USER/omnifed_data/cifar10 \
+  datamodule.eval.dataset.root=/lustre/orion/gen150/scratch/YOUR_USER/omnifed_data/cifar10 \
+  slurm.account=YOUR_PROJECT slurm.partition=batch slurm.time=04:00:00 \
+  slurm.nodes=129 slurm.ntasks_per_node=1 slurm.cpus_per_task=4 \
+  slurm.gpus_per_node=1 slurm.gpus_per_task=1 slurm.gres=null \
+  slurm.exclusive=true
+```
+
+---
+
+## 7.3 Hybrid QSGD on global gRPC (ResNet-18 + Llama-150M)
+
+**Presets:** **`test_hybrid_layout_fedavg_cifar10_resnet18_grpc_qsgd`**, **`test_hybrid_layout_fedavg_llama150m_grpc_qsgd`**.  
+**Helpers:** **`test_scripts/frontier_hybrid_cifar10_resnet18_7_qsgd.sh`**, **`test_scripts/frontier_hybrid_llama150m_7_qsgd.sh`**.
+
+After **`rsync`** from your dev machine, on the **login node**:
+
+```bash
+module load miniforge3/23.11.0-0
+conda activate pytorch_rocm
+
+cd "${OMNIFED_REPO}"
+export PYTHONPATH="${OMNIFED_REPO}"
+export PYEXE="${CONDA_PREFIX}/bin/python"
+```
+
+**`./main.sh`** regenerates hybrid gRPC stubs from **`global_grpc.proto`** on each submit; if you hit protobuf errors, run once manually:
+
+```bash
+python -m grpc_tools.protoc -I. --python_out=. --grpc_python_out=. \
+  ./src/omnifed/hybrid/communicator/global_grpc.proto
+```
+
+**Frontier `batch` partition:** max walltime is **120 minutes** — use **`slurm.time=02:00:00`** (or **`01:35:00`** for Llama smoke).
+
+### ResNet-18 + CIFAR-10 — dense baseline (7 nodes, 5 rounds)
+
+Pre-stage CIFAR: **§2.D**.
+
+```bash
+cd "${OMNIFED_REPO}"
+export PYTHONPATH="${OMNIFED_REPO}"
+export PYEXE="${CONDA_PREFIX}/bin/python"
+
+CIFAR_ROOT="/lustre/orion/gen150/scratch/YOUR_USER/omnifed_data/cifar10"
+
+./main.sh --config-name test_hybrid_layout_fedavg_cifar10_resnet18 \
+  overwrite=true \
+  engine.mode=slurm \
+  global_rounds=5 \
+  datamodule.train.dataset.download=false \
+  datamodule.eval.dataset.download=false \
+  datamodule.train.dataset.root="${CIFAR_ROOT}" \
+  datamodule.eval.dataset.root="${CIFAR_ROOT}" \
+  slurm.account=YOUR_PROJECT \
+  slurm.partition=batch \
+  slurm.time=02:00:00 \
+  slurm.nodes=7 \
+  slurm.ntasks_per_node=1 \
+  slurm.cpus_per_task=4 \
+  slurm.gpus_per_node=1 \
+  slurm.gpus_per_task=1 \
+  slurm.gres=null \
+  slurm.exclusive=true
+```
+
+### ResNet-18 + CIFAR-10 — QSGD (7 nodes, 5 rounds)
+
+```bash
+cd "${OMNIFED_REPO}"
+export PYTHONPATH="${OMNIFED_REPO}"
+export PYEXE="${CONDA_PREFIX}/bin/python"
+
+export OMNIFED_REPO="/lustre/orion/gen150/scratch/YOUR_USER/OmniFed_VT"
+export OMNIFED_CIFAR10_ROOT="/lustre/orion/gen150/scratch/YOUR_USER/omnifed_data/cifar10"
+export SLURM_ACCOUNT=YOUR_PROJECT
+
+# QSGD bit width s → 2^s quantization levels (default s=4)
+QSGD_BIT_WIDTH=4 ./test_scripts/frontier_hybrid_cifar10_resnet18_7_qsgd.sh
+
+QSGD_BIT_WIDTH=8 ./test_scripts/frontier_hybrid_cifar10_resnet18_7_qsgd.sh
+```
+
+Override walltime on the CLI if the script default differs:
+
+```bash
+QSGD_BIT_WIDTH=4 ./test_scripts/frontier_hybrid_cifar10_resnet18_7_qsgd.sh slurm.time=02:00:00
+```
+
+**Equivalent `main.sh` (no helper script):**
+
+```bash
+./main.sh --config-name test_hybrid_layout_fedavg_cifar10_resnet18_grpc_qsgd \
+  overwrite=true \
+  engine.mode=slurm \
+  global_rounds=5 \
+  engine.hybrid.global_compression.enabled=true \
+  engine.hybrid.global_compression.scheme=qsgd \
+  engine.hybrid.global_compression.bit_width=4 \
+  datamodule.train.dataset.download=false \
+  datamodule.eval.dataset.download=false \
+  datamodule.train.dataset.root="${OMNIFED_CIFAR10_ROOT}" \
+  datamodule.eval.dataset.root="${OMNIFED_CIFAR10_ROOT}" \
+  slurm.account="${SLURM_ACCOUNT}" \
+  slurm.partition=batch \
+  slurm.time=02:00:00 \
+  slurm.nodes=7 \
+  slurm.ntasks_per_node=1 \
+  slurm.cpus_per_task=4 \
+  slurm.gpus_per_node=1 \
+  slurm.gpus_per_task=1 \
+  slurm.gres=null \
+  slurm.exclusive=true
+```
+
+### Llama-150M + C4 — QSGD smoke (7 nodes, 2 rounds)
+
+Pre-flight (**C4**, tokenizer, weights): **§2.E**. Export **`OMNIFED_*`** in the **same shell** as **`./main.sh`**.
+
+```bash
+cd "${OMNIFED_REPO}"
+export PYTHONPATH="${OMNIFED_REPO}"
+export PYEXE="${CONDA_PREFIX}/bin/python"
+
+export OMNIFED_REPO="/lustre/orion/gen150/scratch/YOUR_USER/OmniFed_VT"
+export OMNIFED_C4_DISK="/lustre/orion/gen150/scratch/YOUR_USER/omnifed_data/allenai_c4"
+export OMNIFED_TOKENIZER_DIR="/lustre/orion/gen150/scratch/YOUR_USER/omnifed_data/tokenizer_Mistral-7B-v0.1"
+export OMNIFED_LLAMA_WEIGHTS="/lustre/orion/gen150/scratch/YOUR_USER/omnifed_data/PrimeIntellect_llama-150m-fresh"
+export SLURM_ACCOUNT=YOUR_PROJECT
+
+QSGD_BIT_WIDTH=4 ./test_scripts/frontier_hybrid_llama150m_7_qsgd.sh
+```
+
+### Job status and outputs
+
+```bash
+squeue -u YOUR_USER
+
+sacct -j <JOBID> --format=JobID,State,ExitCode,Elapsed -P -X
+
+find "${OMNIFED_REPO}/outputs" -name "slurm-<JOBID>.out"
+
+cat outputs/<timestamp>/test_hybrid_layout_fedavg_cifar10_resnet18_grpc_qsgd/hybrid_per_round_summary.csv
+# or: .../test_hybrid_layout_fedavg_cifar10_resnet18/hybrid_per_round_summary.csv  (dense)
+# or: .../test_hybrid_layout_fedavg_llama150m_grpc_qsgd/hybrid_per_round_summary.csv
+```
+
+More detail: **`docs/HYBRID_QSGD_IMPLEMENTATION_STEPS.md`**.
 
 ---
 
@@ -341,9 +591,9 @@ Standing rule **`SLURM_NTASKS == hybrid_world_size`** and **`topology.num_client
 | **Model** | Same **`load_llama_from_pretrained_checkpoint`**; weights via **`OMNIFED_LLAMA_WEIGHTS`** (150 M presets) **or** **`OMNIFED_LLAMA400_WEIGHTS`** (**`test_*_llama400m`**) |
 | **Datamodule** | **`datasets.load_from_disk`** C4 shards; **`Dataset.shard`** on **train**, driven by **`OMNIFED_FEDERATED_CLIENT_INDEX`** seeded in **`slurm_hybrid_runner.py`** |
 
-Pre-flight (**C4**, tokenizer, checkpoints, **`pip`**) is **§2.D**. Immediately before **`./main.sh`** the **`export OMNIFED_*`** lines **must live in that same shell**.
+Pre-flight (**C4**, tokenizer, checkpoints, **`pip`**) is **§2.E**. Immediately before **`./main.sh`** the **`export OMNIFED_*`** lines **must live in that same shell**. Use **`slurm.exclusive=true`** on every LM hybrid submit (7 / 17 / 129). Scale-up lattice: **§7** table; LM runs also need **`datamodule.num_federated_clients`** matching **`topology.num_clients`**.
 
-**Llama‑150 M — copy-paste (**`YOUR_USER`** + **`YOUR_PROJECT`** = fill once):**
+**Llama‑150 M — 7-node:**
 
 ```bash
 cd "${OMNIFED_REPO}"
@@ -366,10 +616,43 @@ export OMNIFED_LLAMA_WEIGHTS="/lustre/orion/gen150/scratch/YOUR_USER/omnifed_dat
    slurm.cpus_per_task=4 \
    slurm.gpus_per_node=1 \
    slurm.gpus_per_task=1 \
-   slurm.gres=null
+   slurm.gres=null \
+   slurm.exclusive=true
 ```
 
-**Llama ~400 M — same data exports; weights path only swaps** (**populate folder first with your **`snapshot_download` tree**):
+**Llama‑150 M — 17-node:**
+
+```bash
+# Same exports as 7-node, then:
+./main.sh --config-name test_hybrid_layout_fedavg_llama150m \
+   overwrite=true engine.mode=slurm global_rounds=2 \
+   engine.hybrid.layout.mpi_ranks_per_facility=8 \
+   topology.num_clients=16 \
+   engine.hybrid.training.dataset_total_clients=16 \
+   datamodule.num_federated_clients=16 \
+   slurm.account=YOUR_PROJECT slurm.partition=batch slurm.time=01:59:00 \
+   slurm.nodes=17 slurm.ntasks_per_node=1 slurm.cpus_per_task=4 \
+   slurm.gpus_per_node=1 slurm.gpus_per_task=1 slurm.gres=null \
+   slurm.exclusive=true
+```
+
+**Llama‑150 M — 129-node:**
+
+```bash
+# Same exports as 7-node, then:
+./main.sh --config-name test_hybrid_layout_fedavg_llama150m \
+   overwrite=true engine.mode=slurm global_rounds=2 \
+   engine.hybrid.layout.mpi_ranks_per_facility=64 \
+   topology.num_clients=128 \
+   engine.hybrid.training.dataset_total_clients=128 \
+   datamodule.num_federated_clients=128 \
+   slurm.account=YOUR_PROJECT slurm.partition=batch slurm.time=01:59:00 \
+   slurm.nodes=129 slurm.ntasks_per_node=1 slurm.cpus_per_task=4 \
+   slurm.gpus_per_node=1 slurm.gpus_per_task=1 slurm.gres=null \
+   slurm.exclusive=true
+```
+
+**Llama ~400 M — 7-node** (**`OMNIFED_LLAMA400_WEIGHTS`** only — do not repoint **`OMNIFED_LLAMA_WEIGHTS`**):
 
 ```bash
 cd "${OMNIFED_REPO}"
@@ -392,10 +675,62 @@ export OMNIFED_LLAMA400_WEIGHTS="/lustre/orion/gen150/scratch/YOUR_USER/omnifed_
    slurm.cpus_per_task=4 \
    slurm.gpus_per_node=1 \
    slurm.gpus_per_task=1 \
-   slurm.gres=null
+   slurm.gres=null \
+   slurm.exclusive=true
 ```
 
-**Llama ~400 M** uses the **`OMNIFED_LLAMA400_WEIGHTS`** key so **`OMNIFED_LLAMA_WEIGHTS`** (150 M) is never repurposed accidentally. Runs are slower ⇒ often **`global_rounds=1`** under the same **`slurm.time`**.
+**Llama ~400 M — 17-node** (validated on Frontier with **`Llama-3.2-400M-Amharic`** weights):
+
+```bash
+# Same OMNIFED_* exports as 7-node, then:
+./main.sh --config-name test_hybrid_layout_fedavg_llama400m \
+   overwrite=true engine.mode=slurm global_rounds=2 \
+   engine.hybrid.layout.mpi_ranks_per_facility=8 \
+   topology.num_clients=16 \
+   engine.hybrid.training.dataset_total_clients=16 \
+   datamodule.num_federated_clients=16 \
+   slurm.job_name=omnifed_llama400_hybrid_17 \
+   slurm.account=YOUR_PROJECT slurm.partition=batch slurm.time=01:59:00 \
+   slurm.nodes=17 slurm.ntasks_per_node=1 slurm.cpus_per_task=4 \
+   slurm.gpus_per_node=1 slurm.gpus_per_task=1 slurm.gres=null \
+   slurm.exclusive=true
+```
+
+**Llama ~400 M — 129-node:**
+
+```bash
+# Same OMNIFED_* exports as 7-node, then:
+./main.sh --config-name test_hybrid_layout_fedavg_llama400m \
+   overwrite=true engine.mode=slurm global_rounds=2 \
+   engine.hybrid.layout.mpi_ranks_per_facility=64 \
+   topology.num_clients=128 \
+   engine.hybrid.training.dataset_total_clients=128 \
+   datamodule.num_federated_clients=128 \
+   slurm.job_name=omnifed_llama400_hybrid_129 \
+   slurm.account=YOUR_PROJECT slurm.partition=batch slurm.time=01:59:00 \
+   slurm.nodes=129 slurm.ntasks_per_node=1 slurm.cpus_per_task=4 \
+   slurm.gpus_per_node=1 slurm.gpus_per_task=1 slurm.gres=null \
+   slurm.exclusive=true
+```
+
+**Llama ~400 M** runs are slower than 150 M; under a tight partition cap use **`global_rounds=1`** for smoke tests. Presets already set **`server_run_extra_sec=600`** and **`server_sec_per_round=5000`** for rank‑0 gRPC lifetime.
+
+### 8.1 Hybrid checkpointing & auto-chain (2h `batch` walltime)
+
+Full design: **`docs/CHECKPOINTING_HYBRID_SLURM_PLAN.md`** (§11 Frontier copy-paste).
+
+**Round-end checkpoints** on Lustre: `slurm.checkpoint_dir` + `slurm.experiment_id` → `…/omnifed_checkpoints/<experiment_id>/manifest.json` and `round_XXX/` shards.
+
+**Manual resume:** Job 1 `slurm.resume=false`, Job 2+ `slurm.resume=true` (validated: `llama150_7_ckpt_v1` on 7-node Llama‑150M).
+
+**Auto-chain to N global rounds** (login node — use **`screen`** or **`tmux`** so the wrapper keeps running):
+
+```bash
+export EXP_ID=llama400_7_autochain_v1
+./scripts/frontier_llama400m_7node_autochain.sh
+```
+
+Wrapper submits, waits for **COMPLETED**, resubmits with **`slurm.resume=true`** until `manifest.json` shows `"status": "complete"`. Emits **`#SBATCH -d singleton`** via `slurm.dependency_singleton=true`.
 
 **Structural footnote (after hitting `InterpolationKeyError`):** **`datamodule.num_federated_clients`** must match **`topology.num_clients`** as **literals** in each preset / CLI overrides (`conf/datamodule/c4_lm_federated_disk.yaml` uses **`???`** until the preset fills it). We avoided **`${topology.num_clients}`** in that datamodule because **`OmegaConf.to_container`** during **`engine_frozen.json`** could fail. **`./archive/hybrid-engine-pipeline/HYBRID_LLAMA150M_C4_ROADMAP.md`** §**J** captures the remediation.
 
@@ -421,4 +756,4 @@ FedAvg synchronization order—facility reduce → leader Flora step → facilit
 
 ## Closing narrative (**how we pitched the arc**)
 
-Centralized TorchDistrib on Frontier anchored that **Sabiha’s SLURM engine path** behaved. Hybrid smoke guaranteed **facility collectives + gRPC** behaved before layering FedAvg. **`test_hybrid_engine_contract`** and **`test_hybrid_layout_fedavg`** then showed the Engine loop running **either** **`topology_config` file** OR inline **`layout`**, same lattice. Larger MNIST hybrids proved **only Hydra knobs** scaled us to **129** ranks once **`W`** / **`topology.num_clients`** / **`training.dataset_total_clients`** marched in lock-step. Llama + C4 finally proved “swap **FedAvg**/CNN blocks, keep **`run_hybrid_training`** untouched,” with offline staging as the solitary operational caveat.
+Centralized TorchDistrib on Frontier anchored that **Sabiha’s SLURM engine path** behaved. Hybrid smoke guaranteed **facility collectives + gRPC** behaved before layering FedAvg. **`test_hybrid_engine_contract`** and **`test_hybrid_layout_fedavg`** then showed the Engine loop running **either** **`topology_config` file** OR inline **`layout`**, same lattice. Larger hybrids proved **only Hydra knobs** scaled us to **17** and **129** ranks once **`W`** / **`topology.num_clients`** / **`training.dataset_total_clients`** (and LM **`num_federated_clients`**) marched in lock-step. **ResNet-18 + CIFAR-10** swapped vision blocks without touching the hybrid runner; **Llama 150M / ~400M + C4** did the same for LM blocks, with **`slurm.exclusive=true`** recommended on all multi-node submits.

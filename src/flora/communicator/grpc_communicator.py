@@ -15,18 +15,17 @@
 import time
 import grpc
 from concurrent import futures
-from typing import Union
+from typing import Optional, Union
 
 import torch.nn
 
 from src.flora.communicator import Communicator
 import src.flora.communicator.grpc_communicator_pb2_grpc as flora_grpc_pb2_grpc
 
-# from src.flora.flora_rpc.central_server import CentralServerServicer
-# from src.flora.flora_rpc.grpc_client import GrpcClient
 from src.flora.communicator.grpc_limits import GRPC_MAX_MESSAGE_BYTES
 from src.flora.communicator.grpc_server import CentralServerServicer
 from src.flora.communicator.grpc_client import GrpcClient
+from src.flora.compression.sparsification import TopKCompression
 
 
 class GrpcCommunicator(Communicator):
@@ -39,6 +38,7 @@ class GrpcCommunicator(Communicator):
         master_port: int = 50051,
         accumulate_updates: bool = True,
         daemon_server: bool = False,
+        compressor: Optional[TopKCompression] = None,
     ):
         super().__init__(protocol_type="RPC")
         self.id = id
@@ -46,6 +46,7 @@ class GrpcCommunicator(Communicator):
         self.total_clients = total_clients - 1
         self.master_port = master_port
         self.accumulate_updates = accumulate_updates
+        self.compressor = compressor
         self.server = None
 
         # Flora: only ``id == 0`` starts the daemon gRPC server. That is the *communicator role id*,
@@ -65,6 +66,7 @@ class GrpcCommunicator(Communicator):
                 CentralServerServicer(
                     self.total_clients,
                     model,
+                    compressor=self.compressor,
                     accumulate_updates=self.accumulate_updates,
                 ),
                 self.server,
@@ -92,6 +94,7 @@ class GrpcCommunicator(Communicator):
                 client_id=client_id,
                 master_addr=master_addr,
                 master_port=self.master_port,
+                compressor=self.compressor,
             )
 
     def grpc_shutdown(self) -> None:

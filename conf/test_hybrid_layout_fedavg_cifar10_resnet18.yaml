@@ -1,0 +1,80 @@
+# ================================================================================
+# Phase C — Hybrid FedAvg: CIFAR-10 + ResNet-18 (torchvision)
+#
+# Same hybrid lattice semantics as test_hybrid_layout_fedavg (MNIST + simple_cnn)
+# but swaps model/datamodule to ResNet-18 + CIFAR-10 RGB classification.
+#
+# Default lattice: 2 facilities × 3 MPI ranks + dedicated RPC ⇒ world_size 7.
+#
+# Scale-up (same rules as MNIST hybrid):
+#   17 ranks  → mpi_ranks_per_facility=8,  num_clients=16,  dataset_total_clients=16,  slurm.nodes=17
+#   129 ranks → mpi_ranks_per_facility=64, num_clients=128, dataset_total_clients=128, slurm.nodes=129
+#
+# Frontier offline CIFAR-10 (login node, once):
+#   mkdir -p /lustre/orion/gen150/scratch/YOUR_USER/omnifed_data/cifar10
+#   python -c "
+#   from torchvision import datasets
+#   root = '/lustre/orion/gen150/scratch/YOUR_USER/omnifed_data/cifar10'
+#   datasets.CIFAR10(root=root, train=True,  download=True)
+#   datasets.CIFAR10(root=root, train=False, download=True)
+#   "
+#
+# 17-node example:
+#   ./main.sh --config-name test_hybrid_layout_fedavg_cifar10_resnet18 \
+#     overwrite=true engine.mode=slurm global_rounds=2 \
+#     engine.hybrid.layout.mpi_ranks_per_facility=8 \
+#     topology.num_clients=16 \
+#     engine.hybrid.training.dataset_total_clients=16 \
+#     datamodule.train.dataset.download=false datamodule.eval.dataset.download=false \
+#     datamodule.train.dataset.root=/lustre/.../omnifed_data/cifar10 \
+#     datamodule.eval.dataset.root=/lustre/.../omnifed_data/cifar10 \
+#     slurm.account=gen150 slurm.partition=batch slurm.time=02:00:00 \
+#     slurm.nodes=17 slurm.ntasks_per_node=1 slurm.cpus_per_task=4 \
+#     slurm.gpus_per_node=1 slurm.gpus_per_task=1 slurm.gres=null slurm.exclusive=true
+#
+# 129-node example (server_* below avoid rank-0 gRPC timeout on long multi-round runs):
+#   ./main.sh --config-name test_hybrid_layout_fedavg_cifar10_resnet18 \
+#     overwrite=true engine.mode=slurm global_rounds=10 \
+#     engine.hybrid.layout.mpi_ranks_per_facility=64 \
+#     topology.num_clients=128 \
+#     engine.hybrid.training.dataset_total_clients=128 \
+#     datamodule.train.dataset.download=false datamodule.eval.dataset.download=false \
+#     datamodule.train.dataset.root=/lustre/.../omnifed_data/cifar10 \
+#     datamodule.eval.dataset.root=/lustre/.../omnifed_data/cifar10 \
+#     slurm.account=gen150 slurm.partition=batch slurm.time=04:00:00 \
+#     slurm.nodes=129 slurm.ntasks_per_node=1 slurm.cpus_per_task=4 \
+#     slurm.gpus_per_node=1 slurm.gpus_per_task=1 slurm.gres=null slurm.exclusive=true
+# ================================================================================
+
+defaults:
+  - test_fedavg_centralized_torchdist_cifar10_resnet18
+  - _self_
+
+engine:
+  mode: slurm
+  communication_mode: hybrid
+  hybrid:
+    topology_config: null
+    layout:
+      num_facilities: 2
+      mpi_ranks_per_facility: 3
+      dedicated_rpc_server: true
+      rpc_addr: "127.0.0.1"
+      rpc_port: 50051
+      facility_mpi_addr: "127.0.0.1"
+      facility_mpi_base_port: 28250
+      facility_mpi_port_stride: 40
+      facility_name_prefix: "fac"
+      communicators:
+        intra_facility: torch_mpi
+        global_aggregation: grpc
+    training:
+      dataset_total_clients: 6
+    # Avoid rank-0 gRPC server shutdown before trainers finish (129-node / many rounds).
+    server_run_extra_sec: 600
+    server_sec_per_round: 5000
+
+topology:
+  num_clients: 6
+
+global_rounds: 2

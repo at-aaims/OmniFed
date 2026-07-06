@@ -1,0 +1,67 @@
+// Copyright (c) 2025, Oak Ridge National Laboratory.  All rights reserved.
+//
+// Hybrid Slurm global aggregation gRPC (facility leaders <-> central parameter server).
+// Wire format matches legacy Flora grpc_communicator.proto for compatibility.
+
+syntax = "proto3";
+
+package src.omnifed.hybrid.communicator;
+
+service CentralServer {
+    rpc SendUpdate(ModelUpdate) returns (UpdateResponse);
+    rpc GetUpdatedModel(GetModelRequest) returns (ModelParameters);
+    rpc RegisterClient(ClientInfo) returns (RegistrationResponse);
+}
+
+message ModelUpdate {
+    string client_id = 1;
+    int32 round_number = 2;
+    repeated LayerState layers = 3;
+    int32 number_samples = 4;
+}
+
+message LayerState {
+    string layer_name = 1;
+    repeated float param_update = 2;
+    repeated int32 param_shape = 3;
+    string compression_type = 4;
+    // TopK: values_data + indices_data. QSGD: values_data = signed quant levels.
+    bytes values_data = 5;
+    bytes indices_data = 6;
+    string values_dtype = 7;
+    string indices_dtype = 8;
+    repeated int32 original_shape = 9;
+    // QSGD (PR #86 parity): meta_tensor holds norm; width/level for dequantize.
+    bytes meta_tensor = 10;
+    string meta_tensor_dtype = 11;
+    int32 width = 12;
+    int32 level = 13;
+}
+
+message ModelParameters {
+    int32 round_number = 1;
+    repeated LayerState layers = 2;
+    bool is_ready = 3;
+}
+
+message UpdateResponse {
+    bool success = 1;
+    string message = 2;
+    int32 clients_registered = 3;
+    int32 updates_received = 4;
+}
+
+message GetModelRequest {
+    string client_id = 1;
+    int32 round_number = 2;
+}
+
+message ClientInfo {
+    string client_id = 1;
+}
+
+message RegistrationResponse {
+    bool success = 1;
+    string message = 2;
+    int32 total_clients = 3;
+}

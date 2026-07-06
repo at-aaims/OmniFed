@@ -16,15 +16,19 @@ import time
 import grpc
 from concurrent import futures
 import threading
-from typing import Dict
+from typing import Dict, Optional
 
 import torch
-import numpy as np
 
 from src.flora.flora_rpc import SimpleModel
 import src.flora.communicator.grpc_communicator_pb2 as flora_grpc_pb2
 import src.flora.communicator.grpc_communicator_pb2_grpc as flora_grpc_pb2_grpc
+from src.flora.communicator.grpc_compression_utils import (
+    decode_updates_dict,
+    encode_layer_state,
+)
 from src.flora.communicator.grpc_limits import GRPC_MAX_MESSAGE_BYTES
+from src.flora.compression.sparsification import TopKCompression
 
 
 class CentralServerServicer(flora_grpc_pb2_grpc.CentralServerServicer):
@@ -32,13 +36,14 @@ class CentralServerServicer(flora_grpc_pb2_grpc.CentralServerServicer):
         self,
         num_clients: int,
         model: torch.nn.Module,
-        use_compression: bool = False,
+        compressor: Optional[TopKCompression] = None,
         accumulate_updates: bool = True,
         communicate_params: bool = True,
         compute_mean: bool = True,
     ):
         self.num_clients = num_clients
         self.model = model
+        self.compressor = compressor
         self.accumulate_updates = accumulate_updates
         self.communicate_params = communicate_params
         self.compute_mean = compute_mean
@@ -62,7 +67,7 @@ class CentralServerServicer(flora_grpc_pb2_grpc.CentralServerServicer):
             f"Compatible Scalable Parameter Server initialized for {num_clients} clients"
         )
         print(
-            f"Compression: {use_compression}, Updates' Accumulation: {accumulate_updates}"
+            f"Compression: {compressor is not None}, Updates' Accumulation: {accumulate_updates}"
         )
 
     def _initialize_accumulated_updates(self):
@@ -72,35 +77,15 @@ class CentralServerServicer(flora_grpc_pb2_grpc.CentralServerServicer):
                 self.accumulated_updates[name] = torch.zeros_like(param)
 
     def _model_updates_to_protobuf_efficient(self, model_updates: Dict):
-        """Convert model parameters to protobuf format efficiently"""
-        proto_layers = []
-
-        for name, param in model_updates.items():
-            # param = param.cpu().numpy()
-            param = param.cpu()
-            layer_proto = flora_grpc_pb2.LayerState(layer_name=name)
-            if self.communicate_params:
-                layer_proto.param_update.extend(param.data.flatten().tolist())
-                layer_proto.param_shape.extend(list(param.data.shape))
-            else:
-                layer_proto.param_update.extend(param.grad.flatten().tolist())
-                layer_proto.param_shape.extend(list(param.grad.shape))
-
-            proto_layers.append(layer_proto)
-
-        return proto_layers
+        """Convert model tensors to protobuf (dense or TopK)."""
+        return [
+            encode_layer_state(name, tensor, self.compressor)
+            for name, tensor in model_updates.items()
+        ]
 
     def _protobuf_to_model_params_efficient(self, proto_layers):
-        """Convert protobuf layers to model parameters efficiently"""
-        model_params = {}
-        for layer in proto_layers:
-            layer_name = layer.layer_name
-            model_params[layer_name] = torch.tensor(
-                np.array(layer.param_update).reshape(tuple(layer.param_shape)),
-                dtype=torch.float32,
-            )
-
-        return model_params
+        """Convert protobuf layers to dense model tensors."""
+        return decode_updates_dict(proto_layers)
 
     def SendUpdate(self, request, context):
         """Receive model updates from client"""

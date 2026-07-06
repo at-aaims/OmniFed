@@ -46,7 +46,7 @@
 | **MNIST (torchvision)** | `/lustre/orion/gen150/scratch/shruti2395/omnifed_data/torchvision-mnist` | Used with **`datamodule.*.dataset.download=false`** overrides in hybrid Slurm command. |
 | **C4 (HF `datasets` on disk)** | `/lustre/orion/gen150/scratch/shruti2395/omnifed_data/allenai_c4` | Prepared with **plan A** (`DatasetDict(train, validation)`, name matches **`allenai/c4` → `allenai_c4`** pattern from `train_llama150m.py`). **Subset** sizing chosen at login prep time — revisit doc when row counts frozen. |
 | **HF caches (recommended during prep)** | `/lustre/orion/gen150/scratch/shruti2395/omnifed_data/.hf_home` (and **`HF_DATASETS_CACHE`** under it) | Keeps downloads off `$HOME`; set when **`load_dataset`** / tokenizer model cache prep runs on login. |
-| **LLM tokenizer / weights caches** | Set via env (**required on compute**) | **`OMNIFED_TOKENIZER_DIR`** — Mistral (**`mistralai/Mistral-7B-v0.1`**) tokenizer prepared with **`AutoTokenizer(..., local_files_only=True)`** on login. **`OMNIFED_LLAMA_WEIGHTS`** — local **`LlamaForCausalLM`** tree (sanitized Hub folder name under your scratch). Overrides in **`conf/model/llama150m_hf_disk.yaml`** / **`conf/datamodule/c4_lm_federated_disk.yaml`** (`${oc.env:...}` defaults). |
+| **LLM tokenizer / weights caches** | Set via env (**required on compute**) | **`OMNIFED_TOKENIZER_DIR`** — Mistral (**`mistralai/Mistral-7B-v0.1`**) tokenizer prepared with **`AutoTokenizer(..., local_files_only=True)`** on login. **`OMNIFED_LLAMA_WEIGHTS`** — **150 M** presets (`llama150m_hf_disk`). **`OMNIFED_LLAMA400_WEIGHTS`** — **~400 M tier** presets (`llama400m_hf_disk`, **`test_*_llama400m`**); **separate** offline tree (**[F-400m](#f-400m-weights)**). Overrides in **`conf/model/*.yaml`** (`${oc.env:...}`). |
 
 **Example C4 prep (login slice):** `TRAIN_ROWS=50_000`, `VAL_ROWS=2_000` → **`allenai_c4`** under **`omnifed_data/`**.
 
@@ -186,7 +186,72 @@ print('llama ok')
 "
 ```
 
-(Optional) set **`HF_TOKEN`** on login for higher Hub rate limits: `export HF_TOKEN=...`.
+(Optional) set **`HF_TOKEN`** on login for higher Hub rate limits or **gated** checkpoints: `export HF_TOKEN=hf_…` (must **accept license** on the model page before download). **`unset HF_TOKEN`** if you see bogus **`401 Unauthorized`** errors.
+
+<a id="f-400m-weights"></a>
+### F-400m. Llama **~400 M** tier — weights on Lustre (**`test_*_llama400m`** presets)
+
+**Goal:** Populate a **directory** next to **`PrimeIntellect_llama-150m-fresh`** and point **`OMNIFED_LLAMA400_WEIGHTS`** at it. Presets (**`conf/test_hybrid_layout_fedavg_llama400m.yaml`**, **`conf/model/llama400m_hf_disk.yaml`**) load **`LlamaForCausalLM`** with **`local_files_only=true`** (**`compute`**: no Hub).
+
+**Important**
+
+1. **Replace the Hub id.** Use a **real** Hub id in the form **`namespace/model-name`** (e.g. **`PrimeIntellect/…`**, **`meta-llama/…`**) — **not** the placeholder string **`namespace/repo-name-you-chose-on-the-hub`**. A typo or placeholder yields **`401` / Repository Not Found** from the Hub API.
+2. **Pick a Llama-compatible repo** whose **`config.json`** corresponds to **`LlamaForCausalLM`** (**`model_type`** is **`llama`**). Confirm the repo exists on **`https://huggingface.co`** before downloading.
+3. **Flora protobuf size.** Default federation ships **full float32 state** over gRPC (**`GRPC_MAX_MESSAGE_BYTES`** ≈ signed **`INT32_MAX`**, ~2 GiB). **~150 M–~500 M** dense Llama-scale weights typically fit in that ceiling; **~1 B fp32** can hit **`RESOURCE_EXHAUSTED`**. Larger models ⇒ different dtype / chunked protocol (outside this roadmap).
+4. **PrimeIntellect** ships **`PrimeIntellect/llama-150m-fresh`** (you already mirror) and **`PrimeIntellect/llama-1b-fresh`** (~1 B — **risky** for default fp32 Flora). There is **no** bundled “exact 400 M” PrimeIntellect mirror in these examples — **pick a Hub id** (~350–450 M **`llama`** if available) **or** copy an internal snapshot tree into **`OUT`**.
+
+Directory name is arbitrary (example **`PrimeIntellect_llama-400m-fresh`**); contents must match the chosen checkpoint.
+
+```bash
+# Frontier login node (conda with huggingface_hub installed — same env as §C acceptable)
+SCRATCH=/lustre/orion/gen150/scratch/shruti2395
+OUT="${SCRATCH}/omnifed_data/PrimeIntellect_llama-400m-fresh"
+export REPO_ID="YourOrg/your-real-llama-hub-repo"    # <-- MUST be a live Hub model id
+
+mkdir -p "$OUT"
+export OUTDIR="$OUT"
+
+# Optional gated models (Meta Llama): export HF_TOKEN=hf_... after accepting license on hub
+# If download fails with 401: fix token OR unset HF_TOKEN if it is stale/wrong.
+
+python <<'PY'
+import os
+from huggingface_hub import snapshot_download
+out = os.environ["OUTDIR"]
+repo = os.environ["REPO_ID"]
+snapshot_download(repo_id=repo, local_dir=out)
+print("done ->", out)
+PY
+```
+
+**Alternative (CLI)**
+
+```bash
+huggingface-cli download "$REPO_ID" --local-dir "$OUT" --local-dir-use-symlinks False
+```
+
+**Verify `config.json`, weight files, and `LlamaForCausalLM` load**
+
+```bash
+ls -la "${OUT}/config.json"
+ls "${OUT}"/*.safetensors 2>/dev/null || ls "${OUT}"/pytorch_model*.bin 2>/dev/null || true
+
+python <<'PY'
+import os
+from transformers import LlamaForCausalLM
+p = os.environ["OUTDIR"]
+LlamaForCausalLM.from_pretrained(p, local_files_only=True, torch_dtype="float32")
+print("LlamaForCausalLM load OK:", p)
+PY
+```
+
+**Compute / Slurm exports** (**same shell as `./main.sh`**) — add **beside** 150 M vars when running **`test_hybrid_layout_fedavg_llama400m`**:
+
+```bash
+export OMNIFED_LLAMA400_WEIGHTS="${OUT}"   # or the absolute path you downloaded into
+```
+
+**Common failure:** **`OSError`** / **`HFValidationError`** **`Repo id must be…`** means **`OMNIFED_LLAMA400_WEIGHTS`** pointed at **missing** paths or placeholders — **`instantiate`** then fails on rank 0 (**RPC** loads a model skeleton). OmniFed **`load_llama_from_pretrained_checkpoint`** (**`hf_causal_lm.py`**) also raises **`FileNotFoundError`** if **`local_files_only`** and **`OUT`** is **not** a directory.
 
 ### G. **`OMNIFED_*`** exports (same shell as **`./main.sh`**)
 
@@ -196,6 +261,12 @@ Hydra expands **`${oc.env:OMNIFED_...}`** when the driver builds config; **`engi
 export OMNIFED_C4_DISK="/lustre/orion/gen150/scratch/shruti2395/omnifed_data/allenai_c4"
 export OMNIFED_TOKENIZER_DIR="/lustre/orion/gen150/scratch/shruti2395/omnifed_data/tokenizer_Mistral-7B-v0.1"
 export OMNIFED_LLAMA_WEIGHTS="/lustre/orion/gen150/scratch/shruti2395/omnifed_data/PrimeIntellect_llama-150m-fresh"
+```
+
+**Llama ~400 M presets** (**`./main.sh --config-name test_hybrid_layout_fedavg_llama400m`**, etc. — **same C4 + tokenizer** as 150 M). Set **only** **`OMNIFED_LLAMA400_WEIGHTS`** (**do not** repoint **`OMNIFED_LLAMA_WEIGHTS`** for safety):
+
+```bash
+export OMNIFED_LLAMA400_WEIGHTS="/lustre/orion/gen150/scratch/shruti2395/omnifed_data/PrimeIntellect_llama-400m-fresh"
 ```
 
 <a id="hybrid-lm-job-7-nodes-gen150"></a>
@@ -334,8 +405,9 @@ Follow **[Frontier procedure (login → data → submit)](#frontier-procedure-lo
 | Config | Purpose |
 |--------|---------|
 | **`conf/test_hybrid_layout_fedavg_llama150m.yaml`** | Hybrid **`world_size = 7`** (6 trainers + RPC) — Llama (disk) + C4 (**`load_from_disk`**) + **`FedAvgLLM`**. |
-| **`conf/test_fedavg_llm_centralized_torchdist.yaml`** | Centralized TorchDist stack (composed by the hybrid preset above). |
-
+| **`conf/test_hybrid_layout_fedavg_llama400m.yaml`** | Same layout as **150 M**; weights via **`OMNIFED_LLAMA400_WEIGHTS`** + **`conf/model/llama400m_hf_disk.yaml`** (prep: **[F-400m](#f-400m-weights)**). |
+| **`conf/test_fedavg_llm_centralized_torchdist.yaml`** | Centralized TorchDist stack (composed by the **150 M** hybrid preset). |
+| **`conf/test_fedavg_llm_centralized_torchdist_llama400m.yaml`** | Centralized TorchDist stack (composed by the **400 M** hybrid preset). |
 **Code / conf**
 
 | Path | Role |
@@ -344,6 +416,7 @@ Follow **[Frontier procedure (login → data → submit)](#frontier-procedure-lo
 | **`src/omnifed/data/lm_datamodule.py`** | **`build_c4_lm_datamodule`** — **`load_from_disk`**, **`train` shard** by federated client id. |
 | **`src/omnifed/model/hf_causal_lm.py`** | **`load_llama_from_pretrained_checkpoint`** for Hydra **`instantiate`**. |
 | **`conf/model/llama150m_hf_disk.yaml`** | Offline **`LlamaForCausalLM.from_pretrained`** (**`OMNIFED_LLAMA_WEIGHTS`**). |
+| **`conf/model/llama400m_hf_disk.yaml`** | Same loader; **`OMNIFED_LLAMA400_WEIGHTS`** (**[F-400m](#f-400m-weights)**). |
 | **`conf/datamodule/c4_lm_federated_disk.yaml`** | **`num_federated_clients: ???`** — each LM preset sets a literal (**must equal **`topology.num_clients`**). Omit **`${topology.num_clients}`** so Slurm **`engine_frozen.json`** (**`OmegaConf.to_container`**) succeeds. |
 | **`conf/algorithm/fedavg_llm.yaml`** | Algorithm Hydra stub. |
 

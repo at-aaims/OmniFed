@@ -1,13 +1,16 @@
-"""Facility leader ↔ central server via Flora gRPC (global federated step)."""
+"""Facility leader ↔ central server via hybrid global gRPC (global federated step)."""
 
 from __future__ import annotations
 
 import warnings
 from typing import TYPE_CHECKING, Optional
 
+from omegaconf import DictConfig
 from torch import nn
 
-from src.flora.communicator import grpc_communicator as rpc_comm
+from src.omnifed.hybrid.communicator import global_grpc as rpc_comm
+from src.omnifed.hybrid.communicator.global_grpc_compression import hybrid_global_compressor_from_cfg
+from src.omnifed.hybrid.hybrid_aggregate_config import hybrid_communicate_params_from_cfg
 from src.omnifed.communicator.base import AggregationOp, BaseCommunicator
 
 if TYPE_CHECKING:
@@ -34,10 +37,15 @@ class GrpcLeaderCommunicator(BaseCommunicator):
         master_addr: str,
         master_port: int,
         rpc_total_clients: int,
+        cfg: Optional[DictConfig] = None,
     ) -> None:
         super().__init__(global_rank, world_size, master_addr, int(master_port))
         self._bridge = bridge
         self._rpc_total = int(rpc_total_clients)
+        self._cfg = cfg
+        self._communicate_params = (
+            hybrid_communicate_params_from_cfg(cfg) if cfg is not None else True
+        )
         self._grpc: Optional[rpc_comm.GrpcCommunicator] = None
 
     def _setup(self) -> None:
@@ -46,6 +54,9 @@ class GrpcLeaderCommunicator(BaseCommunicator):
     def attach_model(self, model: nn.Module) -> None:
         if self._grpc is not None:
             return
+        compressor = None
+        if self._cfg is not None:
+            compressor = hybrid_global_compressor_from_cfg(self._cfg, device="cpu")
         self._grpc = rpc_comm.GrpcCommunicator(
             model=model,
             id=self.rank,
@@ -54,6 +65,8 @@ class GrpcLeaderCommunicator(BaseCommunicator):
             master_port=int(self.master_port),
             accumulate_updates=True,
             daemon_server=False,
+            compressor=compressor,
+            communicate_params=self._communicate_params,
         )
 
     def broadcast(self, msg: BaseCommunicator.MsgT, src: int = 0) -> BaseCommunicator.MsgT:
@@ -85,7 +98,7 @@ class GrpcLeaderCommunicator(BaseCommunicator):
         return self._grpc.aggregate(
             msg=msg,
             batch_samples=bs,
-            communicate_params=True,
+            communicate_params=self._communicate_params,
             compute_mean=True,
         )
 

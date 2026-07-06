@@ -1,0 +1,19 @@
+# ================================================================================
+# Hybrid FedAvg: CIFAR-10 + ResNet-18 with TopK compression on global gRPC only.
+#
+# Same lattice as test_hybrid_layout_fedavg_cifar10_resnet18 (7 nodes default).
+# First validation target: 5 global rounds, compression on global_agg hop.
+# ================================================================================
+
+defaults:
+  - test_hybrid_layout_fedavg_cifar10_resnet18
+  - _self_
+
+global_rounds: 5
+
+engine:
+  hybrid:
+    global_compression:
+      enabled: true
+      scheme: topk
+      compress_ratio: 0.01

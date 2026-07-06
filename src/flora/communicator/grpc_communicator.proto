@@ -39,8 +39,14 @@ message ModelUpdate {
 // Model state (params or grads) on a layer-wise basis
 message LayerState {
     string layer_name = 1;
-    repeated float param_update = 2;
+    repeated float param_update = 2;       // dense fallback (legacy)
     repeated int32 param_shape = 3;
+    string compression_type = 4;           // empty = dense; "TopKCompression" = sparse
+    bytes values_data = 5;
+    bytes indices_data = 6;
+    string values_dtype = 7;
+    string indices_dtype = 8;
+    repeated int32 original_shape = 9;
 }
 
 // Complete model parameters

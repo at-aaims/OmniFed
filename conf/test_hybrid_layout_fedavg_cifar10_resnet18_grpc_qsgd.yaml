@@ -1,0 +1,24 @@
+# ================================================================================
+# Hybrid FedAvg: CIFAR-10 + ResNet-18 with QSGD compression on global gRPC only.
+#
+# Same lattice as test_hybrid_layout_fedavg_cifar10_resnet18 (7 nodes default).
+# Compresses sample-weighted **parameters** on the global_agg hop (not gradients).
+#
+# Override bit width on CLI for the compression matrix, e.g.:
+#   engine.hybrid.global_compression.bit_width=2   # 4 levels
+#   engine.hybrid.global_compression.bit_width=4   # 16 levels (default here)
+#   engine.hybrid.global_compression.bit_width=8   # 256 levels
+# ================================================================================
+
+defaults:
+  - test_hybrid_layout_fedavg_cifar10_resnet18
+  - _self_
+
+global_rounds: 5   # match dense ResNet baseline; override on CLI if needed
+
+engine:
+  hybrid:
+    global_compression:
+      enabled: true
+      scheme: qsgd
+      bit_width: 4
