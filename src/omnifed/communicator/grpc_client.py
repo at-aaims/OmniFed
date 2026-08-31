@@ -12,6 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from __future__ import annotations
+
 import time
 from typing import Dict
 import warnings
@@ -23,16 +25,19 @@ import torch
 from ..utils import print
 from . import AggregationOp, grpc_pb2, grpc_pb2_grpc
 from .utils import get_msg_info, proto_to_tensordict, tensordict_to_proto, proto_to_tensordict_extended
-from .compression.sparsification import *
-from .compression.quantization import *
-from .compression.lowrank_approximation import *
-from .utils import compress_message_tensors, extract_tensordict
+from .utils import (
+    aggregation_metric_for_communicate_params,
+    compress_message_tensors,
+    compressor_proto_name,
+)
 from ..utils import MetricLogger
 # from ..logger import Baselogger
 
 from contextlib import nullcontext
 import torch
 import torch.nn as nn
+
+from src.omnifed.summary.per_iteration import accumulate_iter_comm
 
 
 
@@ -58,7 +63,9 @@ class GrpcClient:
         retry_delay: float = 5.0,
         max_retries: int = 3,
         client_timeout: float = 60,
-        compressor=None
+        compressor=None,
+        communicate_params: bool = True,
+        agg_device: torch.device | str | None = None,
     ):
         """
         Initialize gRPC client with connection and retry settings.
@@ -86,6 +93,8 @@ class GrpcClient:
         self.client_timeout = client_timeout
         # self.compressor = TopKCompression(compress_ratio=0.01)
         self.compressor = compressor
+        self.communicate_params = bool(communicate_params)
+        self.agg_device = torch.device(agg_device or "cpu")
         # self.compressor = None
         self.last_tensordict_submitted = None
         self.logger = None
@@ -96,6 +105,10 @@ class GrpcClient:
 
         # Establish connection with retry logic
         self._establish_connection()
+
+    @property
+    def aggregation_metric(self) -> str:
+        return aggregation_metric_for_communicate_params(self.communicate_params)
 
     def set_logger(self, logger: MetricLogger):
         self.logger = logger
@@ -176,50 +189,69 @@ class GrpcClient:
                 time.sleep(self.retry_delay)
 
     def submit_for_aggregation(
-        self, tensordict: Dict[str, torch.Tensor], reduction_type: AggregationOp
-    ):
+        self,
+        tensordict: Dict[str, torch.Tensor],
+        reduction_type: AggregationOp,
+        num_samples: int = 0,
+    ) -> bool:
         """
         Submit local tensors to server for distributed aggregation.
 
         Args:
             tensordict: Local tensors to contribute to aggregation
             reduction_type: SUM, MEAN, or MAX aggregation operation
+            num_samples: Training samples represented by this contribution
         """
         try:
-            # print(f"Dict to submit; type = {type(tensordict)}")
-            # _upstream_time_break_down = {}
-            # encode_start = time.time()
+            # Sample-count and BN-buffer aggs set num_samples=0; keep those payloads dense.
+            active_compressor = (
+                self.compressor if int(num_samples) > 0 else None
+            )
             ctx = self.logger.log_duration("training_compression_time") if self.logger else nullcontext()
+            t0 = time.perf_counter()
             with ctx:
-                compressed_tensordict = compress_message_tensors(tensordict, self.compressor, "grad")
-                compressor_name = None
-                if self.compressor:
-                    compressor_name = self.compressor.__class__.__name__
+                compressed_tensordict = compress_message_tensors(
+                    tensordict, active_compressor, self.aggregation_metric
+                )
+                compressor_name = compressor_proto_name(active_compressor)
                 if isinstance(tensordict, torch.Tensor):
                     compressor_name = None
                     compressed_tensordict = tensordict
                 self.last_tensordict_submitted = tensordict
                 proto_tensordict = tensordict_to_proto(compressed_tensordict, compressor_name)
+            if self.logger:
+                accumulate_iter_comm(
+                    self.logger, "grpc_compress_s", time.perf_counter() - t0
+                )
             # encode_end = time.time()
             # upload_start = time.time()
             ctx = self.logger.log_duration("training_upstream_upload_time") if self.logger else nullcontext()
+            t0 = time.perf_counter()
             with ctx:
                 request = grpc_pb2.AggregationRequest(
                     client_id=self.client_id,
                     tensor_dict=proto_tensordict,
                     reduction_type=reduction_type.value,
+                    num_samples=int(num_samples),
                 )
                 response = self.stub.SubmitForAggregation(request)
+            if self.logger:
+                accumulate_iter_comm(
+                    self.logger, "grpc_upstream_s", time.perf_counter() - t0
+                )
             # upload_end = time.time()
             # _upstream_time_break_down['upload'] = upload_end - upload_start
             # _upstream_time_break_down['encode'] = encode_end - encode_start
             # timing['upstream'].append(_upstream_time_break_down)
             if response.success:
-                print("Successfully sent local model to server")
-            else:
-                print("Submit failed")
+                payload = "params" if self.communicate_params else "grads"
+                print(f"Successfully sent local {payload} to server")
+                return True
+            print("Submit failed")
+            return False
         except grpc.RpcError as e:
             print(f"Submit exception | {e}")
+            return False
 
     def get_aggregation_result(self) -> Dict[str, torch.Tensor]:
         """
@@ -250,16 +282,30 @@ class GrpcClient:
                 request = grpc_pb2.ClientInfo(client_id=self.client_id)
                 # downstream_start = time.time()
                 ctx = self.logger.log_duration("training_downstream_download_time") if self.logger else nullcontext()
+                t0 = time.perf_counter()
                 with ctx:
                     response = self.stub.GetAggregationResult(request)
+                if self.logger:
+                    accumulate_iter_comm(
+                        self.logger, "grpc_downstream_s", time.perf_counter() - t0
+                    )
                 # downstream_end = time.time()
                 if response.is_ready:
                     # downstream_time_break_down = {'comm': [], 'decode': []}
                     # downstream_time_break_down['comm'] = downstream_end - downstream_start 
                     # decompression_start = time.time()
                     ctx = self.logger.log_duration("training_decompression_time") if self.logger else nullcontext()
+                    t0 = time.perf_counter()
                     with ctx:
-                        tensordict, is_model_communicated = proto_to_tensordict_extended(response.tensor_dict, self.last_tensordict_submitted)
+                        tensordict, is_model_communicated = proto_to_tensordict_extended(
+                            response.tensor_dict,
+                            overlay_base=None,
+                            compute_device=self.agg_device,
+                        )
+                    if self.logger:
+                        accumulate_iter_comm(
+                            self.logger, "grpc_decompress_s", time.perf_counter() - t0
+                        )
                     # decompression_end = time.time()
                     # downstream_time_break_down['decode'] = decompression_end - decompression_start
                     # timing['downstream'].append(downstream_time_break_down)

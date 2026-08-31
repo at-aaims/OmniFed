@@ -1,0 +1,15 @@
+# PI centralized — synchronous parameter aggregation via TorchDist (CIFAR-10, ResNet-18).
+# Dense (no compression). Sibling of the gRPC sync-param preset.
+
+defaults:
+  - test_pi_centralized_sync_param_cifar10_resnet18_grpc
+  - _self_
+
+topology:
+  local_comm:
+    _target_: src.omnifed.communicator.TorchDistCommunicator
+    backend: nccl
+    master_addr: ${oc.env:MASTER_ADDR,127.0.0.1}
+    master_port: ${oc.env:MASTER_PORT,29500}
+    communicate_params: true
+    timeout: 600

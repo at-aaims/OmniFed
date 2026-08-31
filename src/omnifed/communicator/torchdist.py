@@ -23,7 +23,18 @@ from torch import nn
 
 from ..utils import print
 from .base import AggregationOp, BaseCommunicator
+from .compression import is_compressor, resolve_compressor
 from .utils import get_msg_info
+
+_GRPC_CFG_ALIASES = frozenset(
+    {
+        "client_compressor",
+        "server_compressor",
+        "client_timeout",
+        "normalize_by_total_samples",
+        "retry_delay",
+    }
+)
 
 
 class InitMethod(str, Enum):
@@ -58,6 +69,11 @@ class TorchDistCommunicator(BaseCommunicator):
         sharedfile: str = "sharedfile",
         timeout: int = 600,
         max_retries: int = 5,
+        communicate_params: bool = True,
+        compressor=None,
+        client_compressor=None,
+        server_compressor=None,
+        **kwargs: object,
     ) -> None:
         """
         Initialize PyTorch distributed communicator.
@@ -73,9 +89,25 @@ class TorchDistCommunicator(BaseCommunicator):
             timeout: Process group initialization timeout (seconds)
             max_retries: Maximum initialization retry attempts
         """
+        unused = {k: v for k, v in kwargs.items() if k not in _GRPC_CFG_ALIASES}
+        if unused:
+            warnings.warn(
+                f"TorchDistCommunicator ignoring unused keyword arguments: {sorted(unused)}",
+                stacklevel=2,
+            )
         super().__init__(rank, world_size, master_addr, master_port)
+        self.communicate_params = bool(communicate_params)
+        self.compressor = resolve_compressor(
+            compressor, client_compressor, server_compressor
+        )
+        self._aggregation_num_samples = 0
+        self.logger = None
+        compressor_name = (
+            type(self.compressor).__name__ if self.compressor is not None else "none"
+        )
         print(
-            f"rank={rank}/{world_size} | backend={backend} | addr={master_addr}:{master_port}"
+            f"rank={rank}/{world_size} | backend={backend} | addr={master_addr}:{master_port} | "
+            f"communicate_params={self.communicate_params} | compressor={compressor_name}"
         )
 
         # Core distributed parameters
@@ -139,6 +171,77 @@ class TorchDistCommunicator(BaseCommunicator):
         print(f"[TorchDistCommunicator->_setup] init complete rank={self.rank}")
         dist.barrier()
         print(f"[TorchDistCommunicator->_setup] barrier complete rank={self.rank}")
+
+    def set_aggregation_num_samples(self, num_samples: int) -> None:
+        """API parity with GrpcCommunicator (controls when compression applies)."""
+        self._aggregation_num_samples = max(int(num_samples), 0)
+
+    def set_logger(self, logger) -> None:
+        """Forward metric logger for per-iteration compress/decompress timings."""
+        self.logger = logger
+
+    def _active_compressor(self):
+        # Dense when no compressor, or sample/BN phases (num_samples=0).
+        # Grad (communicate_params=False) and param (True) both use compression when set.
+        if self.compressor is None or self._aggregation_num_samples <= 0:
+            return None
+        return self.compressor
+
+    def _aggregate_tensor(self, tensor: torch.Tensor, *, name: str, op: dist.ReduceOp) -> torch.Tensor:
+        active = self._active_compressor()
+        if active is None:
+            dist.all_reduce(tensor, op=op)
+            return tensor
+        if not is_compressor(active):
+            raise TypeError(
+                f"TorchDist compressor must extend Compression, got {type(active)!r}"
+            )
+        return active.aggregate_torchdist(
+            tensor,
+            name=name,
+            world_size=self.world_size,
+            op=op,
+            logger=self.logger,
+        )
+
+    @staticmethod
+    def _module_aggregate_tensor(param: nn.Parameter, *, communicate_params: bool) -> torch.Tensor:
+        if communicate_params:
+            return param.data
+        if param.grad is not None:
+            return param.grad
+        return torch.zeros_like(param.data)
+
+    @staticmethod
+    def _apply_module_aggregate_tensor(
+        param: nn.Parameter, tensor: torch.Tensor, *, communicate_params: bool
+    ) -> None:
+        if communicate_params:
+            param.data.copy_(tensor.to(param.device))
+        else:
+            param.grad = tensor.to(param.device)
+
+    def _all_reduce_module(self, msg: nn.Module, op: dist.ReduceOp) -> None:
+        with torch.no_grad():
+            for pname, param in msg.named_parameters():
+                if not param.requires_grad:
+                    continue
+                tensor = self._module_aggregate_tensor(
+                    param, communicate_params=self.communicate_params
+                )
+                reduced = self._aggregate_tensor(tensor, name=pname, op=op)
+                self._apply_module_aggregate_tensor(
+                    param, reduced, communicate_params=self.communicate_params
+                )
+            if self.communicate_params:
+                for name, buffer in msg.named_buffers():
+                    if buffer is None:  # type: ignore
+                        warnings.warn(f"Buffer '{name}' is None, skipping aggregation")
+                        continue
+                    if not buffer.dtype.is_floating_point:
+                        continue
+                    reduced = self._aggregate_tensor(buffer.data, name=name, op=op)
+                    buffer.data.copy_(reduced.to(buffer.device))
 
     def broadcast(
         self,
@@ -230,25 +333,13 @@ class TorchDistCommunicator(BaseCommunicator):
 
 
         if isinstance(msg, nn.Module):
-            # Aggregate all trainable parameters
-            for _, p in msg.named_parameters():
-                if p.requires_grad:
-                    dist.all_reduce(p.data, op=op)
-            # Aggregate all buffers (batch norm stats, etc.) - only floating-point buffers
-            for name, buffer in msg.named_buffers():
-                if buffer is None:  # type: ignore
-                    warnings.warn(f"Buffer '{name}' is None, skipping aggregation")
-                    continue
-                if not buffer.dtype.is_floating_point:
-                    continue  # Skip integer buffers like num_batches_tracked
-                dist.all_reduce(buffer.data, op=op)
+            self._all_reduce_module(msg, op)
         elif isinstance(msg, dict):
-            # Aggregate each tensor in dictionary
-            for tensor in msg.values():
-                dist.all_reduce(tensor, op=op)
+            for key, tensor in msg.items():
+                reduced = self._aggregate_tensor(tensor, name=str(key), op=op)
+                msg[key] = reduced
         else:
-            # Aggregate single tensor
-            dist.all_reduce(msg, op=op)
+            msg = self._aggregate_tensor(msg, name="tensor", op=op)
 
         print(f"[aggregate] AFTER all_reduce rank={self.rank}")
 

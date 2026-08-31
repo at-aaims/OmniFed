@@ -12,6 +12,11 @@ def _inside_slurm() -> bool:
     return "SLURM_JOB_ID" in os.environ
 
 
+def resolve_slurm_frozen_cfg_path(hydra_output_dir: str) -> str:
+    """Absolute path to per-run ``engine_frozen.json`` (under the Hydra run directory)."""
+    return os.path.abspath(os.path.join(hydra_output_dir, "engine_frozen.json"))
+
+
 @dataclass
 class SlurmConfig:
     enabled: bool = False

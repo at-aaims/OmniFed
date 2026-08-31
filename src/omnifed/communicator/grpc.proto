@@ -45,6 +45,7 @@ message AggregationRequest {
     string client_id = 1;
     TensorDict tensor_dict = 2;
     string reduction_type = 3;  // "sum" or "mean"
+    int32 num_samples = 4;  // client sample count for sample-weighted grad/param aggregation
 }
 
 // Generic tensor response (used for both broadcast and aggregation results)
@@ -77,4 +78,9 @@ message TensorEntry {
     repeated int32 index_shape = 9; // The index shape
     string index_dtype = 10;
     repeated int32 original_shape = 11; // The original data shape
+    // QSGD (classic centralized sync grad): norm + quant metadata
+    bytes meta_tensor = 12;
+    string meta_dtype = 13;
+    int32 width = 14;
+    int32 level = 15;
 }

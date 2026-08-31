@@ -198,3 +198,5 @@ engine:
       scheme: topk   # topk | qsgd
       compress_ratio: 0.01
       bit_width: 8   # qsgd only: s where levels = 2^s
+  classic:
+    aggregate_payload: params   # params | gradients

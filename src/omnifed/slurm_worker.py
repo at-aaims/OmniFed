@@ -12,7 +12,15 @@ from omegaconf import OmegaConf
 import torch
 import torch.distributed as dist
 
+from src.omnifed.device_resolver import (
+    cuda_device_for_local_rank,
+    resolve_slurm_devices,
+)
 from src.omnifed.engine_communication import communication_mode
+from src.omnifed.classic.classic_grad_config import (
+    classic_aggregate_payload_from_cfg,
+    format_classic_grad_policy,
+)
 from src.omnifed.communicator import AggregationOp
 from src.omnifed.utils import print  # pretty printer used elsewhere
 
@@ -25,6 +33,61 @@ def _first_host_from_nodelist() -> str:
         text=True,
     )
     return out.strip().splitlines()[0]
+
+
+def _grpc_server_ready_marker(hydra_out_dir: str) -> str:
+    """Shared Lustre marker: rank 0 creates it after gRPC listen; clients poll before connect."""
+    return os.path.join(hydra_out_dir, "engine", ".grpc_server_ready")
+
+
+def _write_grpc_server_ready_marker(
+    hydra_out_dir: str, *, master_addr: str, master_port: str
+) -> str:
+    path = _grpc_server_ready_marker(hydra_out_dir)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(f"{master_addr}:{master_port}\n")
+    return path
+
+
+def _wait_for_grpc_server_ready_marker(
+    hydra_out_dir: str,
+    *,
+    rank: int,
+    timeout_s: Optional[float] = None,
+    poll_s: float = 1.0,
+) -> None:
+    """Block until rank 0 writes ``engine/.grpc_server_ready`` (multi-node Slurm startup)."""
+    if timeout_s is None:
+        timeout_s = float(os.environ.get("OMNIFED_GRPC_READY_TIMEOUT_SEC", "900"))
+    poll_s = float(os.environ.get("OMNIFED_GRPC_READY_POLL_SEC", str(poll_s)))
+    path = _grpc_server_ready_marker(hydra_out_dir)
+    deadline = time.monotonic() + timeout_s
+    while time.monotonic() < deadline:
+        if os.path.isfile(path):
+            print(
+                f"[slurm_worker] rank={rank}: gRPC server ready marker found ({path})",
+                flush=True,
+            )
+            return
+        time.sleep(poll_s)
+    raise RuntimeError(
+        f"[slurm_worker] rank={rank}: timed out after {timeout_s:.0f}s waiting for "
+        f"gRPC server ready marker {path}. Rank 0 may not have started listening."
+    )
+
+
+def _uses_grpc_centralized_server(local_comm) -> bool:
+    return hasattr(local_comm, "is_server") and hasattr(local_comm, "master_port")
+
+
+def _classic_comm_backend_name(local_comm) -> str:
+    name = type(local_comm).__name__.lower()
+    if "grpc" in name:
+        return "grpc"
+    if "torchdist" in name:
+        return "torchdist"
+    return name
 
 
 def install_preemption_handlers(on_checkpoint):
@@ -45,27 +108,25 @@ def _safe_len_train(dm) -> int:
         return 0
 
 
+def _resolve_slurm_device(
+    node_cfg,
+    *,
+    rank: int,
+    local_rank: int,
+    local_comm,
+) -> torch.device:
+    """Model device for this Slurm task (classic path). See ``resolve_slurm_devices``."""
+    return resolve_slurm_devices(
+        node_cfg, rank=rank, local_rank=local_rank, local_comm=local_comm
+    ).model_device
+
+
 def _resolve_device_auto(rank: Optional[int]) -> torch.device:
-    """
-    Auto device resolver: GPU if available, otherwise CPU.
-    Uses round-robin by local rank when multiple GPUs are present.
-    """
-
-    # Auto-assignment with GPU detection
-    gpu_count = torch.cuda.device_count()
-    if gpu_count == 0:
-        print("Auto: CPU (no GPUs available)")
-        return torch.device("cpu")
-
-    # Round-robin GPU assignment
-    effective_rank = rank if rank is not None else 0
+    """GPU by local rank, or CPU if this process sees no CUDA device."""
     if rank is None:
         warnings.warn("No rank provided, defaulting to GPU 0")
-
-    gpu_id = effective_rank % gpu_count
-    device_str = f"cuda:{gpu_id}"
-    print(f"Auto: {device_str} (rank {effective_rank}, {gpu_count} GPUs)")
-    return torch.device(device_str)
+        rank = 0
+    return cuda_device_for_local_rank(rank)
 
 
 def _gpu_probe(prefix: str = "GPU"):
@@ -127,14 +188,11 @@ def _to_jsonable(obj):
 
 def start_gpu_memory_logger(rank: int, log_dir: str, interval_sec: float = 5.0):
     """
-    Periodically log GPU memory usage for rank 0 only.
+    Periodically log GPU memory usage for every rank.
     Works on ROCm through torch.cuda APIs.
     """
-    if rank != 0:
-        return None
-
     os.makedirs(log_dir, exist_ok=True)
-    log_path = os.path.join(log_dir, "rank0_gpu_memory.log")
+    log_path = os.path.join(log_dir, f"rank{int(rank)}_gpu_memory.log")
     stop_event = threading.Event()
 
     def _logger():
@@ -174,9 +232,9 @@ def start_gpu_memory_logger(rank: int, log_dir: str, interval_sec: float = 5.0):
 
 def log_gpu_memory_snapshot(rank: int, log_path: str, tag: str):
     """
-    Write one on-demand GPU memory snapshot for rank 0 only.
+    Write one on-demand GPU memory snapshot for this rank.
     """
-    if rank != 0 or not torch.cuda.is_available():
+    if not torch.cuda.is_available():
         return
 
     try:
@@ -236,21 +294,26 @@ def main():
 
     # Patch communicator config so it does not keep localhost/127.0.0.1
     if hasattr(cfg.topology, "local_comm") and cfg.topology.local_comm is not None:
-        if "master_addr" in cfg.topology.local_comm:
-            cfg.topology.local_comm["master_addr"] = master_addr
+        OmegaConf.set_struct(cfg.topology.local_comm, False)
         if "master_port" in cfg.topology.local_comm:
+            cfg.topology.local_comm["master_addr"] = master_addr
             cfg.topology.local_comm["master_port"] = master_port
+        elif "master_addr" in cfg.topology.local_comm:
+            cfg.topology.local_comm["master_addr"] = master_addr
 
     if hasattr(cfg.topology, "global_comm") and cfg.topology.global_comm is not None:
-        if "master_addr" in cfg.topology.global_comm:
-            cfg.topology.global_comm["master_addr"] = master_addr
+        OmegaConf.set_struct(cfg.topology.global_comm, False)
         if "master_port" in cfg.topology.global_comm:
+            cfg.topology.global_comm["master_addr"] = master_addr
             cfg.topology.global_comm["master_port"] = master_port
+        elif "master_addr" in cfg.topology.global_comm:
+            cfg.topology.global_comm["master_addr"] = master_addr
 
+    lc = cfg.topology.local_comm
     print(
         f"[main] patched communicator config: "
-        f"local_comm.master_addr={cfg.topology.local_comm.master_addr} "
-        f"local_comm.master_port={cfg.topology.local_comm.master_port}",
+        f"local_comm.master_addr={OmegaConf.select(lc, 'master_addr', default=master_addr)} "
+        f"local_comm.master_port={OmegaConf.select(lc, 'master_port', default=master_port)}",
         flush=True,
     )
 
@@ -279,15 +342,36 @@ def main():
     # ---------- Instantiate communicator/model/datamodule/algorithm ----------
     local_comm  = instantiate(node_cfg.local_comm)  # default _recursive_=True
     global_comm = instantiate(node_cfg.global_comm) if getattr(node_cfg, "global_comm", None) else None
+
+    # Multi-node Slurm: rank 0 listens early; clients wait on a shared Lustre marker
+    # before connecting (task launch order across nodes is nondeterministic).
+    if rank == 0 and _uses_grpc_centralized_server(local_comm) and local_comm.is_server:
+        local_comm.setup()
+        ready_path = _write_grpc_server_ready_marker(
+            hydra_out_dir, master_addr=master_addr, master_port=master_port
+        )
+        print(
+            f"[slurm_worker] rank 0: gRPC server started early (before model load); "
+            f"ready marker -> {ready_path}",
+            flush=True,
+        )
+
     model       = instantiate(cfg.model)
     datamodule  = instantiate(cfg.datamodule)
     algorithm   = instantiate(node_cfg.algorithm, log_dir=node_log_dir)
 
     # ---------- Device selection ----------
-    # If communicator backend is NCCL, we must put tensors on CUDA before collectives.
-    backend = getattr(local_comm, "backend", "gloo").lower()
-    use_cuda = (backend == "nccl") and torch.cuda.is_available()
-    device = _resolve_device_auto(local_rank) if use_cuda else torch.device("cpu")
+    devices = resolve_slurm_devices(
+        node_cfg, rank=rank, local_rank=local_rank, local_comm=local_comm
+    )
+    device = devices.model_device
+    print(
+        f"[slurm_worker] rank={rank} model_device={device} "
+        f"agg_device={devices.agg_device}",
+        flush=True,
+    )
+    if hasattr(local_comm, "set_agg_device"):
+        local_comm.set_agg_device(devices.agg_device)
     original_device = next(model.parameters()).device
     model = model.to(device, non_blocking=True)
 
@@ -299,13 +383,22 @@ def main():
 
     if mem_logger is not None:
         mem_stop_event, mem_log_path = mem_logger
-        print(f"[main] rank 0 GPU memory log -> {mem_log_path}", flush=True)
+        print(
+            f"[main] rank {rank} GPU memory log -> {mem_log_path}",
+            flush=True,
+        )
         log_gpu_memory_snapshot(rank, mem_log_path, "after_model_to_device")
     else:
         mem_stop_event = None
         mem_log_path = ""
 
     # ---------- Init process group via communicator ----------
+    if (
+        rank != 0
+        and _uses_grpc_centralized_server(local_comm)
+        and not local_comm.is_server
+    ):
+        _wait_for_grpc_server_ready_marker(hydra_out_dir, rank=rank)
     local_comm.setup()
     if global_comm:
         global_comm.setup()
@@ -362,6 +455,47 @@ def main():
         total_rounds,
     )
 
+    # After algorithm.setup(): logger may call progress_info_str during gRPC metrics.
+    if hasattr(local_comm, "set_logger"):
+        local_comm.set_logger(algorithm)
+    if global_comm and hasattr(global_comm, "set_logger"):
+        global_comm.set_logger(algorithm)
+
+    if classic_aggregate_payload_from_cfg(cfg) == "gradients":
+        from src.omnifed.classic.classic_grad_slurm import install_classic_grad_slurm_sync
+        from src.omnifed.summary.per_iteration import install_iteration_recorder
+
+        print(
+            f"[slurm_worker] classic grad track: {format_classic_grad_policy(cfg)}",
+            flush=True,
+        )
+        install_iteration_recorder(
+            cfg,
+            algorithm,
+            rank=rank,
+            log_dir=os.path.join(hydra_out_dir, "engine"),
+            comm_backend=_classic_comm_backend_name(local_comm),
+            aggregate_payload="gradients",
+        )
+        install_classic_grad_slurm_sync(algorithm, local_comm=local_comm)
+    elif classic_aggregate_payload_from_cfg(cfg) == "params":
+        from src.omnifed.classic.classic_param_slurm import install_classic_param_slurm_sync
+        from src.omnifed.summary.per_iteration import install_iteration_recorder
+
+        print(
+            "[slurm_worker] classic param track: aggregate_payload='params' (batch_end sync)",
+            flush=True,
+        )
+        install_iteration_recorder(
+            cfg,
+            algorithm,
+            rank=rank,
+            log_dir=os.path.join(hydra_out_dir, "engine"),
+            comm_backend=_classic_comm_backend_name(local_comm),
+            aggregate_payload="params",
+        )
+        install_classic_param_slurm_sync(algorithm, local_comm=local_comm)
+
     # Ensure the algorithm's model lives on our chosen device
     # try:
     #     alg_dev = next(algorithm.local_model.parameters()).device
@@ -399,6 +533,7 @@ def main():
 
     # ---------- Persist per-rank results ----------
     results = algorithm.get_experiment_data()
+    algorithm.close_metrics()
     node_results_dir = os.path.join(hydra_out_dir, "engine", "node_results")
     os.makedirs(node_results_dir, exist_ok=True)
     out_path = os.path.join(node_results_dir, f"node_{rank:03d}_results.pkl")
@@ -409,6 +544,18 @@ def main():
     with open(out_path_json, "w", encoding="utf-8") as f:
         json.dump(_to_jsonable(results), f, ensure_ascii=False, indent=2)
     print(f"[slurm_worker] wrote JSON results -> {out_path_json}", flush=True)
+
+    client_ranks = [r for r in range(world) if r != 0]
+    if client_ranks and rank == min(client_ranks):
+        from src.omnifed.summary.slurm_per_round import write_slurm_per_round_summary_for_run
+
+        write_slurm_per_round_summary_for_run(
+            cfg,
+            hydra_out_dir,
+            world_size=world,
+            rpc_server_rank=0,
+            rank_writer=rank,
+        )
 
     print(f"[main]  wrote results -> {out_path}", flush=True)
     print(f"[main]  rank={rank} finished.", flush=True)

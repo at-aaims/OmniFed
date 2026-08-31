@@ -1,0 +1,63 @@
+# PI centralized — synchronous parameter aggregation (CIFAR-10, ResNet-18, gRPC).
+# Per-minibatch param sync; optimizer.step before sync; dense (no compression).
+
+defaults:
+  - base
+  - override topology: centralized
+  - override algorithm: synchronousDP
+  - override algorithm/schedules/aggregation: batch_end
+  - override model: resnet18
+  - override datamodule: cifar10
+  - _self_
+
+engine:
+  mode: slurm
+  communication_mode: classic
+  classic:
+    aggregate_payload: params
+
+topology:
+  num_clients: 6
+  local_comm:
+    _target_: src.omnifed.communicator.GrpcCommunicator
+    master_addr: 127.0.0.1
+    master_port: 50051
+    communicate_params: true
+    normalize_by_total_samples: false
+    max_retries: 36
+    retry_delay: 5.0
+    client_timeout: 180.0
+  overrides:
+    0:
+      datamodule:
+        train: null
+
+algorithm:
+  local_lr: 0.001
+  max_epochs_per_round: 1
+  schedules:
+    evaluation:
+      experiment_start:
+        enabled: true
+      experiment_end:
+        enabled: true
+      pre_aggregation:
+        enabled: false
+      post_aggregation:
+        enabled: false
+
+model:
+  num_classes: 10
+
+datamodule:
+  train:
+    batch_size: 128
+  eval:
+    batch_size: 128
+
+global_rounds: 4
+
+slurm:
+  enabled: true
+  nodes: 7
+  ntasks_per_node: 1

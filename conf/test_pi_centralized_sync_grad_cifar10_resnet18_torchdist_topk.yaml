@@ -1,0 +1,12 @@
+# PI centralized — sync grad + Top-K over TorchDist (CIFAR-10, ResNet-18).
+
+defaults:
+  - test_pi_centralized_sync_grad_cifar10_resnet18_torchdist
+  - _self_
+
+topology:
+  local_comm:
+    compressor:
+      _target_: src.omnifed.communicator.compression.sparsification.TopKCompression
+      device: cuda
+      compress_ratio: 0.01

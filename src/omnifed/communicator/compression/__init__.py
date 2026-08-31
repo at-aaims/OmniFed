@@ -13,8 +13,51 @@
 # limitations under the License.
 
 from abc import ABC, abstractmethod
+from typing import Any
+import warnings
 
 import torch
+
+# ======================================================================================
+
+
+def is_compressor(obj: Any) -> bool:
+    """True if ``obj`` is a :class:`Compression` instance (any scheme)."""
+    return isinstance(obj, Compression)
+
+
+def resolve_compressor(
+    compressor=None,
+    client_compressor=None,
+    server_compressor=None,
+):
+    """Single compressor for gRPC and TorchDist.
+
+    ``compressor`` is canonical. ``client_compressor`` / ``server_compressor``
+    are deprecated aliases (same object for both ranks).
+    """
+    legacy = [c for c in (client_compressor, server_compressor) if c is not None]
+    if compressor is not None:
+        if legacy:
+            warnings.warn(
+                "client_compressor/server_compressor are deprecated; "
+                "using topology.local_comm.compressor",
+                stacklevel=2,
+            )
+        return compressor
+    if not legacy:
+        return None
+    if len(legacy) == 2 and type(legacy[0]) is not type(legacy[1]):
+        raise ValueError(
+            "client_compressor and server_compressor differ; "
+            "set a single topology.local_comm.compressor instead"
+        )
+    warnings.warn(
+        "client_compressor/server_compressor are deprecated; "
+        "use topology.local_comm.compressor",
+        stacklevel=2,
+    )
+    return legacy[0]
 
 # ======================================================================================
 
@@ -82,6 +125,25 @@ class Compression:
     def decompress(self, **kwargs):
         """Decompress the tensor with the given context."""
         raise NotImplementedError("decompress not implemented!")
+
+    def aggregate_torchdist(
+        self,
+        tensor,
+        *,
+        name: str,
+        world_size: int,
+        op,
+        logger=None,
+    ):
+        """Collective aggregation for TorchDist (SUM of compressed payloads).
+
+        New compressors implement this instead of adding ``is_*_compressor``
+        branches in ``TorchDistCommunicator``.
+        """
+        raise TypeError(
+            f"{type(self).__name__} does not implement aggregate_torchdist(); "
+            "add that method to support TorchDist (e.g. DGC, SIDCo)."
+        )
 
     def loss_scaling(self, loss):
         raise NotImplementedError("loss_scaling not implemented!")

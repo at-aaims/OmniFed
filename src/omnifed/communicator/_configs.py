@@ -51,6 +51,9 @@ class TorchDistCommunicatorConfig(BaseCommunicatorConfig):
     # Retry settings
     max_retries: int = 5
 
+    # True: all-reduce parameters (+ buffers). False: all-reduce gradients (classic sync grad).
+    communicate_params: bool = True
+
 
 @dataclass
 class GrpcCommunicatorConfig(BaseCommunicatorConfig):

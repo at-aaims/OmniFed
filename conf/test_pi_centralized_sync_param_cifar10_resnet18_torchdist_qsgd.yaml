@@ -1,0 +1,13 @@
+# PI centralized — sync param + QSGD over TorchDist (CIFAR-10, ResNet-18).
+# Exploratory: compresses weights (not grads). BN still in payload until dense-BN split.
+
+defaults:
+  - test_pi_centralized_sync_param_cifar10_resnet18_torchdist
+  - _self_
+
+topology:
+  local_comm:
+    compressor:
+      _target_: src.omnifed.communicator.compression.quantization.QSGDQuantCompression
+      device: cuda
+      bit_width: 4

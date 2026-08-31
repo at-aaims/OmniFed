@@ -46,7 +46,7 @@ from .utils import (
 from dataclasses import asdict, is_dataclass
 from omegaconf import OmegaConf
 
-from .slurm_launcher import SlurmConfig, SlurmOnlyLauncher
+from .slurm_launcher import SlurmConfig, SlurmOnlyLauncher, resolve_slurm_frozen_cfg_path
 from .engine_communication import communication_mode, resolve_slurm_ntasks
 import sys
 import shlex
@@ -279,9 +279,8 @@ class Engine(RequiredSetup):
 
         if mode == "slurm":
             if "SLURM_JOB_ID" not in os.environ:
-                # 1) Freeze run description once (write to SHARED path)
-                outputs_root = os.path.dirname(os.path.dirname(self.output_dir))
-                cfg_json_shared = os.path.abspath(os.path.join(outputs_root, "engine_frozen.json"))
+                # 1) Freeze run description once (per Hydra run dir — safe for overlapping jobs)
+                cfg_json_path = resolve_slurm_frozen_cfg_path(self.output_dir)
                 from src.omnifed.checkpoint.hybrid_round_checkpoint import (
                     resolve_experiment_checkpoint_dir,
                 )
@@ -295,8 +294,7 @@ class Engine(RequiredSetup):
                     "hydra_output_dir": self.hydra_cfg.runtime.output_dir,
                     "slurm_checkpoint_dir": ckpt_dir,
                 }
-                os.makedirs(outputs_root, exist_ok=True)
-                with open(cfg_json_shared, "w") as f:
+                with open(cfg_json_path, "w") as f:
                     json.dump(frozen, f, indent=2)
 
                 # 2) Build Slurm config dataclass
@@ -306,7 +304,7 @@ class Engine(RequiredSetup):
                 # 3) Runtime fields
                 repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
                 sconf.work_dir = repo_root
-                sconf.cfg_json_path = cfg_json_shared
+                sconf.cfg_json_path = cfg_json_path
                 topo_nodes = len(list(self.topology))
                 sconf.ntasks = resolve_slurm_ntasks(self.cfg, topo_nodes)
                 if comm == "hybrid":
