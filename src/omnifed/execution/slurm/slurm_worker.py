@@ -1,4 +1,4 @@
-# src/omnifed/slurm_worker.py
+# src/omnifed/execution/slurm/slurm_worker.py
 from __future__ import annotations
 import argparse, json, os, signal, time, subprocess, pickle, warnings
 from typing import Any, Dict, Optional

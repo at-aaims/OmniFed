@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 from typing import List, Optional
 
 # Frozen contract: one srun, 1 GPU = 1 client.
-SLURM_WORKER_MODULE = "src.omnifed.slurm_worker"
+SLURM_WORKER_MODULE = "src.omnifed.execution.slurm.slurm_worker"
 
 
 def _inside_slurm() -> bool:
@@ -240,11 +240,13 @@ def build_sbatch_script(sconf: SlurmConfig, *, pyexe: str) -> str:
 
             "",
         ]
+        # Frontier srun has no --hostfile. Slurm reads the list from SLURM_HOSTFILE
+        # when --distribution=arbitrary (packing B: 1+6 ranks, not 7×1).
         worker_srun = (
-          "export SLURM_HOSTFILE=\"$RANK_HOSTFILE\" && "
-          f'srun --ntasks="{worker_n}" --distribution=arbitrary '
-          "--export=ALL bash -lc "
-          + shlex.quote(worker_cmd)
+            "export SLURM_HOSTFILE=\"$RANK_HOSTFILE\" && "
+            f'srun --ntasks="{worker_n}" --distribution=arbitrary '
+            "--export=ALL bash -lc "
+            + shlex.quote(worker_cmd)
         )
 
     lines += [

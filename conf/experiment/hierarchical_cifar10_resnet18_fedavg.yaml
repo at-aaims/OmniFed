@@ -18,7 +18,6 @@ defaults:
 
 engine:
   mode: slurm
-  client_runtime: slurm
   hierarchical:
     training:
       dataset_total_clients: 6

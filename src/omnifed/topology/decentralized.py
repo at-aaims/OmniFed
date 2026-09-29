@@ -45,13 +45,13 @@ class DecentralizedTopology(BaseTopology):
     def __init__(
         self,
         num_clients: int,
-        local_comm: BaseCommunicatorConfig,
+        local_comm: Optional[BaseCommunicatorConfig] = None,
         overrides: Optional[Dict[int, NodeConfig]] = None,
         has_server: bool = False,
     ):
         super().__init__()
         self.num_clients: int = num_clients
-        self.local_comm: BaseCommunicatorConfig = local_comm
+        self.local_comm: Optional[BaseCommunicatorConfig] = local_comm
         self.overrides: Dict[int, NodeConfig] = overrides or {}
         self.has_server = False
         if has_server:
@@ -70,6 +70,11 @@ class DecentralizedTopology(BaseTopology):
         default_model_cfg: ModelConfig,
         default_datamodule_cfg: DataModuleConfig,
     ) -> List[NodeConfig]:
+        if self.local_comm is None:
+            raise ValueError(
+                "DecentralizedTopology._setup needs local_comm "
+                "(1-GPU TorchDist). Titan-only runs skip this setup."
+            )
         world_size: int = self.process_world_size()
         node_configs: List[NodeConfig] = []
 

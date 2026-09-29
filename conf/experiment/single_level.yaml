@@ -36,7 +36,6 @@ defaults:
 
 engine:
   mode: slurm
-  client_runtime: slurm
 
 topology:
   num_clients: 6

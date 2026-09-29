@@ -5,9 +5,9 @@ import shlex
 import subprocess
 from typing import Any
 
-from src.omnifed.slurm_launcher import SlurmConfig
+from .slurm_launcher import SlurmConfig
 
-TORCHTITAN_WORKER_MODULE = "src.omnifed.torchtitan_worker"
+TORCHTITAN_WORKER_MODULE = "src.omnifed.execution.slurm.torchtitan_worker"
 
 
 class TorchTitanSlurmLauncher:
@@ -36,9 +36,11 @@ class TorchTitanSlurmLauncher:
             raise ValueError(
                 "num_clients must be positive"
             )
-        # 4a: num_clients>=2 → dedicated server srun on HOSTS[0], then Titan clients.
-        # 4b: num_clients=1 → one Titan, no OmniFed gRPC server srun.
-        federated = num_clients > 1
+        if "has_server" not in launcher_cfg:
+            raise ValueError(
+                "has_server is required (from topology.has_server)"
+            )
+        federated = bool(launcher_cfg["has_server"])
 
         nodes_per_client = int(
             subclusters["nodes_per_client"]
@@ -85,7 +87,7 @@ class TorchTitanSlurmLauncher:
                 'export HIP_VISIBLE_DEVICES="$ROCR_VISIBLE_DEVICES"; '
                 'fi; '
                 'unset ROCR_VISIBLE_DEVICES; '
-                'export HF_HOME="/mnt/bb/${USER}/hf_cache/${SLURM_JOB_ID}/rank_${SLURM_PROCID}"; '
+                f'export HF_HOME="{checkpoint_root}/hf_cache"; '
                 'export HF_DATASETS_CACHE="${HF_HOME}/datasets"; '
                 'export TRANSFORMERS_CACHE="${HF_HOME}/transformers"; '
                 'mkdir -p "$HF_DATASETS_CACHE" "$TRANSFORMERS_CACHE"; '
@@ -143,7 +145,7 @@ class TorchTitanSlurmLauncher:
             ]
         else:
             lines += [
-                'echo "[setup] num_clients=1: no federated gRPC server srun"',
+                'echo "[setup] topology has no server: no federated gRPC server srun"',
                 "",
             ]
 

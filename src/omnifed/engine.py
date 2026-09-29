@@ -30,7 +30,7 @@ from .data import DataModuleConfig
 from .engine_communication import is_hierarchical_cfg
 from .execution import uses_torchtitan, validate_execution_mode
 from .execution.ray.runtime import RayRuntime
-from .slurm_launcher import SlurmConfig
+from .execution.slurm import SlurmConfig
 from .execution.slurm.runtime import SlurmRuntime
 from .model import ModelConfig
 from .topology import BaseTopology, BaseTopologyConfig
@@ -116,11 +116,10 @@ class EngineConfig:
     # Infrastructure configurations
     ray: RayConfig = field(default_factory=RayConfig)
     slurm: SlurmConfig = field(default_factory=SlurmConfig)
-    # mode: ray | slurm; client_runtime: slurm | torchtitan. Topology selects hops.
+    # mode: ray | slurm. Topology selects hops. Titan is the client (torchtitan.module).
     engine: Dict[str, Any] = field(
         default_factory=lambda: {
             "mode": "ray",
-            "client_runtime": "slurm",
         }
     )
 
@@ -150,9 +149,12 @@ class Engine(RequiredSetup):
         self.hydra_cfg: HydraConf = HydraConfig.get()
 
         self.uses_torchtitan: bool = uses_torchtitan(cfg)
-        self.topology: Optional[BaseTopology] = None
-        if not self.uses_torchtitan:
-            self.topology = instantiate(cfg.topology, _recursive_=False)
+        if cfg.topology is None:
+            raise ValueError(
+                "topology is required (centralized or decentralized). "
+                "Titan is the client, not topology: null."
+            )
+        self.topology: BaseTopology = instantiate(cfg.topology, _recursive_=False)
         self.global_rounds: int = cfg.global_rounds
         self.overwrite: bool = cfg.overwrite
 
@@ -231,7 +233,7 @@ class Engine(RequiredSetup):
         if self.uses_torchtitan:
             if mode != "slurm":
                 raise ValueError(
-                    "engine.client_runtime=torchtitan is only valid with engine.mode=slurm."
+                    "A Titan client (torchtitan.module) is only valid with engine.mode=slurm."
                 )
         else:
             self.topology.setup(
@@ -247,7 +249,7 @@ class Engine(RequiredSetup):
         if is_hierarchical_cfg(self.cfg) and self.uses_torchtitan:
             raise ValueError(
                 "TorchTitan is not wired to hierarchical yet. "
-                "Use engine.client_runtime=slurm with topology: hierarchical."
+                "Use 1-GPU clients with topology: hierarchical."
             )
 
         if mode == "slurm":

@@ -18,6 +18,7 @@ from src.omnifed.communicator import (
 from src.omnifed.communicator.grpc import (
     GrpcCommunicator,
 )
+from src.omnifed.data.federated_shards import topology_has_server
 from src.omnifed.torchtitan.frozen_config import (
     load_frozen_run_config,
     parse_frozen_config_argument,
@@ -77,7 +78,7 @@ def create_torchtitan_algorithm(
 def create_federated_communicator(cfg, federated_rank: int, server_addr: str):
     communicator = GrpcCommunicator(
         rank=federated_rank,
-        world_size=int(cfg.torchtitan.subclusters.num_clients) + 1,
+        world_size=int(cfg.topology.num_clients) + 1,
         master_addr=server_addr,
         master_port=int(cfg.torchtitan.federated.server_port),
         max_send_message_length=128 * 1024 * 1024,
@@ -213,7 +214,7 @@ def run_torchtitan_client(
     backend.timer = timer
 
     communicator = None
-    federated = int(cfg.torchtitan.subclusters.num_clients) > 1
+    federated = topology_has_server(cfg.topology)
     if federated and role.is_client_leader:
         communicator = create_federated_communicator(
             cfg=cfg,
@@ -244,7 +245,7 @@ def run_torchtitan_client(
             current_global_model_path = str(initial_path)
         else:
             print(
-                f"[client {role.client_id}] num_clients=1: no OmniFed gRPC; "
+                f"[client {role.client_id}] topology has no server: no OmniFed gRPC; "
                 "Titan trains from its own init",
                 flush=True,
             )

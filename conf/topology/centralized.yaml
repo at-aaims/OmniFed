@@ -17,6 +17,9 @@ _target_: src.omnifed.topology.CentralizedTopology
 
 num_clients: ???
 
+# Rank 0 is the parameter server (does not train).
+has_server: true
+
 local_comm: ???
 # Example communicator configuration:
 # local_comm:

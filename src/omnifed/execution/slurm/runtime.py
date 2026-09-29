@@ -8,7 +8,8 @@ from omegaconf import OmegaConf
 
 from ...engine_communication import is_hierarchical_cfg, resolve_slurm_ntasks
 from ...execution.shared import uses_torchtitan
-from ...slurm_launcher import (
+from src.omnifed.data.federated_shards import topology_has_server
+from .slurm_launcher import (
     SlurmConfig,
     SlurmOnlyLauncher,
     allocation_slot_count,
@@ -16,7 +17,7 @@ from ...slurm_launcher import (
     tasks_per_allocated_node,
 )
 from ...utils import print
-from src.omnifed.torchtitan_launcher import TorchTitanSlurmLauncher
+from .torchtitan_launcher import TorchTitanSlurmLauncher
 
 
 def frontier_setup_lines() -> list[str]:
@@ -29,7 +30,7 @@ def frontier_setup_lines() -> list[str]:
         'export OMNIFED_DATA_DIR="/lustre/orion/gen150/scratch/shruti2395/omnifed_data"',
         'mkdir -p "$OMNIFED_DATA_DIR"',
         'echo "[setup] OMNIFED_DATA_DIR=$OMNIFED_DATA_DIR"',
-        'export PYEXE="/ccs/home/shruti2395/.conda/envs/pytorch_rocm/bin/python"',
+        'export PYEXE="${PYEXE:-/ccs/home/shruti2395/.conda/envs/pytorch_rocm/bin/python}"',
         'echo "[setup] PYEXE=$PYEXE"',
         '"$PYEXE" -c "import torch; print(torch.__version__)"',
         "",
@@ -159,11 +160,12 @@ class SlurmRuntime:
                 "TorchTitan requires torchtitan.subclusters.enabled=true"
             )
 
-        num_clients = int(subclusters.num_clients)
+        num_clients = int(self.topology.num_clients)
+        has_server = topology_has_server(self.topology)
         nodes_per_client = int(subclusters.nodes_per_client)
         gpus_per_node = int(subclusters.gpus_per_node)
 
-        extra_server = 1 if num_clients > 1 else 0
+        extra_server = 1 if has_server else 0
         sconf.nodes = extra_server + num_clients * nodes_per_client
         sconf.ntasks = None
         sconf.ntasks_per_node = gpus_per_node
@@ -171,17 +173,17 @@ class SlurmRuntime:
         sconf.gpus_per_task = None
         sconf.gres = None
 
-        if extra_server:
+        if has_server:
             print(
-                f"[Engine] client_runtime=torchtitan: nodes={sconf.nodes} "
+                f"[Engine] Titan client: nodes={sconf.nodes} "
                 f"(1 server + {num_clients} clients × {nodes_per_client} nodes), "
                 f"gpus_per_node={gpus_per_node}",
                 flush=True,
             )
         else:
             print(
-                f"[Engine] client_runtime=torchtitan: nodes={sconf.nodes} "
-                f"(num_clients=1, no federated server, {nodes_per_client} Titan nodes), "
+                f"[Engine] Titan client: nodes={sconf.nodes} "
+                f"(topology has no server, {num_clients} clients × {nodes_per_client} nodes), "
                 f"gpus_per_node={gpus_per_node}",
                 flush=True,
             )
@@ -193,7 +195,9 @@ class SlurmRuntime:
         launcher_config = {
             "subclusters": OmegaConf.to_container(subclusters, resolve=True),
             "server_port": int(federated.server_port),
+            "has_server": has_server,
         }
+        launcher_config["subclusters"]["num_clients"] = num_clients
         TorchTitanSlurmLauncher.submit_or_exit(
             sconf=sconf,
             launcher_cfg=launcher_config,

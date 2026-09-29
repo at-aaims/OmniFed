@@ -1,6 +1,6 @@
 """Re-export. Canonical 1-GPU launcher lives in ``slurm_launcher.py``."""
 
-from src.omnifed.slurm_launcher import (
+from .slurm_launcher import (
     SLURM_WORKER_MODULE,
     SlurmOnlyLauncher,
     build_sbatch_script,

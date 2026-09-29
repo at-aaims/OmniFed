@@ -16,4 +16,5 @@ num_clients: ???
 
 has_server: false
 
+# Required for 1-GPU TorchDist. Titan-only (no OmniFed hop): local_comm=null.
 local_comm: ???

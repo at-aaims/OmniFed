@@ -50,7 +50,8 @@ class DecentralizedTopologyConfig(BaseTopologyConfig):
     _target_: str = "src.omnifed.topology.DecentralizedTopology"
 
     num_clients: int = MISSING
-    local_comm: BaseCommunicatorConfig = MISSING
+    # 1-GPU TorchDist sets this. Titan-only (no OmniFed hop) may leave it null.
+    local_comm: Optional[BaseCommunicatorConfig] = None
 
     overrides: Optional[Dict[int, DictConfig]] = None
     has_server: bool = False

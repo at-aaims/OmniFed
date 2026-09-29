@@ -398,7 +398,7 @@ def run_hierarchical_training(cfg, hydra_out_dir: str, ckpt_dir: str) -> None:
     with open(out_pkl, "wb") as f:
         pickle.dump(results, f)
 
-    from src.omnifed.slurm_worker import _to_jsonable
+    from src.omnifed.execution.slurm.slurm_worker import _to_jsonable
 
     out_json = os.path.join(node_results_dir, f"node_{rank:03d}_results.json")
     with open(out_json, "w", encoding="utf-8") as f:
@@ -502,7 +502,7 @@ def _run_grpc_server_only(
     node_results_dir = os.path.join(hydra_out_dir, "engine", "node_results")
     os.makedirs(node_results_dir, exist_ok=True)
     stub = {"role": "hybrid_grpc_server", "rank": rank}
-    from src.omnifed.slurm_worker import _to_jsonable
+    from src.omnifed.execution.slurm.slurm_worker import _to_jsonable
 
     out_json = os.path.join(node_results_dir, f"node_{rank:03d}_results.json")
     with open(out_json, "w", encoding="utf-8") as f:

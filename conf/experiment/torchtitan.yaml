@@ -1,28 +1,20 @@
 # @package _global_
-# TorchTitan path: many GPUs/nodes = 1 client, many sruns.
-# Uses torchtitan_launcher.py + torchtitan_worker.py.
-#
-#   ./main.sh --config-name experiment/torchtitan \
-#     overwrite=true slurm.account=... slurm.partition=batch
-#
-# Needs TORCHTITAN_ROOT, TORCHTITAN_HF_ASSETS, TORCHTITAN_DATASET,
-# and OMNIFED_TORCHTITAN_SCRATCH in the environment.
-# 4a (this default): num_clients>=2, dedicated gRPC server on HOSTS[0].
-# 4b: torchtitan.subclusters.num_clients=1 → one Titan, no federated server srun.
+# Same Titan client path as experiment/single_level_torchtitan_fedavg.
 
 defaults:
   - /base
+  - /communicator@topology.local_comm: grpc
+  - /communicator/compression@topology.local_comm.compressor: dense
   - /algorithm_torchtitan: fedavg
+  - override /topology: centralized
   - _self_
 
 engine:
   mode: slurm
-  client_runtime: torchtitan
 
-backend:
-  internal_backend: torchtitan
+topology:
+  num_clients: 2
 
-topology: null
 algorithm: null
 model: null
 datamodule: null
@@ -48,7 +40,6 @@ torchtitan:
     checkpoint.last_save_model_only: true
   subclusters:
     enabled: true
-    num_clients: 2
     nodes_per_client: 4
     gpus_per_node: 8
     leader_rank: 0

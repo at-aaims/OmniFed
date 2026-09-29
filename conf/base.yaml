@@ -173,8 +173,7 @@ slurm:
 
 engine:
   mode: ray   # one of: ray, slurm
-  # slurm = 1 GPU per client (slurm_worker). torchtitan = multi-GPU per client.
-  client_runtime: slurm   # slurm | torchtitan
+  # Titan is the client when torchtitan.module is set. Topology selects hops.
   hierarchical:
     # Optional YAML under conf_hybrid/topology/*.yaml. Prefer facility fields on topology.
     topology_config: null
