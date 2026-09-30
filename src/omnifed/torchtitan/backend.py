@@ -45,13 +45,12 @@ class TorchTitanBackend:
         self._update_dir = kwargs.pop("update_dir", None)
         self.timer = None
 
-        # export OMNIFED_PROFILE_TORCH_COMM=1, It enable expensive communication 
-        # profiling from the Slurm script If it is 0, per-iteration total time is 
-        # still recorded, but detailed profiler communication is disabled.
+        # OMNIFED_PROFILE_TORCH_COMM=1 wraps each train_step in torch.profiler.
+        # Default 0: still record per-iteration wall time, no comm profiler.
         self.profile_iteration_communication = (
             os.environ.get(
                 "OMNIFED_PROFILE_TORCH_COMM",
-                "1",
+                "0",
             ) == "1"
         )
 

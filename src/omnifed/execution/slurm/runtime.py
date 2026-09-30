@@ -25,6 +25,7 @@ def frontier_setup_lines() -> list[str]:
     return [
         "module load PrgEnv-gnu/8.6.0",
         "module load rocm/6.4.1",
+        "module load rccl-net-plugin",
         "module load craype-accel-amd-gfx90a",
         "module load miniforge3/23.11.0-0",
         'export OMNIFED_DATA_DIR="/lustre/orion/gen150/scratch/shruti2395/omnifed_data"',

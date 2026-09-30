@@ -38,6 +38,12 @@ torchtitan:
     training.local_batch_size: 2
     checkpoint.enable: true
     checkpoint.last_save_model_only: true
+    # 4 nodes × 8 GPUs = 32 ranks (same mesh).
+    parallelism.pipeline_parallel_degree: 2
+    parallelism.tensor_parallel_degree: 8
+    parallelism.enable_sequence_parallel: false
+    parallelism.data_parallel_replicate_degree: 1
+    parallelism.data_parallel_shard_degree: 2
   subclusters:
     enabled: true
     nodes_per_client: 4
@@ -50,6 +56,12 @@ torchtitan:
     server_port: 50051
     grpc_chunk_size_mb: 64
     aggregation_timeout: 3600
+
+# Per-step torch.profiler around train_step. Off matches Sabiha's working run.
+hydra:
+  job:
+    env_set:
+      OMNIFED_PROFILE_TORCH_COMM: "0"
 
 slurm:
   enabled: true
