@@ -225,31 +225,35 @@ def run_torchtitan_client(
     initial_path, initial_ready_path = get_initial_model_paths(cfg)
 
     try:
-        if federated:
-            # The federated server owns initialization.
-            wait_for_file(initial_ready_path)
-            print(
-                f"[client {role.client_id} rank {role.torchtitan_rank}] "
-                f"starting initial load: {initial_path}",
-                flush=True,
-            )
-            backend.load_global_model(
-                model_path=str(initial_path),
-                round_id=-1,
-            )
-            print(
-                f"[client {role.client_id} rank {role.torchtitan_rank}] "
-                "finished initial load",
-                flush=True,
-            )
-            current_global_model_path = str(initial_path)
-        else:
+        if not federated and role.is_client_leader:
             print(
                 f"[client {role.client_id}] topology has no server: no OmniFed gRPC; "
-                "Titan trains from its own init",
+                "leader publishes the initial model for this Titan",
                 flush=True,
             )
-            current_global_model_path = ""
+            global_state = backend.initialize_global_model_on_cpu()
+            initial_path.parent.mkdir(parents=True, exist_ok=True)
+            temporary_path = initial_path.with_suffix(".tmp")
+            torch.save({"model": global_state}, temporary_path)
+            os.replace(temporary_path, initial_path)
+            initial_ready_path.touch()
+
+        wait_for_file(initial_ready_path)
+        print(
+            f"[client {role.client_id} rank {role.torchtitan_rank}] "
+            f"starting initial load: {initial_path}",
+            flush=True,
+        )
+        backend.load_global_model(
+            model_path=str(initial_path),
+            round_id=-1,
+        )
+        print(
+            f"[client {role.client_id} rank {role.torchtitan_rank}] "
+            "finished initial load",
+            flush=True,
+        )
+        current_global_model_path = str(initial_path)
 
         # Federated rounds.
         for round_id in range(int(cfg.global_rounds)):
