@@ -21,11 +21,20 @@ service GrpcServer {
     // Get current broadcast state from server
     rpc GetBroadcastState(ClientInfo) returns (OperationResponse);
 
+    // Stream broadcast chunks when the packed model exceeds the unary cap.
+    rpc GetBroadcastStateStream(ClientInfo) returns (stream OperationResponse);
+
     // Submit tensors to server for aggregation
     rpc SubmitForAggregation(AggregationRequest) returns (StatusResponse);
 
+    // One logical aggregate: client streams chunks without waiting for Get.
+    rpc SubmitAggregationStream(stream AggregationRequest) returns (StatusResponse);
+
     // Get aggregated tensor result from server
     rpc GetAggregationResult(ClientInfo) returns (OperationResponse);
+
+    // Stream result chunks when the packed result exceeds the unary cap.
+    rpc GetAggregationResultStream(ClientInfo) returns (stream OperationResponse);
 
     // Register client with server
     rpc RegisterClient(ClientInfo) returns (StatusResponse);
@@ -45,12 +54,17 @@ message AggregationRequest {
     string client_id = 1;
     TensorDict tensor_dict = 2;
     string reduction_type = 3;  // "sum" or "mean"
+    int32 num_samples = 4;  // client sample count for sample-weighted grad/param aggregation
+    int32 chunk_index = 5;  // 0-based; ignored when n_chunks <= 1
+    int32 n_chunks = 6;     // 0 or 1 = single message (backward compatible)
 }
 
 // Generic tensor response (used for both broadcast and aggregation results)
 message OperationResponse {
     TensorDict tensor_dict = 1;
     bool is_ready = 2;
+    int32 chunk_index = 3;
+    int32 n_chunks = 4;  // 0 or 1 = single unary payload
 }
 
 // Generic status response
@@ -77,4 +91,9 @@ message TensorEntry {
     repeated int32 index_shape = 9; // The index shape
     string index_dtype = 10;
     repeated int32 original_shape = 11; // The original data shape
+    // QSGD (classic centralized sync grad): norm + quant metadata
+    bytes meta_tensor = 12;
+    string meta_dtype = 13;
+    int32 width = 14;
+    int32 level = 15;
 }

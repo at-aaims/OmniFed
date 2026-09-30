@@ -1,0 +1,3 @@
+# Base configuration for TorchTitan-compatible federated algorithms.
+
+_target_: ???

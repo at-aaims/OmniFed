@@ -4,6 +4,10 @@
 # Configures OmniFed DataModule for CIFAR-10 object classification.
 # Uses torchvision dataset with standard normalization and data augmentation.
 #
+# Train is sharded across FL trainers (unique subset per client). The server has no
+# train loader. Eval stays the full test set. Same yaml for classic and hierarchical.
+# Runners set OMNIFED_FEDERATED_CLIENT_INDEX and OMNIFED_NUM_FEDERATED_CLIENTS.
+#
 # Docs:
 # - https://pytorch.org/vision/stable/generated/torchvision.datasets.CIFAR10.html
 # - https://www.cs.toronto.edu/~kriz/cifar.html
@@ -12,6 +16,8 @@
 defaults:
   - base
   - _self_
+
+_target_: src.omnifed.data.federated_vision.build_federated_vision_datamodule
 
 # ─────────────────────────────────────────
 # Training Data

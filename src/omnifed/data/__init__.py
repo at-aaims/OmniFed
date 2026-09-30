@@ -14,3 +14,9 @@
 
 from ._configs import *
 from .datamodule import DataModule
+from .federated_shards import (
+    FEDERATED_CLIENT_INDEX_ENV,
+    NUM_FEDERATED_CLIENTS_ENV,
+    apply_federated_shard_env,
+    topology_has_server,
+)

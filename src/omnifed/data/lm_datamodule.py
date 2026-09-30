@@ -2,13 +2,16 @@
 
 from __future__ import annotations
 
-import os
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 import torch
 from torch.utils.data import DataLoader, Dataset
 
 from src.omnifed.data.datamodule import DataModule
+from src.omnifed.data.federated_shards import (
+    FEDERATED_CLIENT_INDEX_ENV,
+    resolve_federated_client_index,
+)
 
 
 def _collate_stack_dict(samples: List[Dict[str, torch.Tensor]]) -> Dict[str, torch.Tensor]:
@@ -64,69 +67,79 @@ def build_c4_lm_datamodule(
     num_workers: int = 0,
     shard_train: bool = True,
     shard_eval: bool = False,
-    federated_client_id_env_var: str = "OMNIFED_FEDERATED_CLIENT_INDEX",
+    federated_client_id_env_var: str = FEDERATED_CLIENT_INDEX_ENV,
+    max_train_batches: Optional[int] = None,
+    include_eval: bool = True,
 ) -> DataModule:
     """
     Train/eval ``DataLoader`` pairs for C4-like on-disk corpus (HF ``DatasetDict``).
 
-    Shards the **train** split across FL clients when ``shard_train`` and
-    ``num_federated_clients > 1``. Client id is read from
-    ``federated_client_id_env_var`` (set by ``slurm_hybrid_runner`` for hybrid jobs).
+    Shards the **train** split across FL trainers when ``shard_train`` and
+    ``num_federated_clients > 1``. Clerk (index -1) has ``train=None``.
+
+    ``max_train_batches`` (smoke): after sharding, keep at most
+    ``max_train_batches * train_batch_size`` train rows so ``len(train)``
+    is the cap. ``include_eval=False`` skips the val loader.
     """
     from datasets import load_from_disk
     from transformers import AutoTokenizer
 
     ddict = load_from_disk(str(dataset_path))
     train_ds = ddict[train_split]
-    eval_ds = ddict[eval_split]
+    eval_ds = ddict[eval_split] if include_eval else None
 
     n_cli = int(num_federated_clients)
     if n_cli < 1:
         raise ValueError(f"num_federated_clients must be >= 1, got {n_cli}")
 
-    raw_id = os.environ.get(federated_client_id_env_var)
-    if raw_id is None or raw_id == "":
-        client_idx = 0
-    else:
-        client_idx = int(raw_id)
-    if not (0 <= client_idx < n_cli):
-        raise ValueError(
-            f"{federated_client_id_env_var}={raw_id!r} out of range for "
-            f"num_federated_clients={n_cli}"
-        )
+    client_idx = resolve_federated_client_index(
+        n_cli, env_var=federated_client_id_env_var
+    )
 
-    if shard_train and n_cli > 1:
-        train_ds = train_ds.shard(num_shards=n_cli, index=client_idx)
-    if shard_eval and n_cli > 1:
-        eval_ds = eval_ds.shard(num_shards=n_cli, index=client_idx)
+    if client_idx is not None:
+        if shard_train and n_cli > 1:
+            train_ds = train_ds.shard(num_shards=n_cli, index=client_idx)
+        if shard_eval and n_cli > 1 and eval_ds is not None:
+            eval_ds = eval_ds.shard(num_shards=n_cli, index=client_idx)
+        if max_train_batches is not None:
+            cap_rows = int(max_train_batches) * int(train_batch_size)
+            if cap_rows < 0:
+                raise ValueError(
+                    f"max_train_batches must be >= 0, got {max_train_batches}"
+                )
+            take = min(len(train_ds), cap_rows)
+            train_ds = train_ds.select(range(take))
 
     tok = AutoTokenizer.from_pretrained(str(tokenizer_path), local_files_only=True)
     if tok.pad_token is None and tok.eos_token is not None:
         tok.pad_token = tok.eos_token
 
-    train_map = _TextTokMapDataset(train_ds, tok, max_length)
-    eval_map = _TextTokMapDataset(eval_ds, tok, max_length)
-
     collate = _collate_stack_dict
     pin_memory = torch.cuda.is_available()
     persistent = int(num_workers) > 0
 
-    train_loader = DataLoader(
-        train_map,
-        batch_size=int(train_batch_size),
-        shuffle=True,
-        num_workers=int(num_workers),
-        pin_memory=pin_memory,
-        persistent_workers=persistent,
-        collate_fn=collate,
-    )
-    eval_loader = DataLoader(
-        eval_map,
-        batch_size=int(eval_batch_size),
-        shuffle=False,
-        num_workers=int(num_workers),
-        pin_memory=pin_memory,
-        persistent_workers=persistent,
-        collate_fn=collate,
-    )
+    train_loader = None
+    if client_idx is not None:
+        train_map = _TextTokMapDataset(train_ds, tok, max_length)
+        train_loader = DataLoader(
+            train_map,
+            batch_size=int(train_batch_size),
+            shuffle=True,
+            num_workers=int(num_workers),
+            pin_memory=pin_memory,
+            persistent_workers=persistent,
+            collate_fn=collate,
+        )
+    eval_loader = None
+    if include_eval:
+        eval_map = _TextTokMapDataset(eval_ds, tok, max_length)
+        eval_loader = DataLoader(
+            eval_map,
+            batch_size=int(eval_batch_size),
+            shuffle=False,
+            num_workers=int(num_workers),
+            pin_memory=pin_memory,
+            persistent_workers=persistent,
+            collate_fn=collate,
+        )
     return DataModule(train=train_loader, eval=eval_loader)

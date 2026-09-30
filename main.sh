@@ -26,14 +26,14 @@ export RAY_DEDUP_LOGS=0   # Show all FL node logs
 
 # Compile gRPC protocol buffers
 python -m grpc_tools.protoc -I. --python_out=. --grpc_python_out=. ./src/omnifed/communicator/grpc.proto
-python -m grpc_tools.protoc -I. --python_out=. --grpc_python_out=. ./src/omnifed/hybrid/communicator/global_grpc.proto
+python -m grpc_tools.protoc -I. --python_out=. --grpc_python_out=. ./src/omnifed/hierarchical/communicator/global_grpc.proto
 
 # Run the main script
 # NOTE: additional arguments passed to the `main.sh` script are forwarded to the Python script
 # https://hydra.cc/docs/advanced/hydra-command-line-flags/
 #
-# --- Hybrid Slurm (Figure-2 experiment yaml with engine.hybrid.layout only): ---
-# ./main.sh --config-name test_hybrid_layout_fedavg overwrite=true engine.mode=slurm \
+# --- Hybrid Slurm (Figure-2 experiment yaml with engine.hierarchical.layout only): ---
+# ./main.sh --config-name old_way/test_hybrid_layout_fedavg overwrite=true engine.mode=slurm \
 #   datamodule.train.dataset.download=false datamodule.eval.dataset.download=false \
 #   datamodule.train.dataset.root=/lustre/orion/gen150/scratch/USER/omnifed_data/torchvision-mnist \
 #   datamodule.eval.dataset.root=/lustre/orion/gen150/scratch/USER/omnifed_data/torchvision-mnist \
@@ -41,7 +41,7 @@ python -m grpc_tools.protoc -I. --python_out=. --grpc_python_out=. ./src/omnifed
 #   slurm.cpus_per_task=4 slurm.gpus_per_node=1 slurm.gpus_per_task=1 slurm.gres=null
 #
 # --- Hybrid Slurm (named conf_hybrid topology file): ---
-# ./main.sh --config-name test_hybrid_engine_contract overwrite=true engine.mode=slurm \
+# ./main.sh --config-name old_way/test_hybrid_engine_contract overwrite=true engine.mode=slurm \
 #   datamodule.train.dataset.download=false datamodule.eval.dataset.download=false \
 #   datamodule.train.dataset.root=/lustre/orion/gen150/scratch/USER/omnifed_data/torchvision-mnist \
 #   datamodule.eval.dataset.root=/lustre/orion/gen150/scratch/USER/omnifed_data/torchvision-mnist \
@@ -50,8 +50,8 @@ python -m grpc_tools.protoc -I. --python_out=. --grpc_python_out=. ./src/omnifed
 
 python -u main.py "$@"
 
-# python -u main.py --config-name test_mnist_grpc "$@"
+# python -u main.py --config-name old_way/test_mnist_grpc "$@"
 
 # =========================================
 
-# python -u main.py --config-name test_mnist_grpc "$@" 2>&1 | tee main.log
+# python -u main.py --config-name old_way/test_mnist_grpc "$@" 2>&1 | tee main.log

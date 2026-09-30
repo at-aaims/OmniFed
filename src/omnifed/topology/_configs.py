@@ -13,7 +13,7 @@
 # limitations under the License.
 
 from dataclasses import dataclass
-from typing import Dict, List, Optional
+from typing import Dict, Optional
 
 from omegaconf import MISSING, DictConfig
 
@@ -39,14 +39,31 @@ class CentralizedTopologyConfig(BaseTopologyConfig):
 
     # Optional parameters
     overrides: Optional[Dict[int, DictConfig]] = None
+    # Rank 0 is the parameter server (does not train).
+    has_server: bool = True
+
+
+@dataclass
+class DecentralizedTopologyConfig(BaseTopologyConfig):
+    """Configuration for DecentralizedTopology (TorchDist; every rank trains)."""
+
+    _target_: str = "src.omnifed.topology.DecentralizedTopology"
+
+    num_clients: int = MISSING
+    # 1-GPU TorchDist sets this. Titan-only (no OmniFed hop) may leave it null.
+    local_comm: Optional[BaseCommunicatorConfig] = None
+
+    overrides: Optional[Dict[int, DictConfig]] = None
+    has_server: bool = False
 
 
 @dataclass
 class HierarchicalTopologyConfig(BaseTopologyConfig):
-    """Configuration for HierarchicalTopology."""
+    """Slurm two-hop facility graph."""
 
     _target_: str = "src.omnifed.topology.HierarchicalTopology"
 
-    # Required parameters
-    groups: List[DictConfig] = MISSING
-    global_comm: BaseCommunicatorConfig = MISSING
+    num_facilities: int = MISSING
+    mpi_ranks_per_facility: int = MISSING
+    local_comm: BaseCommunicatorConfig = MISSING
+    dedicated_rpc_server: bool = True

@@ -25,6 +25,7 @@ from .diloco import DiLoCo
 from .ditto import Ditto
 from .fedavg import FedAvg, FedAvgCustom
 from .fedavg_llm import FedAvgLLM
+from .fedsgd import FedSGD
 from .fedbn import FedBN
 from .feddyn import FedDyn
 from .fedmom import FedMom

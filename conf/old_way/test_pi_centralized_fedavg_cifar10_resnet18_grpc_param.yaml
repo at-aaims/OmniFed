@@ -1,0 +1,64 @@
+# @package _global_
+# ================================================================================
+# PI centralized FedAvg — CIFAR-10 + ResNet-18, flat 6+1 gRPC, **parameter** aggregation.
+#
+# Same Slurm / gRPC startup as grad A/B (early server + Lustre ready marker).
+# Does not install classic grad hooks — standard FedAvg communicates model params.
+#
+# Frontier example:
+#   ./main.sh --config-name old_way/test_pi_centralized_fedavg_cifar10_resnet18_grpc_param \
+#     overwrite=true engine.mode=slurm \
+#     datamodule.train.dataset.download=false datamodule.eval.dataset.download=false \
+#     datamodule.train.dataset.root=/lustre/.../omnifed_data/cifar10 \
+#     datamodule.eval.dataset.root=/lustre/.../omnifed_data/cifar10 \
+#     slurm.account=gen150 slurm.partition=batch slurm.time=02:00:00 \
+#     slurm.nodes=7 slurm.ntasks_per_node=1 slurm.cpus_per_task=4 \
+#     slurm.gpus_per_node=1 slurm.gpus_per_task=1 slurm.gres=null slurm.exclusive=true \
+#     slurm.experiment_id=pi_central_param_cifar_resnet18_v1
+# ================================================================================
+
+defaults:
+  - /base
+  - override /topology: centralized
+  - override /algorithm: fedavg
+  - override /model: resnet18
+  - override /datamodule: cifar10
+  - _self_
+
+engine:
+  mode: slurm
+
+topology:
+  num_clients: 6
+  local_comm:
+    _target_: src.omnifed.communicator.GrpcCommunicator
+    master_addr: 127.0.0.1  # slurm_worker overwrites with rank-0 host
+    master_port: 50051
+    communicate_params: true
+    normalize_by_total_samples: false
+    max_retries: 36
+    retry_delay: 5.0
+  overrides:
+    0:
+      datamodule:
+        train: null
+
+algorithm:
+  local_lr: 0.001
+  max_epochs_per_round: 4
+
+model:
+  num_classes: 10
+
+datamodule:
+  train:
+    batch_size: 128
+  eval:
+    batch_size: 128
+
+global_rounds: 10
+
+slurm:
+  enabled: true
+  nodes: 7
+  ntasks_per_node: 1

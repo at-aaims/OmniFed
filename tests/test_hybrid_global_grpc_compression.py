@@ -3,10 +3,10 @@
 import numpy as np
 import torch
 
-import src.omnifed.hybrid.communicator.global_grpc_pb2 as global_grpc_pb2
-from src.omnifed.hybrid.compression.qsgd import QSGD_COMPRESSION_NAME, QSGDQuantCompression
-from src.omnifed.hybrid.compression.topk import TOPK_COMPRESSION_NAME, TopKCompression
-from src.omnifed.hybrid.communicator.global_grpc_compression import (
+import src.omnifed.hierarchical.communicator.global_grpc_pb2 as global_grpc_pb2
+from src.omnifed.hierarchical.compression.qsgd import QSGD_COMPRESSION_NAME, QSGDQuantCompression
+from src.omnifed.hierarchical.compression.topk import TOPK_COMPRESSION_NAME, TopKCompression
+from src.omnifed.hierarchical.communicator.global_grpc_compression import (
     build_global_compressor,
     decode_layer_tensor,
     encode_layer_state,
@@ -41,10 +41,22 @@ def test_layer_state_sparse_encode_decode_overlay():
     assert torch.allclose(flat_dec[mask], flat_base[mask])
 
 
-def test_layer_state_dense_legacy_path():
+def test_layer_state_dense_bytes_roundtrip():
     t = torch.arange(6, dtype=torch.float32).reshape(2, 3)
     layer = encode_layer_state("dense", t, None)
     assert layer.compression_type == ""
+    assert len(layer.param_update) == 0
+    assert layer.values_data
+    assert layer.values_dtype == "torch.float32"
+    out = decode_layer_tensor(layer)
+    assert torch.allclose(out, t)
+
+
+def test_layer_state_dense_legacy_param_update_decode():
+    t = torch.arange(6, dtype=torch.float32).reshape(2, 3)
+    layer = global_grpc_pb2.LayerState(layer_name="dense")
+    layer.param_shape.extend(list(t.shape))
+    layer.param_update.extend(t.flatten().tolist())
     out = decode_layer_tensor(layer)
     assert torch.allclose(out, t)
 

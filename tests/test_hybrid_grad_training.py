@@ -7,7 +7,7 @@ import unittest
 import torch
 import torch.nn as nn
 
-from src.omnifed.hybrid.hybrid_grad_training import (
+from src.omnifed.hierarchical.grad_training import (
     apply_optimizer_grads,
     clear_model_grads,
     grad_l2_norm,

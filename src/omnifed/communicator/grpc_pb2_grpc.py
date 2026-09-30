@@ -40,13 +40,28 @@ class GrpcServerStub(object):
                 request_serializer=src_dot_omnifed_dot_communicator_dot_grpc__pb2.ClientInfo.SerializeToString,
                 response_deserializer=src_dot_omnifed_dot_communicator_dot_grpc__pb2.OperationResponse.FromString,
                 _registered_method=True)
+        self.GetBroadcastStateStream = channel.unary_stream(
+                '/src.omnifed.communicator.GrpcServer/GetBroadcastStateStream',
+                request_serializer=src_dot_omnifed_dot_communicator_dot_grpc__pb2.ClientInfo.SerializeToString,
+                response_deserializer=src_dot_omnifed_dot_communicator_dot_grpc__pb2.OperationResponse.FromString,
+                _registered_method=True)
         self.SubmitForAggregation = channel.unary_unary(
                 '/src.omnifed.communicator.GrpcServer/SubmitForAggregation',
                 request_serializer=src_dot_omnifed_dot_communicator_dot_grpc__pb2.AggregationRequest.SerializeToString,
                 response_deserializer=src_dot_omnifed_dot_communicator_dot_grpc__pb2.StatusResponse.FromString,
                 _registered_method=True)
+        self.SubmitAggregationStream = channel.stream_unary(
+                '/src.omnifed.communicator.GrpcServer/SubmitAggregationStream',
+                request_serializer=src_dot_omnifed_dot_communicator_dot_grpc__pb2.AggregationRequest.SerializeToString,
+                response_deserializer=src_dot_omnifed_dot_communicator_dot_grpc__pb2.StatusResponse.FromString,
+                _registered_method=True)
         self.GetAggregationResult = channel.unary_unary(
                 '/src.omnifed.communicator.GrpcServer/GetAggregationResult',
+                request_serializer=src_dot_omnifed_dot_communicator_dot_grpc__pb2.ClientInfo.SerializeToString,
+                response_deserializer=src_dot_omnifed_dot_communicator_dot_grpc__pb2.OperationResponse.FromString,
+                _registered_method=True)
+        self.GetAggregationResultStream = channel.unary_stream(
+                '/src.omnifed.communicator.GrpcServer/GetAggregationResultStream',
                 request_serializer=src_dot_omnifed_dot_communicator_dot_grpc__pb2.ClientInfo.SerializeToString,
                 response_deserializer=src_dot_omnifed_dot_communicator_dot_grpc__pb2.OperationResponse.FromString,
                 _registered_method=True)
@@ -68,6 +83,13 @@ class GrpcServerServicer(object):
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def GetBroadcastStateStream(self, request, context):
+        """Stream broadcast chunks when the packed model exceeds the unary cap.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
     def SubmitForAggregation(self, request, context):
         """Submit tensors to server for aggregation
         """
@@ -75,8 +97,22 @@ class GrpcServerServicer(object):
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def SubmitAggregationStream(self, request_iterator, context):
+        """One logical aggregate: client streams chunks without waiting for Get.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
     def GetAggregationResult(self, request, context):
         """Get aggregated tensor result from server
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def GetAggregationResultStream(self, request, context):
+        """Stream result chunks when the packed result exceeds the unary cap.
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
@@ -97,13 +133,28 @@ def add_GrpcServerServicer_to_server(servicer, server):
                     request_deserializer=src_dot_omnifed_dot_communicator_dot_grpc__pb2.ClientInfo.FromString,
                     response_serializer=src_dot_omnifed_dot_communicator_dot_grpc__pb2.OperationResponse.SerializeToString,
             ),
+            'GetBroadcastStateStream': grpc.unary_stream_rpc_method_handler(
+                    servicer.GetBroadcastStateStream,
+                    request_deserializer=src_dot_omnifed_dot_communicator_dot_grpc__pb2.ClientInfo.FromString,
+                    response_serializer=src_dot_omnifed_dot_communicator_dot_grpc__pb2.OperationResponse.SerializeToString,
+            ),
             'SubmitForAggregation': grpc.unary_unary_rpc_method_handler(
                     servicer.SubmitForAggregation,
                     request_deserializer=src_dot_omnifed_dot_communicator_dot_grpc__pb2.AggregationRequest.FromString,
                     response_serializer=src_dot_omnifed_dot_communicator_dot_grpc__pb2.StatusResponse.SerializeToString,
             ),
+            'SubmitAggregationStream': grpc.stream_unary_rpc_method_handler(
+                    servicer.SubmitAggregationStream,
+                    request_deserializer=src_dot_omnifed_dot_communicator_dot_grpc__pb2.AggregationRequest.FromString,
+                    response_serializer=src_dot_omnifed_dot_communicator_dot_grpc__pb2.StatusResponse.SerializeToString,
+            ),
             'GetAggregationResult': grpc.unary_unary_rpc_method_handler(
                     servicer.GetAggregationResult,
+                    request_deserializer=src_dot_omnifed_dot_communicator_dot_grpc__pb2.ClientInfo.FromString,
+                    response_serializer=src_dot_omnifed_dot_communicator_dot_grpc__pb2.OperationResponse.SerializeToString,
+            ),
+            'GetAggregationResultStream': grpc.unary_stream_rpc_method_handler(
+                    servicer.GetAggregationResultStream,
                     request_deserializer=src_dot_omnifed_dot_communicator_dot_grpc__pb2.ClientInfo.FromString,
                     response_serializer=src_dot_omnifed_dot_communicator_dot_grpc__pb2.OperationResponse.SerializeToString,
             ),
@@ -152,6 +203,33 @@ class GrpcServer(object):
             _registered_method=True)
 
     @staticmethod
+    def GetBroadcastStateStream(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_stream(
+            request,
+            target,
+            '/src.omnifed.communicator.GrpcServer/GetBroadcastStateStream',
+            src_dot_omnifed_dot_communicator_dot_grpc__pb2.ClientInfo.SerializeToString,
+            src_dot_omnifed_dot_communicator_dot_grpc__pb2.OperationResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
     def SubmitForAggregation(request,
             target,
             options=(),
@@ -179,6 +257,33 @@ class GrpcServer(object):
             _registered_method=True)
 
     @staticmethod
+    def SubmitAggregationStream(request_iterator,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.stream_unary(
+            request_iterator,
+            target,
+            '/src.omnifed.communicator.GrpcServer/SubmitAggregationStream',
+            src_dot_omnifed_dot_communicator_dot_grpc__pb2.AggregationRequest.SerializeToString,
+            src_dot_omnifed_dot_communicator_dot_grpc__pb2.StatusResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
     def GetAggregationResult(request,
             target,
             options=(),
@@ -193,6 +298,33 @@ class GrpcServer(object):
             request,
             target,
             '/src.omnifed.communicator.GrpcServer/GetAggregationResult',
+            src_dot_omnifed_dot_communicator_dot_grpc__pb2.ClientInfo.SerializeToString,
+            src_dot_omnifed_dot_communicator_dot_grpc__pb2.OperationResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def GetAggregationResultStream(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_stream(
+            request,
+            target,
+            '/src.omnifed.communicator.GrpcServer/GetAggregationResultStream',
             src_dot_omnifed_dot_communicator_dot_grpc__pb2.ClientInfo.SerializeToString,
             src_dot_omnifed_dot_communicator_dot_grpc__pb2.OperationResponse.FromString,
             options,

@@ -28,8 +28,9 @@ def load_llama_from_pretrained_checkpoint(
         raise FileNotFoundError(
             "Llama checkpoint path is missing or not a directory "
             f"(local_files_only=True): {resolved!r}. "
-            "Set OMNIFED_LLAMA400_WEIGHTS (or OMNIFED_LLAMA_WEIGHTS) to the real "
-            "offline snapshot directory that contains config.json and weight files."
+            "Set OMNIFED_LLAMA1B_WEIGHTS, OMNIFED_LLAMA400_WEIGHTS, or "
+            "OMNIFED_LLAMA_WEIGHTS to the matching offline snapshot directory "
+            "that contains config.json and weight files."
         )
 
     kwargs: Dict[str, Any] = dict(

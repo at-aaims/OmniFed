@@ -15,6 +15,13 @@
 from dataclasses import dataclass
 from omegaconf import MISSING
 
+from .grpc_limits import (
+    GRPC_AGGREGATION_TIMEOUT_SEC,
+    GRPC_CHUNK_PAYLOAD_BYTES,
+    GRPC_CHUNK_THRESHOLD_BYTES,
+    GRPC_CLIENT_TIMEOUT_SEC,
+    GRPC_MAX_MESSAGE_BYTES,
+)
 from .torchdist import InitMethod
 
 
@@ -51,6 +58,9 @@ class TorchDistCommunicatorConfig(BaseCommunicatorConfig):
     # Retry settings
     max_retries: int = 5
 
+    # True: all-reduce parameters (+ buffers). False: all-reduce gradients (classic sync grad).
+    communicate_params: bool = True
+
 
 @dataclass
 class GrpcCommunicatorConfig(BaseCommunicatorConfig):
@@ -58,14 +68,18 @@ class GrpcCommunicatorConfig(BaseCommunicatorConfig):
 
     _target_: str = "src.omnifed.communicator.GrpcCommunicator"
 
-    # gRPC server configuration
+    # gRPC server configuration (INT32_MAX ~2 GiB; not model-specific)
     max_workers: int = 10
-    max_send_message_length: int = 104857600  # 100 MB
-    max_receive_message_length: int = 104857600  # 100 MB
+    max_send_message_length: int = GRPC_MAX_MESSAGE_BYTES
+    max_receive_message_length: int = GRPC_MAX_MESSAGE_BYTES
 
-    # Timeout settings
-    aggregation_timeout: float = 600.0  # Seconds for server to wait for all clients
-    client_timeout: float = 60.0  # Seconds for clients to wait for aggregation result
+    # Seconds for one aggregation (Llama-400M-scale unary). CIFAR may override shorter.
+    aggregation_timeout: float = GRPC_AGGREGATION_TIMEOUT_SEC
+    client_timeout: float = GRPC_CLIENT_TIMEOUT_SEC
+
+    # Packed-size gate (not model-name). Override in tests with a tiny threshold.
+    chunk_threshold_bytes: int = GRPC_CHUNK_THRESHOLD_BYTES
+    chunk_payload_bytes: int = GRPC_CHUNK_PAYLOAD_BYTES
 
     # Retry settings
     max_retries: int = 5

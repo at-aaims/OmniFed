@@ -1,0 +1,19 @@
+# @package _global_
+# PI centralized — Llama-400M + C4 smoke, grad FedSGD, TorchDist/NCCL, dense.
+# Same cap as the other three Llama classic smokes. Submit before grad gRPC.
+
+defaults:
+  - /old_way/test_pi_centralized_sync_grad_llama400m_grpc
+  - _self_
+
+topology:
+  local_comm:
+    _target_: src.omnifed.communicator.TorchDistCommunicator
+    backend: nccl
+    master_addr: ${oc.env:MASTER_ADDR,127.0.0.1}
+    master_port: ${oc.env:MASTER_PORT,29500}
+    communicate_params: false
+    timeout: 3600
+
+slurm:
+  job_name: omnifed_llama400_grad_torchdist

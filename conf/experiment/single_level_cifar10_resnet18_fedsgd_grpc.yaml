@@ -1,0 +1,53 @@
+# @package _global_
+# Same lattice as fedavg_grpc; algorithm=fedsgd + payload=gradients.
+
+defaults:
+  - /base
+  - /communicator@topology.local_comm: grpc
+  - /communicator/compression@topology.local_comm.compressor: dense
+  - /payload: gradients
+  - override /topology: centralized
+  - override /algorithm: fedsgd
+  - override /model: resnet18
+  - override /datamodule: cifar10
+  - _self_
+
+engine:
+  mode: slurm
+
+topology:
+  num_clients: 6
+  overrides:
+    0:
+      datamodule:
+        train: null
+
+algorithm:
+  local_lr: 0.001
+  max_epochs_per_round: 1
+  schedules:
+    evaluation:
+      experiment_start:
+        enabled: true
+      experiment_end:
+        enabled: true
+      pre_aggregation:
+        enabled: false
+      post_aggregation:
+        enabled: false
+
+model:
+  num_classes: 10
+
+datamodule:
+  train:
+    batch_size: 128
+  eval:
+    batch_size: 128
+
+global_rounds: 4
+
+slurm:
+  enabled: true
+  nodes: 7
+  ntasks_per_node: 1

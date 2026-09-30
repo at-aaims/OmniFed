@@ -40,6 +40,8 @@ class CentralizedTopology(BaseTopology):
     - Server (rank 0) aggregates model updates, never trains locally
     - Clients (ranks 1+) train on local data, send updates to server
     - All communication stays within this single group
+    - Pair with gRPC. For TorchDist all-reduce use DecentralizedTopology
+      (world_size == num_clients, every rank trains).
 
     Example config:
     ```yaml
@@ -47,8 +49,7 @@ class CentralizedTopology(BaseTopology):
       _target_: src.omnifed.topology.CentralizedTopology
       num_clients: N
       local_comm:
-        _target_: src.omnifed.communicator.TorchDistCommunicator
-        backend: "gloo"
+        _target_: src.omnifed.communicator.GrpcCommunicator
     ```
 
     Example with N clients (N+1 total nodes):
@@ -56,11 +57,14 @@ class CentralizedTopology(BaseTopology):
     - 0.1, 0.2, ... 0.N (clients): Train locally → send updates → receive new model.
     """
 
+    has_server: bool = True
+
     def __init__(
         self,
         num_clients: int,
         local_comm: BaseCommunicatorConfig,
         overrides: Optional[Dict[int, NodeConfig]] = None,
+        has_server: bool = True,
     ):
         """
         Set up server-client FL topology.
@@ -75,9 +79,14 @@ class CentralizedTopology(BaseTopology):
         self.num_clients: int = num_clients
         self.local_comm: BaseCommunicatorConfig = local_comm
         self.overrides: Dict[int, NodeConfig] = overrides or {}
+        self.has_server = bool(has_server)
 
         # ---
         print(self)
+
+    def process_world_size(self) -> int:
+        """Slurm / gRPC world size: one server + num_clients trainers."""
+        return self.num_clients + 1
 
     def _setup(
         self,
@@ -93,7 +102,7 @@ class CentralizedTopology(BaseTopology):
 
         Returns all nodes ready for the Engine to launch as Ray actors.
         """
-        world_size: int = self.num_clients + 1
+        world_size: int = self.process_world_size()
         node_configs: List[NodeConfig] = []
 
         for rank in range(world_size):

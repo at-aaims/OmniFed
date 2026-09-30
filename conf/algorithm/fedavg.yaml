@@ -2,7 +2,9 @@
 # FedAvg Algorithm Configuration
 #
 # The original federated learning algorithm.
-# Simple average of all client model updates.
+# Simple average of all client model updates (payload=params).
+# For per-batch gradient averaging use algorithm: fedsgd (same loop).
+# Task knobs (not new algorithm files): optimizer sgd|adamw; HF dict batches use LM loss.
 # ================================================================================
 
 defaults:

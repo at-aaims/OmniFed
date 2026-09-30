@@ -1,9 +1,11 @@
 # ================================================================================
-# FedAvg + Hugging Face causal LM (decoder) batches — see ``FedAvgLLM``.
+# Deprecated Hydra name. Same FedAvg loop; AdamW for old Llama yamls.
+# New experiments: algorithm: fedavg (or fedsgd) + optimizer: adamw.
 # ================================================================================
 
 defaults:
   - base
   - _self_
 
-_target_: src.omnifed.algorithm.FedAvgLLM
+_target_: src.omnifed.algorithm.FedAvg
+optimizer: adamw

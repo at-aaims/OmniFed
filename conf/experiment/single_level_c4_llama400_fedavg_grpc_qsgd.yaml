@@ -1,0 +1,44 @@
+# @package _global_
+# Matrix 3/12: Llama-400M C4 | FedAvg params | gRPC | QSGD | 6 trainers (7 nodes).
+
+defaults:
+  - /base
+  - /communicator@topology.local_comm: grpc
+  - /communicator/compression@topology.local_comm.compressor: qsgd
+  - /payload: params
+  - override /topology: centralized
+  - override /algorithm: fedavg
+  - override /algorithm/schedules/aggregation: batch_end
+  - override /algorithm/schedules/evaluation: disabled
+  - override /model: llama400m_hf_disk
+  - override /datamodule: c4_lm_federated_disk
+  - _self_
+
+engine:
+  mode: slurm
+
+topology:
+  num_clients: 6
+  overrides:
+    0:
+      datamodule:
+        train: null
+
+datamodule:
+  num_federated_clients: 6
+  max_train_batches: 8
+  include_eval: false
+
+algorithm:
+  local_lr: 4.0e-4
+  max_epochs_per_round: 1
+  optimizer: adamw
+
+global_rounds: 2
+
+slurm:
+  enabled: true
+  nodes: 7
+  ntasks_per_node: 1
+  exclusive: true
+  job_name: llama400_fedavg_grpc_qsgd

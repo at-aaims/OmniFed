@@ -1,0 +1,18 @@
+# @package _global_
+# Hierarchical Slurm Engine + centralized FedAvg.
+# Optional conf_hybrid preset name; facility defaults come from topology: hierarchical.
+
+defaults:
+  - /old_way/test_fedavg_centralized_torchdist
+  - override /topology: hierarchical
+  - _self_
+
+engine:
+  mode: slurm
+  hierarchical:
+    topology_config: built_symmetric_2x3.yaml
+
+topology:
+  num_clients: 6
+
+global_rounds: 1

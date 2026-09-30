@@ -134,8 +134,8 @@ hydra:
 # Docs: https://slurm.schedmd.com/overview.html
 
 slurm:
-  # Hybrid (``engine.communication_mode=hybrid``): Engine sets ``#SBATCH --ntasks=W`` where
-  # ``W`` = hybrid ``world_size``. Choose ``nodes × ntasks_per_node >= W`` (``docs/archive/hybrid-engine-pipeline/HYBRID_SLURM_REFERENCE.md`` §4.3);
+  # Hierarchical: Engine sets ``#SBATCH --ntasks=W`` where
+  # ``W`` is the facility-graph world_size. Choose ``nodes × ntasks_per_node >= W``;
   # if ``nodes`` is too small, Engine may raise it and log ``[Engine] slurm.nodes raised …``.
   enabled: false
   account: null
@@ -173,26 +173,22 @@ slurm:
 
 engine:
   mode: ray   # one of: ray, slurm
-  # Slurm-only (Phase B): classic = one process group (TorchDist); hybrid = conf_hybrid layout + step 7 worker.
-  communication_mode: classic
-  hybrid:
-    # File under conf_hybrid/topology/*.yaml OR leave null when using runtime ``layout`` below.
+  # Titan is the client when torchtitan.module is set. Topology selects hops.
+  hierarchical:
+    # Optional YAML under conf_hybrid/topology/*.yaml. Prefer facility fields on topology.
     topology_config: null
-    # Runtime topology: kwargs for ``build_hybrid_topology`` (omit or null to use ``topology_config`` only).
-    # Optional nested ``communicators:`` merges labels onto topology_builder.DEFAULT_HYBRID_COMMUNICATORS (declarative; wiring unchanged).
-    # If both are set, ``layout`` wins. Example symmetric 2×3 + RPC: num_facilities: 2, mpi_ranks_per_facility: 3, dedicated_rpc_server: true (plus rpc_port / facility_mpi_* as needed).
-    layout: null
-    # Optional; merged onto hybrid cfg ``training`` (e.g. dataset_total_clients) when using ``layout``.
     training: null
-    # Hybrid Slurm RPC server lifetime (see docs/archive/hybrid-engine-pipeline/HYBRID_SLURM_REFERENCE.md).
     server_run_extra_sec: 120
     server_sec_per_round: 300
-    # sleep = fixed heuristic; leader_done = wait until each gRPC leader rank touches a marker (max wait below).
     server_shutdown: leader_done
     leader_done_poll_sec: 5.0
-    # What local MPI and global gRPC aggregate: params (FedAvg) or gradients (FedSGD).
     aggregate_payload: params   # params | gradients
-    # Global (cross-facility) hybrid gRPC compression — facility TorchMPI stays dense.
+    sync:
+      local:
+        unit: epoch       # epoch | iteration
+        every: 4
+      global_every_local: 1
+    grad_accumulation: mean_batch
     global_compression:
       enabled: false
       scheme: topk   # topk | qsgd

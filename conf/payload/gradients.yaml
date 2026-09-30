@@ -1,0 +1,13 @@
+# @package _global_
+# Average grads then step (FedSGD). Attach:  - /payload: gradients
+
+algorithm:
+  aggregate_payload: gradients
+
+engine:
+  hierarchical:
+    aggregate_payload: gradients
+
+topology:
+  local_comm:
+    communicate_params: false

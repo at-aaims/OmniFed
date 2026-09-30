@@ -1,0 +1,75 @@
+# @package _global_
+# Scenario 1: 1 GPU = 1 client, centralized classic gRPC, one srun.
+# Packing is yaml/CLI only (never hardcoded in Python).
+#
+# Packing A (this default): 7 nodes × 1 GPU = 1 server + 6 clients.
+#   ./main.sh --config-name experiment/single_level overwrite=true \
+#     datamodule.train.dataset.download=false datamodule.eval.dataset.download=false \
+#     datamodule.train.dataset.root=$OMNIFED_DATA_DIR/cifar10 \
+#     datamodule.eval.dataset.root=$OMNIFED_DATA_DIR/cifar10 \
+#     slurm.account=... slurm.partition=batch slurm.time=02:00:00 \
+#     slurm.nodes=7 slurm.ntasks_per_node=1 slurm.cpus_per_task=4 \
+#     slurm.gpus_per_node=1 slurm.gpus_per_task=1 slurm.gres=null slurm.exclusive=true
+#
+# Packing B: 2 nodes, server + 6 client GPUs (yaml only; Engine sets worker ntasks=7).
+#   slurm.nodes=2 slurm.ntasks_per_node=6 slurm.gpus_per_node=6 slurm.gpus_per_task=1 \
+#     slurm.gres=null slurm.exclusive=true
+# Rank 0 is alone on the first node (server). Ranks 1–6 use SLURM_LOCALID 0..5 on node 2.
+#
+# Different trainer count: change BOTH topology.num_clients and the allocation, e.g. 3 clients:
+#   topology.num_clients=3 slurm.nodes=4 slurm.ntasks_per_node=1 slurm.gpus_per_node=1
+#
+# All-reduce instead of centralized:
+#   topology=decentralized communicator@topology.local_comm=torchdist slurm.nodes=6
+
+defaults:
+  - /base
+  - /communicator@topology.local_comm: grpc
+  - /communicator/compression@topology.local_comm.compressor: dense
+  - /payload: params
+  - override /topology: centralized
+  - override /algorithm: fedavg
+  - override /algorithm/schedules/aggregation: batch_end
+  - override /model: resnet18
+  - override /datamodule: cifar10
+  - _self_
+
+engine:
+  mode: slurm
+
+topology:
+  num_clients: 6
+  overrides:
+    0:
+      datamodule:
+        train: null
+
+algorithm:
+  local_lr: 0.001
+  max_epochs_per_round: 1
+  schedules:
+    evaluation:
+      experiment_start:
+        enabled: true
+      experiment_end:
+        enabled: true
+      pre_aggregation:
+        enabled: false
+      post_aggregation:
+        enabled: false
+
+model:
+  num_classes: 10
+
+datamodule:
+  train:
+    batch_size: 128
+  eval:
+    batch_size: 128
+
+global_rounds: 4
+
+slurm:
+  enabled: true
+  nodes: 7
+  ntasks_per_node: 1

@@ -1,0 +1,39 @@
+# @package _global_
+# Matrix 12/12: Llama-400M C4 | FedSGD grads | TorchDist | QSGD | 6 trainers (6 nodes, allreduce).
+
+defaults:
+  - /base
+  - /communicator@topology.local_comm: torchdist
+  - /communicator/compression@topology.local_comm.compressor: qsgd
+  - /payload: gradients
+  - override /topology: decentralized
+  - override /algorithm: fedsgd
+  - override /algorithm/schedules/evaluation: disabled
+  - override /model: llama400m_hf_disk
+  - override /datamodule: c4_lm_federated_disk
+  - _self_
+
+engine:
+  mode: slurm
+
+topology:
+  num_clients: 6
+
+datamodule:
+  num_federated_clients: 6
+  max_train_batches: 8
+  include_eval: false
+
+algorithm:
+  local_lr: 4.0e-4
+  max_epochs_per_round: 1
+  optimizer: adamw
+
+global_rounds: 2
+
+slurm:
+  enabled: true
+  nodes: 6
+  ntasks_per_node: 1
+  exclusive: true
+  job_name: llama400_fedsgd_torchdist_qsgd

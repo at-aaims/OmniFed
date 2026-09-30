@@ -15,6 +15,8 @@
 import math
 import torch
 
+from src.omnifed.device_resolver import is_cuda_oom
+
 from . import Compression, ResidualUpdates
 
 # ======================================================================================
@@ -46,6 +48,10 @@ def topk_desparse(tensors, numel, device):
     return tensor_decompressed
 
 
+def _is_cuda_oom(exc: BaseException) -> bool:
+    return is_cuda_oom(exc)
+
+
 def randomk_sparse(tensor, compress_ratio, device):
     tensor = tensor.flatten()
     numel = tensor.numel()
@@ -74,24 +80,70 @@ class TopKCompression(Compression):
         self.device = device
         self.compress_ratio = compress_ratio
 
-    def compress(self, tensor, name):
-        tensor = tensor.to(self.device)
+    def _move_residual_to_cpu(self, name) -> None:
+        if name in self.residual.residuals:
+            self.residual.residuals[name] = self.residual.residuals[name].detach().cpu()
+        if name in self.residual.layer_decompress:
+            self.residual.layer_decompress[name] = (
+                self.residual.layer_decompress[name].detach().cpu()
+            )
 
+    def _compress_on_tensor_device(self, tensor, name):
+        # Follow tensor.device (yaml ``device`` is unused). gRPC still copies
+        # the sparse payload to CPU in tensordict_to_proto.
         tensor = self.residual.compensate(tensor, name)
         numel = tensor.numel()
         shape = tensor.size()
         tensors = topk_sparse(tensor, self.compress_ratio)
         ctx = numel, shape
         self.residual.update(tensor, name, self, tensors, ctx)
-
         return tensors, ctx
+
+    def compress(self, tensor, name):
+        try:
+            return self._compress_on_tensor_device(tensor, name)
+        except Exception as exc:
+            if not (tensor.is_cuda and _is_cuda_oom(exc)):
+                raise
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+            tensor = tensor.detach().cpu()
+            self._move_residual_to_cpu(name)
+            return self._compress_on_tensor_device(tensor, name)
 
     def decompress(self, tensors, ctx):
         """Decompress by filling empty slots with zeros and reshape back using the original shape"""
         numel, shape = ctx
-        tensor_decompressed = topk_desparse(tensors, numel, self.device)
-
+        values, indices = tensors
+        device = values.device
+        indices = indices.to(device=device)
+        try:
+            tensor_decompressed = topk_desparse((values, indices), numel, device)
+        except Exception as exc:
+            if not (values.is_cuda and _is_cuda_oom(exc)):
+                raise
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+            values = values.detach().cpu()
+            indices = indices.detach().cpu()
+            tensor_decompressed = topk_desparse((values, indices), numel, values.device)
         return tensor_decompressed.view(shape)
+
+    def aggregate_torchdist(
+        self,
+        tensor,
+        *,
+        name: str,
+        world_size: int,
+        op,
+        logger=None,
+    ):
+        del op
+        from .torchdist_collectives import aggregate_topk_tensor
+
+        return aggregate_topk_tensor(
+            self, tensor, name=name, world_size=world_size, logger=logger
+        )
 
 
 class DGCCompression(Compression):

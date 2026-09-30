@@ -1,4 +1,4 @@
-"""Unit tests for ``hybrid_run_summary`` (aggregated table from JSON node_results)."""
+"""Unit tests for ``run_summary`` (aggregated table from JSON node_results)."""
 
 import json
 import os
@@ -8,11 +8,11 @@ from pathlib import Path
 
 from omegaconf import OmegaConf
 
-from src.omnifed.hybrid.hybrid_run_summary import (
+from src.omnifed.hierarchical.run_summary import (
     _sync_metric_seconds,
     write_hybrid_slurm_per_round_summary,
 )
-from src.omnifed.hybrid.topology_builder import build_hybrid_topology
+from src.omnifed.hierarchical.topology_builder import build_hierarchical_topology
 
 
 class TestHybridRunSummary(unittest.TestCase):
@@ -26,7 +26,7 @@ class TestHybridRunSummary(unittest.TestCase):
 
     def test_build_and_write_round_summary(self) -> None:
         topo = OmegaConf.create(
-            build_hybrid_topology(num_facilities=2, mpi_ranks_per_facility=3)
+            build_hierarchical_topology(num_facilities=2, mpi_ranks_per_facility=3)
         )
 
         with tempfile.TemporaryDirectory() as tmp:

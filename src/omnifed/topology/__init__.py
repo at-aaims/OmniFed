@@ -15,4 +15,5 @@
 from ._configs import *
 from .base import BaseTopology
 from .centralized import CentralizedTopology
-from .hierarchical import HierarchicalTopology
+from .decentralized import DecentralizedTopology
+from .hierarchical import HierarchicalGroupsTopology, HierarchicalTopology

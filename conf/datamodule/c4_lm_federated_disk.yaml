@@ -12,7 +12,7 @@
 # Slurm freezes ``cfg`` via ``OmegaConf.to_container(resolve=True)`` and can reject
 # that interpolation under structured merges.
 #
-# Hybrid ``slurm_hybrid_runner`` sets ``OMNIFED_FEDERATED_CLIENT_INDEX`` per trainer rank.
+# Hybrid ``slurm_runner`` sets ``OMNIFED_FEDERATED_CLIENT_INDEX`` per trainer rank.
 # ================================================================================
 
 _target_: src.omnifed.data.lm_datamodule.build_c4_lm_datamodule

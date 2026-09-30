@@ -33,10 +33,12 @@ class BaseTopology(RequiredSetup):
     Base class for federated learning network topologies.
 
     Defines how nodes are arranged and communicate in distributed FL experiments.
-    Concrete implementations include CentralizedTopology and HierarchicalTopology.
+    Concrete implementations include CentralizedTopology, DecentralizedTopology,
+    and HierarchicalTopology.
 
     Quick decision guide:
-    - Use CentralizedTopology: Single-site FL (all nodes can talk directly)
+    - Use CentralizedTopology: gRPC parameter server (1 server + N trainers)
+    - Use DecentralizedTopology: TorchDist all-reduce (N trainers, no server)
     - Use HierarchicalTopology: Multi-site FL (hospitals, institutions, etc.)
     - Extend BaseTopology: Custom communication patterns (advanced users)
 

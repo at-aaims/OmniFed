@@ -1,0 +1,9 @@
+# Peer hop (NCCL/Gloo). Attach with:
+#   - /communicator@topology.local_comm: torchdist
+# Payload (params vs grads) is conf/payload/, not this file.
+
+_target_: src.omnifed.communicator.TorchDistCommunicator
+backend: nccl
+master_addr: ${oc.env:MASTER_ADDR,127.0.0.1}
+master_port: ${oc.env:MASTER_PORT,29500}
+timeout: 600

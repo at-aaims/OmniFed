@@ -1,0 +1,20 @@
+# ================================================================================
+# Decentralized topology (TorchDist all-reduce)
+#
+# Every rank trains. world_size == num_clients == slurm.nodes.
+# No parameter-server rank. Pair with communicator=torchdist.
+# gRPC stays topology: centralized (slurm.nodes = num_clients + 1).
+# ================================================================================
+
+defaults:
+  - base
+  - _self_
+
+_target_: src.omnifed.topology.DecentralizedTopology
+
+num_clients: ???
+
+has_server: false
+
+# Required for 1-GPU TorchDist. Titan-only (no OmniFed hop): local_comm=null.
+local_comm: ???

@@ -8,11 +8,11 @@ from pathlib import Path
 from hydra import compose, initialize_config_dir
 from omegaconf import OmegaConf
 
-from src.omnifed.hybrid.hybrid_aggregate_config import (
+from src.omnifed.hierarchical.aggregate_config import (
     AGGREGATE_PAYLOAD_GRADIENTS,
     AGGREGATE_PAYLOAD_PARAMS,
-    hybrid_aggregate_payload_from_cfg,
-    hybrid_communicate_params_from_cfg,
+    hierarchical_aggregate_payload_from_cfg,
+    hierarchical_communicate_params_from_cfg,
     normalize_aggregate_payload,
 )
 
@@ -34,26 +34,26 @@ class TestHybridAggregateConfig(unittest.TestCase):
     def test_compose_resnet_qsgd_default_is_params(self) -> None:
         conf_dir = str(REPO_ROOT / "conf")
         with initialize_config_dir(version_base=None, config_dir=conf_dir):
-            cfg = compose(config_name="test_hybrid_layout_fedavg_cifar10_resnet18_grpc_qsgd")
-        self.assertEqual(hybrid_aggregate_payload_from_cfg(cfg), AGGREGATE_PAYLOAD_PARAMS)
-        self.assertTrue(hybrid_communicate_params_from_cfg(cfg))
+            cfg = compose(config_name="old_way/test_hybrid_layout_fedavg_cifar10_resnet18_grpc_qsgd")
+        self.assertEqual(hierarchical_aggregate_payload_from_cfg(cfg), AGGREGATE_PAYLOAD_PARAMS)
+        self.assertTrue(hierarchical_communicate_params_from_cfg(cfg))
 
     def test_compose_override_gradients(self) -> None:
         conf_dir = str(REPO_ROOT / "conf")
         with initialize_config_dir(version_base=None, config_dir=conf_dir):
             cfg = compose(
-                config_name="test_hybrid_layout_fedavg_cifar10_resnet18_grpc_qsgd",
-                overrides=["engine.hybrid.aggregate_payload=gradients"],
+                config_name="old_way/test_hybrid_layout_fedavg_cifar10_resnet18_grpc_qsgd",
+                overrides=["engine.hierarchical.aggregate_payload=gradients"],
             )
-        self.assertEqual(hybrid_aggregate_payload_from_cfg(cfg), AGGREGATE_PAYLOAD_GRADIENTS)
-        self.assertFalse(hybrid_communicate_params_from_cfg(cfg))
+        self.assertEqual(hierarchical_aggregate_payload_from_cfg(cfg), AGGREGATE_PAYLOAD_GRADIENTS)
+        self.assertFalse(hierarchical_communicate_params_from_cfg(cfg))
 
     def test_base_yaml_has_knob(self) -> None:
         conf_dir = str(REPO_ROOT / "conf")
         with initialize_config_dir(version_base=None, config_dir=conf_dir):
             cfg = compose(config_name="base")
         self.assertEqual(
-            OmegaConf.select(cfg, "engine.hybrid.aggregate_payload"),
+            OmegaConf.select(cfg, "engine.hierarchical.aggregate_payload"),
             "params",
         )
 
@@ -61,14 +61,14 @@ class TestHybridAggregateConfig(unittest.TestCase):
         conf_dir = str(REPO_ROOT / "conf")
         with initialize_config_dir(version_base=None, config_dir=conf_dir):
             params_cfg = compose(
-                config_name="test_hybrid_layout_fedavg_cifar10_resnet18_grpc_qsgd",
+                config_name="old_way/test_hybrid_layout_fedavg_cifar10_resnet18_grpc_qsgd",
             )
             grad_cfg = compose(
-                config_name="test_hybrid_layout_fedavg_cifar10_resnet18_grpc_qsgd",
-                overrides=["engine.hybrid.aggregate_payload=gradients"],
+                config_name="old_way/test_hybrid_layout_fedavg_cifar10_resnet18_grpc_qsgd",
+                overrides=["engine.hierarchical.aggregate_payload=gradients"],
             )
-        self.assertTrue(hybrid_communicate_params_from_cfg(params_cfg))
-        self.assertFalse(hybrid_communicate_params_from_cfg(grad_cfg))
+        self.assertTrue(hierarchical_communicate_params_from_cfg(params_cfg))
+        self.assertFalse(hierarchical_communicate_params_from_cfg(grad_cfg))
 
 
 if __name__ == "__main__":

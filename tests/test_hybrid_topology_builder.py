@@ -2,33 +2,33 @@
 
 import unittest
 
-from src.omnifed.hybrid.topology_builder import (
-    DEFAULT_HYBRID_COMMUNICATORS,
-    build_hybrid_topology,
-    merge_hybrid_communicators,
-    validate_hybrid_topology_dict,
+from src.omnifed.hierarchical.topology_builder import (
+    DEFAULT_HIERARCHICAL_COMMUNICATORS,
+    build_hierarchical_topology,
+    merge_hierarchical_communicators,
+    validate_hierarchical_topology_dict,
 )
 
 
 class TestBuildHybridTopology(unittest.TestCase):
     def test_default_communicators_in_topology(self) -> None:
-        t = build_hybrid_topology(num_facilities=2, mpi_ranks_per_facility=[2, 3])
-        self.assertEqual(t["communicators"], dict(DEFAULT_HYBRID_COMMUNICATORS))
+        t = build_hierarchical_topology(num_facilities=2, mpi_ranks_per_facility=[2, 3])
+        self.assertEqual(t["communicators"], dict(DEFAULT_HIERARCHICAL_COMMUNICATORS))
 
-    def test_merge_hybrid_communicators_overlay(self) -> None:
-        merged = merge_hybrid_communicators({"global_aggregation": "grpc_future"})
+    def test_merge_hierarchical_communicators_overlay(self) -> None:
+        merged = merge_hierarchical_communicators({"global_aggregation": "grpc_future"})
         self.assertEqual(merged["intra_facility"], "torch_mpi")
         self.assertEqual(merged["global_aggregation"], "grpc_future")
 
     def test_validate_rejects_non_mapping_communicators(self) -> None:
-        topo = build_hybrid_topology(num_facilities=2, mpi_ranks_per_facility=3)
+        topo = build_hierarchical_topology(num_facilities=2, mpi_ranks_per_facility=3)
         topo["communicators"] = []
         with self.assertRaises(ValueError):
-            validate_hybrid_topology_dict(topo)
+            validate_hierarchical_topology_dict(topo)
 
     def test_symmetric_2x3_matches_try1_layout(self) -> None:
         """Same global ranks / members as conf_hybrid/topology/try1_hybrid_topo.yaml."""
-        topo = build_hybrid_topology(
+        topo = build_hierarchical_topology(
             num_facilities=2,
             mpi_ranks_per_facility=3,
             rpc_port=50051,
@@ -74,7 +74,7 @@ class TestBuildHybridTopology(unittest.TestCase):
 
     def test_asymmetric_2_and_8(self) -> None:
         """Matches asym_hybrid_topo-style sizes (2 + 8 MPI ranks)."""
-        topo = build_hybrid_topology(
+        topo = build_hierarchical_topology(
             num_facilities=2,
             mpi_ranks_per_facility=[2, 8],
             facility_mpi_base_port=28250,
@@ -89,7 +89,7 @@ class TestBuildHybridTopology(unittest.TestCase):
             [2, 4, 5, 6, 7, 8, 9, 10],
         )
         self.assertEqual(topo["facilities"][1]["mpi"]["world_size"], 8)
-        validate_hybrid_topology_dict(topo)
+        validate_hierarchical_topology_dict(topo)
 
     def test_validate_rejects_leader_not_first_in_members(self) -> None:
         bad = {
@@ -114,15 +114,15 @@ class TestBuildHybridTopology(unittest.TestCase):
             ],
         }
         with self.assertRaises(ValueError):
-            validate_hybrid_topology_dict(bad)
+            validate_hierarchical_topology_dict(bad)
 
     def test_int_mpi_ranks_requires_positive(self) -> None:
         with self.assertRaises(ValueError):
-            build_hybrid_topology(num_facilities=2, mpi_ranks_per_facility=0)
+            build_hierarchical_topology(num_facilities=2, mpi_ranks_per_facility=0)
 
     def test_list_length_must_match_facilities(self) -> None:
         with self.assertRaises(ValueError):
-            build_hybrid_topology(
+            build_hierarchical_topology(
                 num_facilities=2,
                 mpi_ranks_per_facility=[3],
             )

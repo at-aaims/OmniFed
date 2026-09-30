@@ -1,0 +1,12 @@
+# Parameter-server hop. Attach with:
+#   - /communicator@topology.local_comm: grpc
+# Payload (params vs grads) is conf/payload/, not this file.
+# Sample weight: n_i is sent on the payload RPC (not a separate hop).
+# normalize_by_total_samples is ignored (Hydra constructor compat).
+
+_target_: src.omnifed.communicator.GrpcCommunicator
+master_addr: 127.0.0.1
+master_port: 50051
+normalize_by_total_samples: false
+max_retries: 36
+retry_delay: 5.0

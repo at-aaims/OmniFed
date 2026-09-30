@@ -1,0 +1,20 @@
+# @package _global_
+# Hierarchical Slurm (2 facilities × 3 trainers + dedicated RPC ⇒ world_size 7).
+# Facility knobs live on topology, not a layout group.
+
+defaults:
+  - /old_way/test_fedavg_centralized_torchdist
+  - override /topology: hierarchical
+  - _self_
+
+engine:
+  mode: slurm
+  hierarchical:
+    topology_config: null
+    training:
+      dataset_total_clients: 6
+
+topology:
+  num_clients: 6
+
+global_rounds: 1

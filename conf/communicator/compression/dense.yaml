@@ -1,0 +1,4 @@
+# Dense = no compressor. Hydra stores this group as an empty mapping (not YAML null).
+# resolve_compressor treats {} as None. Swap:
+#   communicator/compression@topology.local_comm.compressor=topk
+{}

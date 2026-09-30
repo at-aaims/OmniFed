@@ -1,0 +1,13 @@
+# @package _global_
+# Average weights (FedAvg). Attach:  - /payload: params
+
+algorithm:
+  aggregate_payload: params
+
+engine:
+  hierarchical:
+    aggregate_payload: params
+
+topology:
+  local_comm:
+    communicate_params: true

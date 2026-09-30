@@ -32,6 +32,76 @@ from ..utils import MetricAggType, MetricLogger, RequiredSetup, print
 from . import utils
 from ._lifecycle_hooks import LifecycleHooks
 from ._schedules import ExecutionSchedules
+from src.omnifed.hierarchical.aggregate_config import normalize_aggregate_payload
+from src.omnifed.hierarchical.grad_training import (
+    apply_optimizer_grads,
+    clear_model_grads,
+    normalize_accumulated_grads,
+    require_model_grads,
+)
+
+
+def _set_comm_sample_count(comm: BaseCommunicator, num_samples: int) -> None:
+    setter = getattr(comm, "set_aggregation_num_samples", None)
+    if setter is not None:
+        setter(max(int(num_samples), 0))
+
+
+def _set_comm_compress(comm: BaseCommunicator, enabled: bool) -> None:
+    setter = getattr(comm, "set_aggregation_compress", None)
+    if setter is not None:
+        setter(bool(enabled))
+
+
+def _sync_cuda_for_timing() -> None:
+    """Finish GPU work so ``perf_counter`` includes NCCL / CUDA kernels."""
+    if torch.cuda.is_available():
+        try:
+            torch.cuda.synchronize()
+        except Exception:
+            return
+
+
+def skip_fedsgd_buffer_sync(model: nn.Module) -> bool:
+    """True for Llama/Qwen: no BN running stats; skip the extra buffer RPC."""
+    cfg = getattr(model, "config", None)
+    model_type = str(getattr(cfg, "model_type", "") or "").lower().replace("-", "")
+    if model_type.startswith("llama") or model_type.startswith("qwen"):
+        return True
+    name = type(model).__name__.lower()
+    return "llama" in name or "qwen" in name
+
+
+def _has_floating_buffers(model: nn.Module) -> bool:
+    return any(
+        buf is not None and buf.dtype.is_floating_point
+        for _, buf in model.named_buffers()
+    )
+
+
+def _aggregate_floating_buffers(
+    model: nn.Module, comm: BaseCommunicator, *, num_samples: int, client_scale: float
+) -> None:
+    buf_dict: Dict[str, torch.Tensor] = {}
+    with torch.no_grad():
+        for name, buf in model.named_buffers():
+            if buf is None or not buf.dtype.is_floating_point:
+                continue
+            tensor = buf.data.detach().clone()
+            if client_scale != 1.0:
+                tensor.mul_(client_scale)
+            buf_dict[name] = tensor
+    if not buf_dict:
+        return
+    # Dense on purpose: Top-K/QSGD must not sparsify BN / RoPE tables.
+    _set_comm_compress(comm, False)
+    _set_comm_sample_count(comm, 0 if client_scale != 1.0 else max(int(num_samples), 0))
+    agg = comm.aggregate(buf_dict, AggregationOp.SUM)
+    with torch.no_grad():
+        for name, buf in model.named_buffers():
+            if name in agg:
+                buf.data.copy_(agg[name].to(buf.device))
+
 
 # ======================================================================================
 
@@ -106,6 +176,8 @@ class BaseAlgorithm(RequiredSetup, LifecycleHooks, MetricLogger):
         max_epochs_per_round: int,
         schedules: ExecutionSchedules,
         log_dir: str,
+        aggregate_payload: Optional[str] = None,
+        optimizer: str = "sgd",
     ):
         """
         Set up a federated learning algorithm with training parameters.
@@ -115,6 +187,9 @@ class BaseAlgorithm(RequiredSetup, LifecycleHooks, MetricLogger):
             max_epochs_per_round: How many epochs each client trains per FL round
             schedules: When to aggregate models and run evaluations
             log_dir: Where to save TensorBoard logs and metrics CSV files
+            aggregate_payload: ``params`` (FedAvg) or ``gradients`` (FedSGD).
+                ``None`` keeps the FedAvg default; Slurm may overlay from yaml.
+            optimizer: Local trainer: ``sgd`` (vision default) or ``adamw`` (LM).
         """
         # Validate training parameters
         if local_lr <= 0:
@@ -166,6 +241,13 @@ class BaseAlgorithm(RequiredSetup, LifecycleHooks, MetricLogger):
         self.__group_max_iters_per_epoch: Optional[int] = None
         self.__group_max_epochs_per_round: Optional[int] = None
         self.__max_rounds: Optional[int] = None
+
+        # FedAvg (params) vs FedSGD (gradients). Frequency is schedules.aggregation only.
+        self._aggregate_payload: str = "params"
+        self._batches_since_sync: int = 0
+        if aggregate_payload is not None:
+            self.set_aggregate_payload(aggregate_payload)
+        self.optimizer_name: str = str(optimizer).strip().lower() or "sgd"
 
     # =============================================================================
     # PROPERTIES
@@ -239,6 +321,20 @@ class BaseAlgorithm(RequiredSetup, LifecycleHooks, MetricLogger):
     @local_optimizer.setter
     def local_optimizer(self, value: torch.optim.Optimizer) -> None:
         self.__local_optimizer = value
+
+    @property
+    def aggregates_params(self) -> bool:
+        """True = FedAvg (average weights after local step). False = FedSGD (average grads, then step)."""
+        return self._aggregate_payload == "params"
+
+    def set_aggregate_payload(self, payload: object) -> None:
+        """``params`` or ``gradients``. Does not change ``batch_end.every``."""
+        self._aggregate_payload = normalize_aggregate_payload(payload)
+        print(
+            f"[algorithm] aggregate_payload={self._aggregate_payload!r} "
+            f"(step {'before' if self.aggregates_params else 'after'} sync)",
+            flush=True,
+        )
 
     @property
     def round_idx(self) -> int:
@@ -465,6 +561,18 @@ class BaseAlgorithm(RequiredSetup, LifecycleHooks, MetricLogger):
         """
         pass
 
+    def _round_start(self) -> None:
+        if not self.aggregates_params:
+            if self.__local_optimizer is not None:
+                self.__local_optimizer.zero_grad(set_to_none=True)
+            self._batches_since_sync = 0
+
+    def _ensure_model_grad_tensors(self) -> None:
+        with torch.no_grad():
+            for param in self.local_model.parameters():
+                if param.requires_grad and param.grad is None:
+                    param.grad = torch.zeros_like(param.data)
+
     def _aggregate_within_group(
         self, comm: BaseCommunicator, weight: float
     ) -> nn.Module:
@@ -489,20 +597,34 @@ class BaseAlgorithm(RequiredSetup, LifecycleHooks, MetricLogger):
             # Simple unweighted FedAvg (ignores data distribution)
             return comm.aggregate(self.local_model, AggregationOp.MEAN)
 
-            # Sample-weighted aggregation (default behavior, better for unbalanced data)
-            utils.scale_params(self.local_model, weight)
+            # Sample-weighted aggregation: send payload + n_i; communicator
+            # computes sum(n_i x_i) / sum(n_i). Do not pre-scale by n_i/N.
             return comm.aggregate(self.local_model, AggregationOp.SUM)
         """
-        # Scale this client's model by its data proportion within the group
-        utils.scale_params(self.local_model, weight, include_buffers=True)
+        # Single-level (weight==1): send payload + n_i; communicator does
+        # sum(n_i * x_i) / sum(n_i). Hierarchical still pre-scales by n_i/N.
+        client_pre_scaled = weight != 1.0
+        if self.aggregates_params:
+            if client_pre_scaled:
+                utils.scale_params(self.local_model, weight, include_buffers=True)
+        else:
+            nb = int(getattr(self, "_batches_since_sync", 0))
+            if nb < 1:
+                self._ensure_model_grad_tensors()
+            else:
+                normalize_accumulated_grads(self.local_model, nb)
+                if client_pre_scaled:
+                    utils.scale_grads(self.local_model, weight)
+            require_model_grads(self.local_model)
 
-        # Aggregate weighted models across all clients in the group
-        aggregated_model = comm.aggregate(
+        _set_comm_compress(comm, True)
+        _set_comm_sample_count(
+            comm, 0 if client_pre_scaled else int(self.__num_samples_trained)
+        )
+        return comm.aggregate(
             self.local_model,
             reduction=AggregationOp.SUM,
         )
-
-        return aggregated_model
 
     def _aggregate_across_groups(
         self, comm: BaseCommunicator, weight: float
@@ -524,7 +646,9 @@ class BaseAlgorithm(RequiredSetup, LifecycleHooks, MetricLogger):
         Returns:
             Globally aggregated model after inter-group coordination
         """
-        # Weight this group's model by its data proportion relative to all groups
+        # Hierarchical: caller already scaled by group_N / global_N; do not re-weight.
+        _set_comm_compress(comm, False)
+        _set_comm_sample_count(comm, 0)
         utils.scale_params(self.local_model, weight, include_buffers=True)
 
         # Aggregate weighted group models across all groups
@@ -549,68 +673,114 @@ class BaseAlgorithm(RequiredSetup, LifecycleHooks, MetricLogger):
 
     def __sync_comm(self) -> None:
         """
-        Synchronize communication interfaces for intra-group and inter-group operations.
+        Intra-group (and optional inter-group) aggregation.
+
+        FedAvg: average weights (local ``step`` already ran).
+        FedSGD: average grads, then ``step``, then average BN buffers
+        (skipped for Llama/Qwen). Sample weight is ``n_i`` on the payload RPC
+        except when ``global_comm`` is set (hierarchical still pre-scales).
         """
         dev = next(self.local_model.parameters()).device
-        # Phase 1: Intra-group aggregation via all-reduce
-        with self.track_model_operation("local_agg"):
-            # Calculate within-group sample totals and weights
-            group_total_samples = self.local_comm.aggregate(
-                torch.tensor([self.__num_samples_trained], dtype=torch.float32, device=dev),
-                reduction=AggregationOp.SUM,
-            ).item()
+        comm = self.local_comm
+        sync_bucket = getattr(self, "_summary_iter_sync", None)
+        n_i = int(self.__num_samples_trained)
+        hierarchical = self.global_comm is not None
+        group_total_samples = 0.0
+        within_group_weight = 1.0
 
-            # Validation: warn if no samples trained in group
+        if hierarchical:
+            _sync_cuda_for_timing()
+            t0 = time.perf_counter()
+            with self.track_model_operation("grpc_agg_sample"):
+                _set_comm_compress(comm, False)
+                _set_comm_sample_count(comm, 0)
+                group_total_samples = comm.aggregate(
+                    torch.tensor([n_i], dtype=torch.float32, device=dev),
+                    reduction=AggregationOp.SUM,
+                ).item()
+            _sync_cuda_for_timing()
+            if sync_bucket is not None:
+                sync_bucket["grpc_agg_sample_time"] = time.perf_counter() - t0
             if group_total_samples == 0:
                 warnings.warn(
                     f"Zero samples trained across all nodes in group ({self.progress_info_str}). "
                     "Check data availability or epoch scheduling. Using uniform weights for aggregation.",
                     UserWarning,
                 )
+            within_group_weight = n_i / max(group_total_samples, 1)
 
-            within_group_weight = self.__num_samples_trained / max(
-                group_total_samples, 1
-            )
+        _sync_cuda_for_timing()
+        t0 = time.perf_counter()
+        op_name = "grpc_agg_param" if self.aggregates_params else "grpc_agg_grad"
+        with self.track_model_operation(op_name):
+            self.local_model = self._aggregate_within_group(comm, within_group_weight)
+        _sync_cuda_for_timing()
+        if sync_bucket is not None:
+            sync_bucket["grpc_agg_grad_time"] = time.perf_counter() - t0
 
-            self.local_model = self._aggregate_within_group(
-                self.local_comm, within_group_weight
-            )
+        if not self.aggregates_params:
+            _sync_cuda_for_timing()
+            t0 = time.perf_counter()
+            with self.track_model_operation("grad_apply"):
+                apply_optimizer_grads(self.local_model, self.local_optimizer)
+            _sync_cuda_for_timing()
+            if sync_bucket is not None:
+                sync_bucket["grad_apply_time"] = time.perf_counter() - t0
 
-        # Phase 2: Inter-group coordination (group servers only)
+            if not skip_fedsgd_buffer_sync(self.local_model) and _has_floating_buffers(
+                self.local_model
+            ):
+                _sync_cuda_for_timing()
+                t0 = time.perf_counter()
+                with self.track_model_operation("grpc_agg_bn"):
+                    _aggregate_floating_buffers(
+                        self.local_model,
+                        comm,
+                        num_samples=n_i,
+                        client_scale=within_group_weight,
+                    )
+                _sync_cuda_for_timing()
+                if sync_bucket is not None:
+                    sync_bucket["grpc_agg_bn_time"] = time.perf_counter() - t0
+
+            clear_model_grads(self.local_model, optimizer=self.__local_optimizer)
+            self._batches_since_sync = 0
+
+        if sync_bucket is not None:
+            keys = ("grpc_agg_sample_time", "grpc_agg_grad_time")
+            if not self.aggregates_params:
+                keys = keys + ("grpc_agg_bn_time",)
+            local_agg_time = sum(float(sync_bucket.get(k, 0.0) or 0.0) for k in keys)
+            self.log_metric("local_agg_time", local_agg_time)
+
         if self.global_comm is not None:
             with self.track_model_operation("global_agg"):
-                # Calculate across-group sample totals and weights using group totals
+                _set_comm_compress(self.global_comm, False)
+                _set_comm_sample_count(self.global_comm, 0)
                 global_total_samples = self.global_comm.aggregate(
                     torch.tensor([group_total_samples], dtype=torch.float32, device=dev),
                     reduction=AggregationOp.SUM,
                 ).item()
-
-                # Validation: warn if no samples trained globally
                 if global_total_samples == 0:
                     warnings.warn(
                         f"Zero samples trained across all groups globally ({self.progress_info_str}). "
                         "Check data availability or cross-group coordination. Using uniform weights for cross-group aggregation.",
                         UserWarning,
                     )
-
                 across_group_weight = group_total_samples / max(global_total_samples, 1)
-
                 self.local_model = self._aggregate_across_groups(
                     self.global_comm, across_group_weight
                 )
 
-        # Phase 3: Conditional broadcast to distribute global results
-        # In cross-institutional/hierarchical FL: only group representatives participate in global_comm,
-        # but all nodes need the final global model.
-        # Check if any node in this local group participated in global aggregation.
+        _set_comm_compress(comm, False)
+        _set_comm_sample_count(comm, 0)
         needs_final_bcast = (
-            self.local_comm.aggregate(
+            comm.aggregate(
                 torch.tensor(1.0 if self.global_comm is not None else 0.0, device=dev),
                 AggregationOp.MAX,
             )
             > 0
         )
-
         if needs_final_bcast:
             with self.track_model_operation("local_bcast"):
                 self.local_model = self.local_comm.broadcast(self.local_model)
@@ -814,6 +984,8 @@ class BaseAlgorithm(RequiredSetup, LifecycleHooks, MetricLogger):
         # ---
         # Epoch boundary synchronization
         with self.log_duration("epoch_heartbeat_time"):
+            _set_comm_compress(self.local_comm, False)
+            _set_comm_sample_count(self.local_comm, 0)
             sync_signal = torch.tensor([1.0], device=device)
             total_signals = self.local_comm.aggregate(sync_signal, AggregationOp.SUM)
 
@@ -936,20 +1108,24 @@ class BaseAlgorithm(RequiredSetup, LifecycleHooks, MetricLogger):
         # Forward pass
         loss = self._compute_loss(batch)
 
-        # Training operations
-        self.local_optimizer.zero_grad()
-        self._backward_pass(loss)
+        if self.aggregates_params:
+            self.local_optimizer.zero_grad()
+            self._backward_pass(loss)
+            grad_norm = utils.get_grad_norm(self.local_model)
+            self._optimizer_step()
+        else:
+            self._backward_pass(loss)
+            self._batches_since_sync = int(getattr(self, "_batches_since_sync", 0)) + 1
+            grad_norm = utils.get_grad_norm(self.local_model)
 
-        # Capture gradient norm before optimizer step
-        grad_norm = utils.get_grad_norm(self.local_model)
-
-        self._optimizer_step()
-
-        # Return metrics to log
-        return {
+        metrics = {
             "loss": loss.detach().item(),
             "grad_norm": grad_norm,
         }
+        train_state = getattr(self, "_summary_iter_train", None)
+        if train_state is not None:
+            train_state.update(metrics)
+        return metrics
 
     def _eval_batch(self, batch: Any) -> Dict[str, float]:
         """
@@ -1071,9 +1247,9 @@ class BaseAlgorithm(RequiredSetup, LifecycleHooks, MetricLogger):
             if isinstance(first_item, torch.Tensor):
                 return first_item.shape[0]
 
-        # Dictionary with common input keys
+        # Dictionary with common input keys (vision) or HF causal-LM keys
         if isinstance(batch, dict):
-            for key in ["input", "inputs", "x", "data"]:
+            for key in ["input", "inputs", "x", "data", "input_ids", "labels"]:
                 if key in batch and isinstance(batch[key], torch.Tensor):
                     return batch[key].shape[0]
 

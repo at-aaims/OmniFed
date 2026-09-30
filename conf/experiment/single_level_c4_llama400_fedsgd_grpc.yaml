@@ -1,0 +1,44 @@
+# @package _global_
+# Matrix 4/12: Llama-400M C4 | FedSGD grads | gRPC | dense | 6 trainers (7 nodes).
+# Same 8-batch / 1-round lattice as 5400215.
+
+defaults:
+  - /base
+  - /communicator@topology.local_comm: grpc
+  - /communicator/compression@topology.local_comm.compressor: dense
+  - /payload: gradients
+  - override /topology: centralized
+  - override /algorithm: fedsgd
+  - override /algorithm/schedules/evaluation: disabled
+  - override /model: llama400m_hf_disk
+  - override /datamodule: c4_lm_federated_disk
+  - _self_
+
+engine:
+  mode: slurm
+
+topology:
+  num_clients: 6
+  overrides:
+    0:
+      datamodule:
+        train: null
+
+datamodule:
+  num_federated_clients: 6
+  max_train_batches: 8
+  include_eval: false
+
+algorithm:
+  local_lr: 4.0e-4
+  max_epochs_per_round: 1
+  optimizer: adamw
+
+global_rounds: 2
+
+slurm:
+  enabled: true
+  nodes: 7
+  ntasks_per_node: 1
+  exclusive: true
+  job_name: llama400_fedsgd_grpc_dense

@@ -4,6 +4,8 @@
 # Configures OmniFed DataModule for CIFAR-100 fine-grained object classification.
 # Uses torchvision dataset with standard normalization and data augmentation.
 #
+# Train sharding matches CIFAR-10 (unique trainer shards; server has no train).
+#
 # Docs:
 # - https://pytorch.org/vision/stable/generated/torchvision.datasets.CIFAR100.html
 # - https://www.cs.toronto.edu/~kriz/cifar.html
@@ -12,6 +14,8 @@
 defaults:
   - base
   - _self_
+
+_target_: src.omnifed.data.federated_vision.build_federated_vision_datamodule
 
 # ─────────────────────────────────────────
 # Training Data

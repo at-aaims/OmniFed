@@ -45,19 +45,28 @@ class FedAvg(BaseAlgorithm):
     """
 
     def _configure_local_optimizer(self, local_lr: float) -> torch.optim.Optimizer:
-        """
-        SGD optimizer for local updates.
-        """
-        return torch.optim.SGD(self.local_model.parameters(), lr=local_lr)
+        """SGD (default) or AdamW from ``optimizer`` yaml — not a new algorithm class."""
+        kind = str(getattr(self, "optimizer_name", "sgd")).lower()
+        if kind in ("adamw", "adam_w"):
+            return torch.optim.AdamW(self.local_model.parameters(), lr=float(local_lr))
+        if kind in ("sgd",):
+            return torch.optim.SGD(self.local_model.parameters(), lr=local_lr)
+        raise ValueError(f"algorithm.optimizer must be 'sgd' or 'adamw', got {kind!r}")
 
     def _compute_loss(self, batch: Any) -> torch.Tensor:
-        """
-        Forward pass and compute the cross-entropy loss for a batch.
-        """
+        """Vision ``(x, y)`` CE, or HF causal-LM dict batches (``labels`` → model loss)."""
+        if isinstance(batch, dict):
+            out = self.local_model(**batch)
+            loss = getattr(out, "loss", None)
+            if loss is None:
+                raise RuntimeError(
+                    "Causal LM forward did not produce ``loss``. "
+                    "Ensure batches include ``labels``."
+                )
+            return loss
         inputs, targets = batch
         outputs = self.local_model(inputs)
-        loss = nn.functional.cross_entropy(outputs, targets)
-        return loss
+        return nn.functional.cross_entropy(outputs, targets)
 
 
 # ======================================================================================

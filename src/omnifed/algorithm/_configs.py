@@ -103,6 +103,9 @@ class BaseAlgorithmConfig:
     max_epochs_per_round: int = MISSING
     schedules: ExecutionSchedulesConfig = MISSING
     log_dir: str = MISSING  # Directory for metrics logging and TensorBoard output
+    # None → algorithm.aggregate_payload (CIFAR PI presets). Set on fedsgd.yaml.
+    aggregate_payload: Optional[str] = None
+    optimizer: str = "sgd"  # sgd | adamw (task knob, not a new algorithm)
 
 
 @dataclass
@@ -110,6 +113,14 @@ class FedAvgConfig(BaseAlgorithmConfig):
     """Configuration for FedAvg algorithm."""
 
     _target_: str = "src.omnifed.algorithm.FedAvg"
+
+
+@dataclass
+class FedSGDConfig(BaseAlgorithmConfig):
+    """FedSGD: same loop as FedAvg; default yaml uses gradient payload."""
+
+    _target_: str = "src.omnifed.algorithm.FedSGD"
+    aggregate_payload: Optional[str] = "gradients"
 
 
 @dataclass

@@ -4,8 +4,8 @@ import unittest
 
 from omegaconf import OmegaConf
 
-from src.omnifed.hybrid.topology_builder import build_hybrid_topology
-from src.omnifed.hybrid.topology_roles import (
+from src.omnifed.hierarchical.topology_builder import build_hierarchical_topology
+from src.omnifed.hierarchical.topology_roles import (
     facility_local_rank,
     find_facility_for_global_rank,
     hybrid_rank_to_centralized_node_index,
@@ -14,7 +14,7 @@ from src.omnifed.hybrid.topology_roles import (
 
 class TestTopologyRoles(unittest.TestCase):
     def test_find_and_local_rank(self) -> None:
-        t = OmegaConf.create(build_hybrid_topology(num_facilities=2, mpi_ranks_per_facility=3))
+        t = OmegaConf.create(build_hierarchical_topology(num_facilities=2, mpi_ranks_per_facility=3))
         f1 = find_facility_for_global_rank(t, 3)
         assert f1 is not None
         self.assertEqual(f1.name, "fac1")

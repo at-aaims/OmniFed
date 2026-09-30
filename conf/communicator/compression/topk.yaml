@@ -1,0 +1,6 @@
+# Attach with:
+#   - /communicator/compression@topology.local_comm.compressor: topk
+# Omit this default for dense (no compressor). Do not nest under grpc vs torchdist.
+
+_target_: src.omnifed.communicator.compression.sparsification.TopKCompression
+compress_ratio: 0.01

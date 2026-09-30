@@ -1,0 +1,55 @@
+# @package _global_
+# PI centralized — Llama-400M + C4 smoke, param FedAvg, gRPC, dense.
+# 7 nodes × 1 GPU; 6 trainers + server; 16 train batches; eval off.
+# Submit after param TorchDist. Do not change CIFAR PI presets.
+#
+# Env: OMNIFED_LLAMA400_WEIGHTS, OMNIFED_C4_DISK, OMNIFED_TOKENIZER_DIR
+#
+# Same FedAvg loop as CIFAR. HF dict batches + AdamW are task knobs, not FedAvgLLM.
+
+defaults:
+  - /base
+  - override /topology: centralized
+  - override /algorithm: fedavg
+  - override /algorithm/schedules/aggregation: batch_end
+  - override /algorithm/schedules/evaluation: disabled
+  - override /model: llama400m_hf_disk
+  - override /datamodule: c4_lm_federated_disk
+  - _self_
+
+engine:
+  mode: slurm
+
+topology:
+  num_clients: 6
+  local_comm:
+    _target_: src.omnifed.communicator.GrpcCommunicator
+    master_addr: 127.0.0.1
+    master_port: 50051
+    communicate_params: true
+    normalize_by_total_samples: false
+    max_retries: 36
+    retry_delay: 5.0
+  overrides:
+    0:
+      datamodule:
+        train: null
+
+datamodule:
+  num_federated_clients: 6
+  max_train_batches: 16
+  include_eval: false
+
+algorithm:
+  local_lr: 4.0e-4
+  max_epochs_per_round: 1
+  optimizer: adamw
+
+global_rounds: 1
+
+slurm:
+  enabled: true
+  nodes: 7
+  ntasks_per_node: 1
+  exclusive: true
+  job_name: omnifed_llama400_param_grpc

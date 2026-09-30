@@ -1,46 +1,32 @@
 # ================================================================================
-# Hierarchical Topology with Mixed Communication
+# Hierarchical topology (Slurm two-hop)
 #
-# Hierarchical federated learning topology structure.
-# Multiple groups each containing centralized sub-topologies.
-# Uses gRPC for global inter-group communication and TorchDist for local intra-group.
-# Each group has the same fields as a centralized topology.
+# Inner: TorchDist per facility. Outer: Flora-style gRPC to a dedicated RPC rank.
+# Engine / SLURM_NTASKS see a flat world: 1 server + num_facilities × ranks.
 # ================================================================================
 
 defaults:
   - base
   - _self_
 
-# NOTE: Check constructor signature for complete parameter list, defaults, types, and docs.
 _target_: src.omnifed.topology.HierarchicalTopology
 
-# ─────────────────────────────────────────
-# Inter-Group Communicator
-global_comm: ???
-# Example communicator configuration:
-# global_comm:
-#   # NOTE: Check constructor signature for complete parameter list, defaults, types, and docs.
-#   _target_: src.omnifed.communicator.GrpcCommunicator
-#   # master_addr: 127.0.0.1        # Global coordinator address
-#   master_port: 50051 # Global coordinator port (default for gRPC)
-#   # aggregation_timeout: 600.0    # Wait time for all groups
+num_facilities: 2
+mpi_ranks_per_facility: 3
+dedicated_rpc_server: true
+rpc_addr: "127.0.0.1"
+rpc_port: 50051
+facility_mpi_addr: "127.0.0.1"
+facility_mpi_base_port: 28250
+facility_mpi_port_stride: 40
+facility_name_prefix: "fac"
+communicators:
+  intra_facility: torch_mpi
+  global_aggregation: grpc
 
-# ─────────────────────────────────────────
-# List of topology configurations
-groups: ???
-# Example groups configuration:
-# groups:
-#   - num_clients: 3              # Group 1: 3 clients
-#     local_comm:
-#       _target_: src.omnifed.communicator.TorchDistCommunicator
-#       master_port: 29500
-#   # ───────────────────────────
-#   - num_clients: 2              # Group 2: 2 clients
-#     local_comm:
-#       _target_: src.omnifed.communicator.TorchDistCommunicator
-#       master_port: 29501
-#   # ───────────────────────────
-#   - num_clients: 4              # Group 3: 4 clients
-#     local_comm:
-#       _target_: src.omnifed.communicator.GrpcCommunicator
-#       master_port: 50052
+has_server: true
+# Trainers = num_facilities × mpi_ranks_per_facility. Required in frozen yaml
+# because the worker reads cfg.topology.num_clients, not the Python object.
+num_clients: 6
+
+local_comm: ???

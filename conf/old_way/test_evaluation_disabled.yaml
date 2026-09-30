@@ -1,0 +1,11 @@
+# @package _global_
+# ================================================================================
+# Disabled Evaluation Test Configuration
+# Tests disabling all evaluation for maximum training speed.
+# Inherits from centralized torchdist base and disables all evaluation.
+# ================================================================================
+
+defaults:
+  - /old_way/test_fedavg_centralized_torchdist
+  - override /algorithm/schedules/evaluation: disabled
+  - _self_

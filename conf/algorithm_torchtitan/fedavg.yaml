@@ -1,0 +1,8 @@
+defaults:
+  - base
+  - _self_
+
+_target_: src.omnifed.algorithm_torchtitan.FedAvg
+
+# LLM clients are weighted by the number of trained tokens.
+weighting: tokens

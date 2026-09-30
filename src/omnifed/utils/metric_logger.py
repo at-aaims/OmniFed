@@ -90,6 +90,25 @@ class MetricAggType(str, Enum):
     SUM = "sum"
 
 
+class _NullSummaryWriter:
+    """No-op TensorBoard writer (Slurm/Lustre: set OMNIFED_DISABLE_TENSORBOARD=1)."""
+
+    def add_scalar(self, *args, **kwargs) -> None:
+        return None
+
+    def close(self) -> None:
+        return None
+
+
+def _tensorboard_disabled() -> bool:
+    return os.environ.get("OMNIFED_DISABLE_TENSORBOARD", "").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    )
+
+
 class MetricLogger:
     """Mixin for metrics collection and logging.
 
@@ -129,7 +148,10 @@ class MetricLogger:
         self._global_step_fn = global_step_fn
         self._metadata_fields = metadata_fields or {}
 
-        self._tb_writer = SummaryWriter(log_dir)
+        if _tensorboard_disabled():
+            self._tb_writer = _NullSummaryWriter()
+        else:
+            self._tb_writer = SummaryWriter(log_dir)
         self._csv_file = open(
             os.path.join(log_dir, "metrics_full.csv"), "w", newline=""
         )
@@ -153,6 +175,7 @@ class MetricLogger:
         self._agg_ctx_accumulators: Dict[str, Dict[MetricAggType, defaultdict]] = {}
         self._agg_ctx_csv_writers: Dict[str, csv.writer] = {}
         self._agg_ctx_csv_files: Dict[str, Any] = {}
+        self._agg_ctx_csv_metric_columns: Dict[str, List[str]] = {}
 
         atexit.register(self.close_metrics)
 
@@ -281,6 +304,24 @@ class MetricLogger:
                 pass
 
         return f"global_step={global_step} ({' '.join(parts)})".upper()
+
+    def peek_metric(
+        self,
+        key: str,
+        *,
+        agg_context: Optional[str] = None,
+        agg_type: MetricAggType = MetricAggType.MEAN,
+    ) -> Optional[float]:
+        """Read the current accumulator value without flushing or resetting."""
+        target_agg_context = agg_context or self.current_agg_context
+        full_metric_name = f"{target_agg_context}/{key}"
+        accumulators = self._agg_ctx_accumulators.get(target_agg_context)
+        if not accumulators:
+            return None
+        metric_accumulator = accumulators[agg_type].get(full_metric_name)
+        if metric_accumulator is None or metric_accumulator.update_count == 0:
+            return None
+        return float(metric_accumulator.compute().item())
 
     def log_metric(
         self,
@@ -441,6 +482,128 @@ class MetricLogger:
                 )
         return all_metric_names
 
+    def _metadata_column_names(self) -> List[str]:
+        return ["global_step", *list(self._metadata_fields.keys())]
+
+    def _expand_context_csv_if_needed(
+        self,
+        agg_context: str,
+        sorted_metric_names: List[str],
+    ) -> None:
+        """Widen ``metrics_<ctx>.csv`` when a later flush introduces new metric columns."""
+        if agg_context not in self._agg_ctx_csv_writers:
+            self._agg_ctx_csv_metric_columns[agg_context] = list(sorted_metric_names)
+            return
+
+        stored = self._agg_ctx_csv_metric_columns.get(agg_context, [])
+        merged = sorted(set(stored) | set(sorted_metric_names))
+        if merged == stored:
+            return
+
+        meta_cols = self._metadata_column_names()
+        csv_path = os.path.join(self._metric_log_dir, f"metrics_{agg_context}.csv")
+
+        existing_rows: List[List[str]] = []
+        try:
+            with open(csv_path, "r", newline="", encoding="utf-8") as fin:
+                reader = csv.reader(fin)
+                next(reader, None)  # skip old header
+                existing_rows = list(reader)
+        except OSError as e:
+            warnings.warn(f"Failed to read context CSV for reheader '{agg_context}': {e}")
+            self._agg_ctx_csv_metric_columns[agg_context] = list(merged)
+            return
+
+        self._agg_ctx_csv_files[agg_context].close()
+
+        try:
+            csv_file = open(csv_path, "w", newline="", encoding="utf-8")
+            writer = csv.writer(csv_file)
+            writer.writerow(meta_cols + merged)
+            for row in existing_rows:
+                old_metrics = row[len(meta_cols) :]
+                old_map = dict(zip(stored, old_metrics))
+                writer.writerow(
+                    row[: len(meta_cols)]
+                    + [old_map.get(name, "") for name in merged]
+                )
+            self._agg_ctx_csv_files[agg_context] = csv_file
+            self._agg_ctx_csv_writers[agg_context] = writer
+            self._agg_ctx_csv_metric_columns[agg_context] = list(merged)
+        except OSError as e:
+            warnings.warn(f"Failed to reheader context CSV for '{agg_context}': {e}")
+
+    def _load_context_records_from_full_csv(self, agg_context: str) -> List[Dict[str, Any]]:
+        """Rebuild wide context rows from long-format ``metrics_full.csv``."""
+        csv_path = os.path.join(self._metric_log_dir, "metrics_full.csv")
+        if not os.path.exists(csv_path):
+            return []
+
+        meta_cols = self._metadata_column_names()
+        try:
+            df = pd.read_csv(csv_path)
+        except Exception as e:
+            warnings.warn(
+                f"Failed to read metrics_full.csv for context '{agg_context}': {e}"
+            )
+            return []
+
+        if "agg_ctx" not in df.columns or "metric_key" not in df.columns:
+            return []
+
+        sub = df[df["agg_ctx"] == agg_context]
+        if sub.empty:
+            return []
+
+        group_cols = [c for c in meta_cols if c in sub.columns]
+        if not group_cols:
+            return []
+
+        records: List[Dict[str, Any]] = []
+        for _, group in sub.groupby(group_cols, sort=False, dropna=False):
+            rec: Dict[str, Any] = {}
+            for col in group_cols:
+                rec[col] = group[col].iloc[0]
+            for _, row in group.iterrows():
+                rec[str(row["metric_key"])] = row["metric_val"]
+            records.append(rec)
+        return records
+
+    def _agg_contexts_in_full_csv(self) -> List[str]:
+        """Distinct ``agg_ctx`` values present in long-format ``metrics_full.csv``."""
+        csv_path = os.path.join(self._metric_log_dir, "metrics_full.csv")
+        if not os.path.isfile(csv_path):
+            return []
+        try:
+            df = pd.read_csv(csv_path, usecols=["agg_ctx"])
+        except (ValueError, KeyError):
+            try:
+                df = pd.read_csv(csv_path)
+            except Exception:
+                return []
+            if "agg_ctx" not in df.columns:
+                return []
+        except Exception:
+            return []
+        return sorted({str(x) for x in df["agg_ctx"].dropna().unique()})
+
+    def _load_wide_context_csv(self, agg_context: str) -> List[Dict[str, Any]]:
+        csv_path = os.path.join(self._metric_log_dir, f"metrics_{agg_context}.csv")
+        if not os.path.isfile(csv_path):
+            return []
+        try:
+            df = pd.read_csv(csv_path, engine="python", on_bad_lines="skip")
+            return df.to_dict("records")
+        except TypeError:
+            # pandas < 1.3
+            df = pd.read_csv(csv_path, engine="python", error_bad_lines=False)
+            return df.to_dict("records")
+        except Exception as e:
+            warnings.warn(
+                f"Failed to read experiment data for context '{agg_context}': {e}"
+            )
+            return []
+
     def _write_metrics(
         self,
         metrics: List[tuple[str, float, MetricAggType, int]],
@@ -495,6 +658,7 @@ class MetricLogger:
                 # Get all metric names once (used for both header and row writing)
                 all_metric_names = self._get_context_metric_names(agg_context)
                 sorted_metric_names = sorted(all_metric_names)
+                meta_cols = self._metadata_column_names()
 
                 # Initialize context CSV writer if needed
                 if agg_context not in self._agg_ctx_csv_writers:
@@ -505,17 +669,23 @@ class MetricLogger:
                     csv_writer = csv.writer(csv_file)
 
                     # Write header with all known metrics for this context
-                    header = list(metadata.keys()) + sorted_metric_names
+                    header = meta_cols + sorted_metric_names
                     csv_writer.writerow(header)
 
                     self._agg_ctx_csv_files[agg_context] = csv_file
                     self._agg_ctx_csv_writers[agg_context] = csv_writer
+                    self._agg_ctx_csv_metric_columns[agg_context] = list(
+                        sorted_metric_names
+                    )
+                else:
+                    self._expand_context_csv_if_needed(agg_context, sorted_metric_names)
 
-                # Build row: metadata + metric values in sorted order
+                # Align each row to the stored wide header (not just this flush's metrics).
+                column_names = self._agg_ctx_csv_metric_columns[agg_context]
                 metric_values = {name: val for name, val, _, _ in metrics}
-                row = list(metadata.values()) + [
+                row = meta_cols + [
                     metric_values.get(metric_name, "")
-                    for metric_name in sorted_metric_names
+                    for metric_name in column_names
                 ]
 
                 self._agg_ctx_csv_writers[agg_context].writerow(row)
@@ -526,23 +696,34 @@ class MetricLogger:
     def get_experiment_data(self) -> Dict[str, Any]:
         """Extract experiment timeline data for display purposes.
 
+        **Source of truth:** long-format ``metrics_full.csv`` (complete, crash-safe).
+        Wide ``metrics_<ctx>.csv`` files are fallback only when a context is absent
+        from the full log.
+
         Returns:
             Dictionary containing all context data organized by agg_context.
             Format: {agg_context: [list of metric rows with metadata]}
         """
-        experiment_data = {}
+        experiment_data: Dict[str, Any] = {}
+
+        for agg_context in self._agg_contexts_in_full_csv():
+            from_full = self._load_context_records_from_full_csv(agg_context)
+            if from_full:
+                experiment_data[agg_context] = from_full
 
         for agg_context in self._agg_ctx_csv_files.keys():
-            csv_path = os.path.join(self._metric_log_dir, f"metrics_{agg_context}.csv")
-            try:
-                if os.path.exists(csv_path):
-                    df = pd.read_csv(csv_path)
-                    experiment_data[agg_context] = df.to_dict("records")
-            except Exception as e:
-                warnings.warn(
-                    f"Failed to read experiment data for context '{agg_context}': {e}"
-                )
-                experiment_data[agg_context] = []
+            if agg_context in experiment_data:
+                continue
+            wide = self._load_wide_context_csv(agg_context)
+            if wide:
+                experiment_data[agg_context] = wide
+
+        for agg_context in ("sync", "eval", "train"):
+            if agg_context in experiment_data:
+                continue
+            wide = self._load_wide_context_csv(agg_context)
+            if wide:
+                experiment_data[agg_context] = wide
 
         return experiment_data
 
@@ -564,6 +745,7 @@ class MetricLogger:
             csv_file.close()
         self._agg_ctx_csv_files.clear()
         self._agg_ctx_csv_writers.clear()
+        self._agg_ctx_csv_metric_columns.clear()
 
     def __enter__(self):
         """Context manager entry."""

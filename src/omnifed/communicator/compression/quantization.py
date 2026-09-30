@@ -12,167 +12,124 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+"""QSGD quantization for classic centralized gRPC (sync grad path)."""
+
+from __future__ import annotations
+
 import torch
+
+from src.omnifed.device_resolver import is_cuda_oom
 
 from . import Compression
 
-# ======================================================================================
+QSGD_COMPRESSION_NAME = "QSGDQuantCompression"
 
-def should_compress_tensor(x):
-    return (
-        isinstance(x, torch.Tensor)
-        and x.is_floating_point()
-        and x.numel() > 0
-    )
 
-def choose_qsgd_storage_width(levels):
+def should_compress_tensor(x: torch.Tensor) -> bool:
+    return isinstance(x, torch.Tensor) and x.is_floating_point() and x.numel() > 0
+
+
+def choose_qsgd_storage_width(levels: int) -> tuple[int, torch.dtype]:
     if levels <= torch.iinfo(torch.int8).max:
         return 8, torch.int8
     return 32, torch.int32
 
+
 class QSGDQuantCompression(Compression):
     """
-    QSGD implementation based on the paper:
-    [QSGD: Communication-Efficient SGD via Gradient Quantization and Encoding](https://arxiv.org/abs/1610.02132)
-    | Alistarh et al. | 2017
+    QSGD implementation based on:
+    QSGD: Communication-Efficient SGD via Gradient Quantization and Encoding
+    (Alistarh et al., 2017)
     """
 
-    def __init__(self, bit_width=8, device="cpu"):
-        self.s = bit_width  # Number of quantization levels = 2^s
-        self.device = device
+    def __init__(self, bit_width: int = 8, device: torch.device | str = "cpu"):
+        super().__init__()
+        self.s = int(bit_width)
+        self.device = torch.device(device)
 
-    def quantize_vector(self, v):
+    def quantize_vector(self, v: torch.Tensor):
         """
-        QSGD quantization function Q_s(v) as defined in Algorithm 1 of the paper
-
-        Args:
-            v: Input vector to quantize
-
-        Returns:
-            Quantized vector with same expected value as input
+        Stochastic QSGD Q_s(v). Returns signed_levels, norm_v, width, levels.
+        width/levels/norm are -1 when passthrough (empty or zero norm).
         """
         if v.numel() == 0:
-            return v, v, -1, -1
+            return v, -1, -1, -1
 
-        # Step 1: Compute the norm
         norm_v = torch.norm(v).item()
-
         if norm_v == 0:
-            return torch.zeros_like(v), torch.zeros_like(v), -1, -1
+            return torch.zeros_like(v), -1, -1, -1
 
-        # Step 2: Normalize the vector
         v_normalized = v / norm_v
-
-        # Step 3: Component-wise quantization
-        # For each component v_i, compute sign and magnitude
         signs = torch.sign(v_normalized)
         abs_v = torch.abs(v_normalized)
-
-        # Quantization levels from 0 to s
         levels = 2**self.s
 
-        # Stochastic quantization
-        # ξ_i = l/s where l is chosen such that l/s ≤ |v_i| ≤ (l+1)/s
-        # with probability proportional to the distance
         scaled_abs = abs_v * levels
-        l = torch.floor(scaled_abs).long()  # Lower quantization level
-
-        # Stochastic rounding: probability of rounding up
-        prob_round_up = scaled_abs - l.float()
-        random_vals = torch.rand_like(prob_round_up)
-        round_up = (random_vals < prob_round_up).long()
-
-        # Final quantization levels
-        quantized_levels = l + round_up
-        quantized_levels = torch.clamp(quantized_levels, 0, levels)
+        lower = torch.floor(scaled_abs).long()
+        prob_round_up = scaled_abs - lower.float()
+        round_up = (torch.rand_like(prob_round_up) < prob_round_up).long()
+        quantized_levels = torch.clamp(lower + round_up, 0, levels)
 
         signed_levels = signs.long() * quantized_levels
-        # width = 8
-        # if levels <= 127:
-        #     signed_levels = signed_levels.to(torch.int8)
-        # else:
-        #     signed_levels = signed_levels.to(torch.int16)
-        #     width = 16
         width, storage_dtype = choose_qsgd_storage_width(levels)
-
         signed_levels = signed_levels.to(storage_dtype)
-
         return signed_levels, norm_v, width, levels
 
-        # # Convert back to quantized values
-        # quantized_abs = quantized_levels.float() / levels
-        # quantized_normalized = signs * quantized_abs
+    def _do_compress(self, tensor: torch.Tensor):
+        flat = tensor.flatten()
+        signed_levels, norm, width, levels = self.quantize_vector(flat)
+        if width == -1 or levels == -1 or norm == -1:
+            return tensor, -1, -1, -1
+        signed_levels = signed_levels.reshape(tensor.shape).to(tensor.device)
+        return signed_levels, norm, width, levels
 
-        # # Scale back by the norm
-        # quantized = norm_v * quantized_normalized
-
-        # return quantized, norm_v
-    
-    def __do_compress(self, gradients):
-        # quantized_grads = []
-        # norms = []
-
-        # for grad in gradients:
-        if gradients is None:
-            return None, None, -1, -1
-        else:
-            flat_grad = gradients.flatten()
-            q_grad, norm, width, levels = self.quantize_vector(flat_grad)
-            
-
-            # print("[qsgd] after quantize_vector")
-            # print(f"  flat_grad type: {type(flat_grad)}")
-            # print(f"  flat_grad dtype: {getattr(flat_grad, 'dtype', None)}")
-            # print(f"  flat_grad device: {getattr(flat_grad, 'device', None)}")
-            # print(f"  flat_grad shape: {getattr(flat_grad, 'shape', None)}")
-            # print(f"  flat_grad numel: {flat_grad.numel() if isinstance(flat_grad, torch.Tensor) else 'N/A'}")
-            # print(f"  flat_grad element_size: {flat_grad.element_size() if isinstance(flat_grad, torch.Tensor) else 'N/A'}")
-
-            # print(f"  q_grad type: {type(q_grad)}")
-            # print(f"  q_grad dtype: {getattr(q_grad, 'dtype', None)}")
-            # print(f"  q_grad device: {getattr(q_grad, 'device', None)}")
-            # print(f"  q_grad shape: {getattr(q_grad, 'shape', None)}")
-            # print(f"  q_grad numel: {q_grad.numel() if isinstance(q_grad, torch.Tensor) else 'N/A'}")
-            # print(f"  q_grad element_size: {q_grad.element_size() if isinstance(q_grad, torch.Tensor) else 'N/A'}")
-
-            # print(f"  norm type: {type(norm)}")
-            # print(f"  norm dtype: {getattr(norm, 'dtype', None)}")
-            # print(f"  norm device: {getattr(norm, 'device', None)}")
-            # print(f"  norm shape: {getattr(norm, 'shape', None)}")
-
-            # if isinstance(q_grad, torch.Tensor):
-            #     print(f"  q_grad min: {q_grad.min().item() if q_grad.numel() > 0 else 'empty'}")
-            #     print(f"  q_grad max: {q_grad.max().item() if q_grad.numel() > 0 else 'empty'}")
-            #     print(f"  q_grad expected bytes: {q_grad.numel() * q_grad.element_size()}")
-
-            q_grad = q_grad.reshape(gradients.shape).to(gradients.device)
-
-            return q_grad, norm, width, levels
-
-            # print("[qsgd] after reshape + device move")
-            # print(f"  gradients shape: {gradients.shape}")
-            # print(f"  gradients dtype: {gradients.dtype}")
-            # print(f"  gradients device: {gradients.device}")
-            # print(f"  q_grad dtype: {q_grad.dtype}")
-            # print(f"  q_grad device: {q_grad.device}")
-            # print(f"  q_grad shape: {q_grad.shape}")
-            # print(f"  q_grad element_size: {q_grad.element_size()}")
-            # print(f"  q_grad expected bytes: {q_grad.numel() * q_grad.element_size()}")
-            # norms.append(norm)
-
-        # print(f"quantized_grads = {quantized_grads}")
-        # # print(f"quantized_grads type = {type(quantized_grads)}")
-        # print(f"norms = {norms}")
-
-    def compress(self, tensor, name=''):
-        """
-        Compress tensors using proper QSGD
-        """
-        # print(f"tensor = {tensor}")
+    def compress(self, tensor: torch.Tensor, name: str = ""):
+        del name
         if not should_compress_tensor(tensor):
             return tensor, -1, -1, -1
-        return self.__do_compress(tensor)
+        try:
+            return self._do_compress(tensor)
+        except Exception as exc:
+            if not (tensor.is_cuda and is_cuda_oom(exc)):
+                raise
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+            return self._do_compress(tensor.detach().cpu())
+
+    @staticmethod
+    def decompress_quantized(
+        signed_levels: torch.Tensor,
+        norm: float,
+        levels: int,
+        shape: torch.Size | tuple[int, ...],
+    ) -> torch.Tensor:
+        """Inverse of QSGD encode: norm * signed_level / levels."""
+        if levels <= 0 or norm is None or norm == -1:
+            return signed_levels.float() if signed_levels.is_floating_point() else signed_levels
+        flat = signed_levels.float().reshape(-1)
+        restored = float(norm) * flat / float(levels)
+        return restored.reshape(shape)
+
+    def decompress(self, tensors, ctx):
+        norm, _width, levels, shape = ctx
+        signed_levels = tensors[0] if isinstance(tensors, (tuple, list)) else tensors
+        return self.decompress_quantized(signed_levels, norm, levels, shape)
+
+    def aggregate_torchdist(
+        self,
+        tensor,
+        *,
+        name: str,
+        world_size: int,
+        op,
+        logger=None,
+    ):
+        del world_size
+        from .torchdist_collectives import aggregate_qsgd_tensor
+
+        return aggregate_qsgd_tensor(
+            self, tensor, name=name, op=op, logger=logger
+        )
 
 
-
-_quantized_compression_ = ["QSGDQuantCompression"]
+_quantized_compression_ = [QSGD_COMPRESSION_NAME]

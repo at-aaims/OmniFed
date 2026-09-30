@@ -4,13 +4,13 @@ import os
 import unittest
 from unittest.mock import patch
 
-from src.omnifed.hybrid.addr_env import apply_hybrid_addr_env_overrides
-from src.omnifed.hybrid.hydra_loader import load_hybrid_cfg
+from src.omnifed.hierarchical.addr_env import apply_hierarchical_addr_env_overrides
+from src.omnifed.hierarchical.hydra_loader import load_hierarchical_cfg
 
 
 class TestHybridAddrOverrides(unittest.TestCase):
     def test_apply_three_hosts_symmetric_topo(self) -> None:
-        cfg = load_hybrid_cfg("built_symmetric_2x3.yaml")
+        cfg = load_hierarchical_cfg("built_symmetric_2x3.yaml")
         with patch.dict(
             os.environ,
             {
@@ -20,7 +20,7 @@ class TestHybridAddrOverrides(unittest.TestCase):
             },
             clear=False,
         ):
-            apply_hybrid_addr_env_overrides(cfg)
+            apply_hierarchical_addr_env_overrides(cfg)
         self.assertEqual(str(cfg.topology.rpc.addr), "10.0.0.1")
         self.assertEqual(int(cfg.topology.rpc.port), 60051)
         self.assertEqual(str(cfg.topology.facilities[0].mpi.addr), "10.0.0.2")

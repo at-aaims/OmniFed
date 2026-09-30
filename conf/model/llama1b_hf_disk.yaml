@@ -1,0 +1,13 @@
+# ================================================================================
+# LlamaForCausalLM from a **local** HF-style directory (Frontier offline).
+#
+# Point ``OMNIFED_LLAMA1B_WEIGHTS`` at the 1B tree (e.g. PrimeIntellect llama-1b-fresh).
+# Do **not** reuse ``OMNIFED_LLAMA400_WEIGHTS`` or ``OMNIFED_LLAMA_WEIGHTS``.
+# Tokenizer is separate (``OMNIFED_TOKENIZER_DIR``).
+# ================================================================================
+
+_target_: src.omnifed.model.hf_causal_lm.load_llama_from_pretrained_checkpoint
+pretrained_model_name_or_path: ${oc.env:OMNIFED_LLAMA1B_WEIGHTS,/tmp/llama-1b-hf-disk}
+local_files_only: true
+torch_dtype_str: float32
+attn_implementation: sdpa

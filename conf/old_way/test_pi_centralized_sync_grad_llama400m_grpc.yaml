@@ -1,0 +1,27 @@
+# @package _global_
+# PI centralized — Llama-400M + C4 smoke, grad FedSGD, gRPC, dense.
+# Same 16-batch cap as param smokes. Average grads, then step.
+#
+# Env: OMNIFED_LLAMA400_WEIGHTS, OMNIFED_C4_DISK, OMNIFED_TOKENIZER_DIR
+
+defaults:
+  - /old_way/test_pi_centralized_sync_param_llama400m_grpc
+  - override /algorithm: fedsgd
+  - override /algorithm/schedules/evaluation: disabled
+  - _self_
+
+engine:
+  mode: slurm
+
+topology:
+  local_comm:
+    communicate_params: false
+
+algorithm:
+  aggregate_payload: gradients
+  local_lr: 4.0e-4
+  max_epochs_per_round: 1
+  optimizer: adamw
+
+slurm:
+  job_name: omnifed_llama400_grad_grpc
