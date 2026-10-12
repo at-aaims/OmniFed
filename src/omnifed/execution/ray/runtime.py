@@ -20,6 +20,7 @@ from ...utils import (
     print_rule,
 )
 from .actor import RayActor
+from copy import deepcopy
 
 
 LOG_FLUSH_DELAY = 2.0
@@ -153,6 +154,69 @@ class RayRuntime:
 
         ray.get(configure_futures)
 
+    @staticmethod
+    def _config_value(config, key, default=None):
+        if config is None:
+            return default
+        if OmegaConf.is_config(config) or isinstance(config, dict):
+            return config.get(key, default)
+        return getattr(config, key, default)
+
+
+    def _select_torchdist_backend(self, available_gpus):
+        """Choose one backend for the whole single-level TorchDist group."""
+        backends = []
+
+        for node_config in self.topology:
+            comm = self._config_value(node_config, "local_comm")
+            backend = self._config_value(comm, "backend", None)
+            backends.append(
+                str(backend).lower() if backend is not None else None
+            )
+
+        # No TorchDist backend: preserve the existing communication path.
+        if not any(b in ("nccl", "gloo") for b in backends):
+            return None
+
+        # Never let ranks in the same group initialize different backends.
+        if len(set(backends)) != 1:
+            raise ValueError(
+                "All actors in this TorchDist group must request "
+                f"the same backend; got {backends}"
+            )
+
+        # This policy does not handle multiple/hierarchical groups.
+        if any(
+            self._config_value(node, "global_comm") is not None
+            for node in self.topology
+        ):
+            raise ValueError(
+                "Automatic GPU/CPU selection currently supports "
+                "one local TorchDist group without global_comm."
+            )
+
+        requested = backends[0]
+        required_gpus = len(self.topology)
+
+        if requested == "gloo":
+            effective = "gloo"
+            reason = "Gloo explicitly requested"
+        elif available_gpus < required_gpus:
+            effective = "gloo"
+            reason = "insufficient available GPUs"
+        else:
+            effective = "nccl"
+            reason = "enough available GPUs"
+
+        print(
+            f"[RayRuntime] requested={requested}, "
+            f"effective={effective}, "
+            f"required_gpus={required_gpus}, "
+            f"available_gpus={available_gpus}; {reason}"
+        )
+
+        return effective
+
     def setup(self) -> None:
         ray.init(
             **self._ray_init_config()
@@ -220,16 +284,28 @@ class RayRuntime:
             self.topology
         )
 
-        if available_gpus == 0:
+        # if available_gpus == 0:
+        #     gpus_per_actor = 0.0
+        # elif total_actors <= available_gpus:
+        #     gpus_per_actor = 1.0
+        # else:
+        #     gpus_per_actor = max(
+        #         available_gpus
+        #         / total_actors,
+        #         0.25,
+        #     )
+
+        effective_backend = self._select_torchdist_backend(
+            available_gpus
+        )
+
+        if effective_backend == "gloo":
             gpus_per_actor = 0.0
-        elif total_actors <= available_gpus:
+        elif effective_backend == "nccl":
             gpus_per_actor = 1.0
         else:
-            gpus_per_actor = max(
-                available_gpus
-                / total_actors,
-                0.25,
-            )
+            # Preserve the existing allocation policy for other communicators.
+            gpus_per_actor = 0.0
 
         print(
             f"Ray nodes alive: "
@@ -244,10 +320,14 @@ class RayRuntime:
             "Ray actors"
         )
 
-        self.actor_refs = (
-            self._create_actors(
-                gpus_per_actor
-            )
+        # self.actor_refs = (
+        #     self._create_actors(
+        #         gpus_per_actor
+        #     )
+        # )
+        self.actor_refs = self._create_actors(
+            gpus_per_actor,
+            effective_backend=effective_backend,
         )
 
         # Actors now exist and Ray has placed them on physical nodes.
@@ -269,6 +349,8 @@ class RayRuntime:
     def _create_actors(
         self,
         gpus_per_actor: float,
+        *,
+        effective_backend: str | None = None,
     ) -> list[Any]:
         actor_refs: list[Any] = []
 
@@ -295,7 +377,24 @@ class RayRuntime:
             else:
                 actor_options_dict = dict(actor_options)
 
-            if actor_options_dict.get("num_gpus") is None:
+            # if actor_options_dict.get("num_gpus") is None:
+            #     actor_options_dict["num_gpus"] = gpus_per_actor
+            if effective_backend is not None:
+                # Enforce the group-wide decision, even if an actor override
+                # requested fractional GPUs or a different GPU count.
+                actor_options_dict["num_gpus"] = (
+                    1.0 if effective_backend == "nccl" else 0.0
+                )
+
+                # Make CPU scheduling requirements explicit.
+                if actor_options_dict.get("num_cpus") is None:
+                    actor_options_dict["num_cpus"] = 1
+
+                if effective_backend == "gloo":
+                    # A CPU actor should not require a particular GPU model.
+                    actor_options_dict.pop("accelerator_type", None)
+
+            elif actor_options_dict.get("num_gpus") is None:
                 actor_options_dict["num_gpus"] = gpus_per_actor
 
             # Ray should not receive options whose value is None.
@@ -326,6 +425,27 @@ class RayRuntime:
                 "ray_actor_options",
                 None,
             )
+
+            if effective_backend is not None:
+                # Copy before changing it: other actors may share this config.
+                comm = deepcopy(node_kwargs["local_comm"])
+
+                if OmegaConf.is_config(comm) or isinstance(comm, dict):
+                    comm["backend"] = effective_backend
+                else:
+                    comm.backend = effective_backend
+
+                node_kwargs["local_comm"] = comm
+                node_kwargs["device_hint"] = (
+                    "cuda:0" if effective_backend == "nccl" else "cpu"
+                )
+
+                print(
+                    f"[RayRuntime] actor={node_kwargs.get('name')}, "
+                    f"backend={effective_backend}, "
+                    f"device={node_kwargs['device_hint']}, "
+                    f"num_gpus={actor_options_dict['num_gpus']}"
+                )
 
             actor = RayActor.options(
                 **actor_options_dict
