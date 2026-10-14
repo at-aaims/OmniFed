@@ -28,3 +28,4 @@ def uses_torchtitan(cfg: Any) -> bool:
     if module is None:
         return False
     return str(module).strip() not in ("", "null", "None")
+

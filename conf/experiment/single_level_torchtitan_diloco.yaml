@@ -1,0 +1,81 @@
+# @package _global_
+# Titan **client** (many GPUs = one client). Topology chooses the hop.
+#
+# Centralized (default): 2 Titan clients + 1 gRPC server → 9 nodes.
+#   ./main.sh --config-name experiment/single_level_torchtitan_fedavg \
+#     overwrite=true slurm.account=... slurm.partition=batch slurm.cpus_per_task=6
+#
+# Decentralized: one Titan, no OmniFed gRPC:
+#   topology=decentralized topology.num_clients=1 topology.local_comm=null \
+#     slurm.cpus_per_task=6
+#
+# Needs TORCHTITAN_ROOT, TORCHTITAN_HF_ASSETS, TORCHTITAN_DATASET,
+# and OMNIFED_TORCHTITAN_SCRATCH in the environment.
+
+defaults:
+  - /base
+  - /communicator@topology.local_comm: grpc
+  - /communicator/compression@topology.local_comm.compressor: dense
+  - /algorithm_torchtitan: diloco
+  - override /topology: centralized
+  - _self_
+
+engine:
+  mode: slurm
+
+topology:
+  num_clients: 2
+
+algorithm: null
+model: null
+datamodule: null
+
+global_rounds: 2
+overwrite: false
+
+torchtitan:
+  module: llama3
+  config_name: llama3_8b
+  attention_backend: flex
+  root: ${oc.env:TORCHTITAN_ROOT,null}
+  hf_assets_path: ${oc.env:TORCHTITAN_HF_ASSETS,null}
+  dataset_path: ${oc.env:TORCHTITAN_DATASET,null}
+  output_dir: ${oc.env:OMNIFED_TORCHTITAN_SCRATCH,outputs/torchtitan}/runtime
+  update_dir: ${oc.env:OMNIFED_TORCHTITAN_SCRATCH,outputs/torchtitan}/updates
+  overrides:
+    dataloader.dataset: c4_test
+    training.steps: 6
+    training.seq_len: 1024
+    training.local_batch_size: 2
+    checkpoint.enable: true
+    checkpoint.last_save_model_only: true
+    # 4 nodes × 8 GPUs = 32 ranks (same mesh).
+    parallelism.pipeline_parallel_degree: 2
+    parallelism.tensor_parallel_degree: 8
+    parallelism.enable_sequence_parallel: false
+    parallelism.data_parallel_replicate_degree: 1
+    parallelism.data_parallel_shard_degree: 2
+  subclusters:
+    enabled: true
+    nodes_per_client: 4
+    gpus_per_node: 8
+    leader_rank: 0
+    master_port_base: 29600
+    checkpoint_root: ${oc.env:OMNIFED_TORCHTITAN_SCRATCH,outputs/torchtitan}
+  federated:
+    local_steps: 3
+    server_port: 50051
+    grpc_chunk_size_mb: 64
+    aggregation_timeout: 3600
+
+# Per-step torch.profiler around train_step. Off matches Sabiha's working run.
+hydra:
+  job:
+    env_set:
+      OMNIFED_PROFILE_TORCH_COMM: "0"
+
+slurm:
+  enabled: true
+  exclusive: true
+  nodes: 9
+  ntasks_per_node: 8

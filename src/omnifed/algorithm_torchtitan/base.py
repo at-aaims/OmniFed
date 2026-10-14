@@ -112,17 +112,50 @@ class BaseTorchTitanAlgorithm(ABC):
             for name, tensor in chunk.items()
         }
 
-    def finalize_global_state(
+    
+    def server_step(
         self,
-        aggregated_state: dict[str, torch.Tensor],
-        previous_global_state: StateDict,
+        averaged_parameters: StateDict,
+        previous_global_parameters: StateDict,
         round_id: int,
     ) -> dict[str, torch.Tensor]:
         """
-        Optional server-side update after collecting client models.
+        Compute the final global parameters for one transport chunk.
 
-        FedAvg returns the averaged model unchanged.
-        FedMom can apply server momentum here.
+        Called on the server after weighted SUM aggregation and before
+        the result is returned to participants.
+
+        Default: FedAvg.
         """
+        return {
+            name: tensor.detach().clone()
+            for name, tensor in averaged_parameters.items()
+        }
 
-        return aggregated_state
+    def state_dict(self) -> dict[str, Any]:
+        """Persistent server-side algorithm state."""
+        return {}
+
+    def load_state_dict(self, state: dict[str, Any]) -> None:
+        if state:
+            raise ValueError(
+                f"{self.name} does not accept nonempty algorithm state"
+            )
+
+
+    # def finalize_global_state(
+    #     self,
+    #     aggregated_state: dict[str, torch.Tensor],
+    #     previous_global_state: StateDict,
+    #     round_id: int,
+    # ) -> dict[str, torch.Tensor]:
+    #     """
+    #     Optional server-side update after collecting client models.
+
+    #     FedAvg returns the averaged model unchanged.
+    #     FedMom can apply server momentum here.
+    #     """
+
+    #     return aggregated_state
+
+

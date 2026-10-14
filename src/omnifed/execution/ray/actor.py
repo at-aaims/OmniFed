@@ -15,199 +15,38 @@
 import os
 import time
 import warnings
-from dataclasses import dataclass, field
 from typing import Any, Dict, Optional
 
 import ray
 import torch
 from hydra.utils import instantiate
-from omegaconf import MISSING
 from torch import nn
 
-from .algorithm import BaseAlgorithm, BaseAlgorithmConfig
-from .communicator import AggregationOp, BaseCommunicator, BaseCommunicatorConfig
-from .data import DataModule, DataModuleConfig, apply_federated_shard_env
-from .model import ModelConfig
-from .utils import RequiredSetup, print
-from .summary.startup import (
-    emit_model_startup,
+from ...algorithm import (
+    BaseAlgorithm,
+    BaseAlgorithmConfig,
+)
+from ...communicator import (
+    AggregationOp,
+    BaseCommunicator,
+    BaseCommunicatorConfig,
+)
+from ...data import (
+    DataModule,
+    DataModuleConfig,
+    apply_federated_shard_env,
+)
+from ...model import ModelConfig
+from ...summary import (
     instantiate_model_timed,
     move_model_to_device_timed,
+    emit_model_startup,
 )
-
-
-@dataclass
-class RayActorConfig:
-    """
-    Ray actor options for Node resource allocation and scheduling.
-
-    Contains the same options available in Ray's .options() method for controlling
-    CPU/GPU assignment, memory limits, fault tolerance, and scheduling behavior.
-
-    Most users can ignore this - defaults work for typical FL experiments.
-    Useful for resource-constrained environments or when you need specific hardware.
-
-    Example overrides in topology configs:
-    ```yaml
-    overrides:
-      0: {ray_actor_options: {num_cpus: X.X, memory: NNNNNN}}  # Server
-      1: {ray_actor_options: {num_gpus: X.X, accelerator_type: "TYPE"}}  # Client
-    ```
-
-    Reference: https://docs.ray.io/en/latest/ray-core/api/doc/ray.actor.ActorClass.options.html
-    """
-
-    # ---
-    # The quantity of CPU cores to reserve for the lifetime of the actor
-    num_cpus: Optional[float] = None
-
-    # ---
-    # The quantity of GPUs to reserve for the lifetime of the actor
-    # None = automatic allocation, 0 = CPU-only, 0.5 = fractional sharing, 1+ = full GPUs
-    num_gpus: Optional[float] = None
-
-    # ---
-    # The quantity of various custom resources to reserve for the lifetime of the actor.
-    # Dictionary mapping strings (resource names) to floats
-    resources: Optional[Dict[str, float]] = None
-
-    # ---
-    # Requires that the actor run on a node which meets the specified label conditions
-    label_selector: Optional[Dict[str, str]] = None
-
-    # ---
-    # Requires that the actor run on a node with the specified type of accelerator
-    accelerator_type: Optional[str] = None
-
-    # ---
-    # The heap memory request in bytes for this actor, rounded down to the nearest integer
-    memory: Optional[int] = None
-
-    # ---
-    # The object store memory request for actors only
-    # object_store_memory: Optional[int] = None
-
-    # ---
-    # Maximum number of times the actor should be restarted when it dies unexpectedly.
-    # 0 = no restarts (default), -1 = infinite restarts
-    max_restarts: int = 0
-
-    # ---
-    # How many times to retry an actor task if the task fails due to a runtime error.
-    # 0 = no retries (default), -1 = retry until max_restarts limit, n > 0 = retry up to n times
-    max_task_retries: int = 0
-
-    # ---
-    # Max number of pending calls allowed on the actor handle. -1 = unlimited
-    # max_pending_calls: int = -1
-
-    # ---
-    # Max number of concurrent calls to allow for this actor (direct calls only).
-    # Defaults to 1 for threaded execution, 1000 for asyncio execution
-    # max_concurrency: Optional[int] = None
-
-    # ---
-    # The globally unique name for the actor, retrievable via ray.get_actor(name)
-    # name: Optional[str] = None
-
-    # ---
-    # Override the namespace to use for the actor. Default is anonymous namespace
-    namespace: Optional[str] = None
-
-    # ---
-    # Actor lifetime: None (fate share with creator) or "detached" (global object)
-    # lifetime: Optional[str] = None
-
-    # ---
-    # Runtime environment for this actor and its children
-    runtime_env: Optional[Dict[str, Any]] = None
-
-    # ---
-    # Scheduling strategy: None, "DEFAULT", "SPREAD", or placement group strategies
-    scheduling_strategy: Optional[str] = None
-
-    # ---
-    # Extended options for Ray libraries (e.g., workflows)
-    # _metadata: Optional[Dict[str, Any]] = None
-
-    # ---
-    # True if task events from the actor should be reported (tracing)
-    # enable_task_events: bool = True
-
-
-@dataclass
-class NodeConfig:
-    """
-    Configuration for individual federated learning nodes.
-
-    Defines a node's identity, communication partners, and resource requirements.
-    Topologies create these automatically - you typically override specific settings
-    rather than creating from scratch.
-
-    Common overrides in topology configs:
-    ```yaml
-    overrides:
-      0: {device_hint: "cpu", ray_actor_options: {num_cpus: X.X}}  # Server settings
-      1: {device_hint: "cuda:X"}  # Client gets GPU
-    ```
-
-    See conf/ directory for working topology examples.
-    """
-
-    # ---
-    # Unique identifier for this node within the federated learning topology.
-    # Used for logging, debugging, and actor naming. Must be unique per experiment.
-    name: str = MISSING
-
-    # ---
-    # Local communication configuration for intra-group federated learning operations.
-    # Handles model aggregation within the same communication group (e.g., local cluster).
-    # Required - must specify either TorchDist (NCCL/Gloo) or GRPC communicator.
-    local_comm: BaseCommunicatorConfig = MISSING
-
-    # ---
-    # Global communication configuration for inter-group federated learning operations.
-    # Used by hierarchical topologies where local groups communicate with global coordinators.
-    # Optional - None for purely local/centralized topologies.
-    global_comm: Optional[BaseCommunicatorConfig] = MISSING
-
-    # ---
-    # Algorithm configuration for federated learning logic
-    # Defines which FL algorithm this node runs (FedAvg, FedProx, etc.)
-    algorithm: BaseAlgorithmConfig = MISSING
-
-    # ---
-    # Model configuration for neural network architecture
-    # Defines the PyTorch model this node will train
-    model: ModelConfig = MISSING
-
-    # ---
-    # DataModule configuration for data loading and preprocessing
-    # Defines how this node loads and processes its training/evaluation data
-    datamodule: DataModuleConfig = MISSING
-
-    # ---
-    # Ray actor configuration options for distributed execution.
-    # Controls resource allocation, fault tolerance, and scheduling behavior.
-    # Default creates actor with Ray defaults (no special resource requirements).
-    ray_actor_options: RayActorConfig = field(default_factory=RayActorConfig)
-
-    # ---
-    # Device hint for this node's computation placement
-    device_hint: str = "auto"
-
-    # ---
-    # Experiment directory for this node's log files
-    # None defaults to Hydra's output directory
-    log_dir_base: Optional[str] = None
-
-    # True when rank 0 is a non-training server (CentralizedTopology / gRPC).
-    # False for DecentralizedTopology (every rank trains).
-    has_server: bool = True
+from ...utils import RequiredSetup, print
 
 
 @ray.remote
-class Node(RequiredSetup):
+class RayActor(RequiredSetup):
     """
     Distributed federated learning participant (server or client).
 
@@ -229,7 +68,6 @@ class Node(RequiredSetup):
         model: ModelConfig,
         datamodule: DataModuleConfig,
         # ---
-        ray_actor_options: RayActorConfig,
         log_dir_base: str,
         device_hint: str,
         has_server: bool = True,
@@ -263,7 +101,10 @@ class Node(RequiredSetup):
             instantiate(global_comm) if global_comm else None
         )
 
-        self.algorithm: BaseAlgorithm = instantiate(algorithm, log_dir=self.log_dir)
+        self.algorithm: BaseAlgorithm = instantiate(
+            algorithm,
+            log_dir=self.log_dir,
+        )
 
         if os.environ.get("OMNIFED_FEDERATED_CLIENT_INDEX") in (None, ""):
             comm_rank = int(self.local_comm.rank)
@@ -276,6 +117,39 @@ class Node(RequiredSetup):
         self.datamodule: DataModule = instantiate(datamodule)
         # Deferred instantiation
         self.__device: Optional[torch.device] = None
+
+
+    def get_runtime_identity(self) -> Dict[str, Any]:
+        """
+        Return the actor's TorchDist rank and its Ray-node IP address.
+
+        This is called before communicator setup so the runtime can discover
+        where local rank 0 was scheduled.
+        """
+        return {
+            "name": self.name,
+            "local_rank": int(self.local_comm.rank),
+            "node_ip": ray.util.get_node_ip_address(),
+        }
+
+    def set_local_master_addr(self, master_addr: str) -> None:
+        """
+        Set the TorchDist rendezvous address before process-group setup.
+        """
+        if self.local_comm.is_ready:
+            raise RuntimeError(
+                "Cannot change local_comm.master_addr after communicator setup."
+            )
+
+        self.local_comm.master_addr = str(master_addr)
+
+        print(
+            f"Configured local TorchDist master: "
+            f"rank={self.local_comm.rank}, "
+            f"master_addr={self.local_comm.master_addr}, "
+            f"master_port={self.local_comm.master_port}",
+            flush=True,
+        )
 
     def _setup(self, total_rounds: int) -> None:
         """
@@ -355,6 +229,11 @@ class Node(RequiredSetup):
         
         self.local_comm.set_logger(self.algorithm)
 
+        if self.global_comm:
+            self.global_comm.set_logger(self.algorithm)
+
+        self.local_comm.set_logger(self.algorithm)
+
         _t_init_total_end = time.time()
 
         # Log initialization timing metrics individually (uses current context)
@@ -384,10 +263,10 @@ class Node(RequiredSetup):
             Timeline data containing metrics with FL coordinates
         """
         if not self.is_ready:
-            raise RuntimeError("Node not ready - call setup() first")
+            raise RuntimeError("Ray actor not ready - call setup() first")
 
         print(
-            "Node starting experiment",
+            "Ray actor starting experiment",
             flush=True,
         )
 
@@ -400,7 +279,7 @@ class Node(RequiredSetup):
                 self.algorithm.round_exec(round_idx, self.algorithm.max_rounds)
 
             print(
-                "Node completed experiment",
+                "Ray actor completed experiment",
                 flush=True,
             )
 
@@ -416,7 +295,7 @@ class Node(RequiredSetup):
         return self.algorithm.get_experiment_data()
 
     def __repr__(self) -> str:
-        """Node string representation with name and timestamp."""
+        """Ray actor string representation with name and timestamp."""
         _time = time.strftime("%H:%M:%S", time.gmtime())
         return f"{self.name} {_time}"
 

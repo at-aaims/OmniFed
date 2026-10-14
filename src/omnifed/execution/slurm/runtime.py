@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import os
-from typing import Any
+from typing import Any, Optional
 
 from omegaconf import OmegaConf
 
@@ -10,13 +10,14 @@ from ...engine_communication import is_hierarchical_cfg, resolve_slurm_ntasks
 from ...execution.shared import uses_torchtitan
 from src.omnifed.data.federated_shards import topology_has_server
 from .slurm_launcher import (
-    SlurmConfig,
     SlurmOnlyLauncher,
     allocation_slot_count,
     resolve_slurm_frozen_cfg_path,
     tasks_per_allocated_node,
 )
 from ...utils import print
+from .config import SlurmConfig
+from .environment import build_frontier_setup_lines
 from .torchtitan_launcher import TorchTitanSlurmLauncher
 
 
@@ -63,6 +64,7 @@ class SlurmRuntime:
         self.repo_root = repo_root
 
     def setup(self) -> None:
+
         titan = uses_torchtitan(self.cfg)
         worker_name = "torchtitan_worker.py" if titan else "slurm_worker.py"
         if "SLURM_JOB_ID" in os.environ:
@@ -94,7 +96,8 @@ class SlurmRuntime:
         sconf.stdout = os.path.join(self.hydra_cfg.runtime.output_dir, "slurm-%j.out")
         sconf.stderr = os.path.join(self.hydra_cfg.runtime.output_dir, "slurm-%j.err")
         sconf.pyexe = "python"
-        sconf.setup_lines = frontier_setup_lines()
+        # sconf.setup_lines = frontier_setup_lines()
+        sconf.setup_lines = build_frontier_setup_lines()
 
         if titan:
             self._submit_torchtitan(sconf)

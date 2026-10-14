@@ -5,9 +5,7 @@ import shlex
 import subprocess
 from typing import Any
 
-from .slurm_launcher import SlurmConfig
-
-TORCHTITAN_WORKER_MODULE = "src.omnifed.execution.slurm.torchtitan_worker"
+from .config import SlurmConfig
 
 
 class TorchTitanSlurmLauncher:
@@ -36,6 +34,7 @@ class TorchTitanSlurmLauncher:
             raise ValueError(
                 "num_clients must be positive"
             )
+
         if "has_server" not in launcher_cfg:
             raise ValueError(
                 "has_server is required (from topology.has_server)"
@@ -87,16 +86,20 @@ class TorchTitanSlurmLauncher:
                 'export HIP_VISIBLE_DEVICES="$ROCR_VISIBLE_DEVICES"; '
                 'fi; '
                 'unset ROCR_VISIBLE_DEVICES; '
-                'export OMNIFED_PROFILE_TORCH_COMM="${OMNIFED_PROFILE_TORCH_COMM:-0}"; '
-                f'export HF_HOME="{checkpoint_root}/hf_cache"; '
+                'export HF_HOME="/mnt/bb/${USER}/hf_cache/${SLURM_JOB_ID}/rank_${SLURM_PROCID}"; '
+                # 'export OMNIFED_PROFILE_TORCH_COMM="${OMNIFED_PROFILE_TORCH_COMM:-0}"; '
+                # f'export HF_HOME="{checkpoint_root}/hf_cache"; '
                 'export HF_DATASETS_CACHE="${HF_HOME}/datasets"; '
                 'export TRANSFORMERS_CACHE="${HF_HOME}/transformers"; '
                 'mkdir -p "$HF_DATASETS_CACHE" "$TRANSFORMERS_CACHE"; '
                 'echo "[worker] hostname=$(hostname) HIP_VISIBLE_DEVICES=${HIP_VISIBLE_DEVICES:-<unset>}"; '
-                'echo "[worker] OMNIFED_PROFILE_TORCH_COMM=${OMNIFED_PROFILE_TORCH_COMM:-<unset>}"; '
                 'echo "HF_HOME=$HF_HOME"; '
                 'echo "HF_DATASETS_CACHE=$HF_DATASETS_CACHE"; '
-                'exec "$PYEXE" -u -m ' + TORCHTITAN_WORKER_MODULE + ' --cfg-json "$CFG_JSON"'
+                'exec "$PYEXE" -u -m src.omnifed.execution.slurm.torchtitan_worker --cfg-json "$CFG_JSON"'
+                # 'echo "[worker] OMNIFED_PROFILE_TORCH_COMM=${OMNIFED_PROFILE_TORCH_COMM:-<unset>}"; '
+                # 'echo "HF_HOME=$HF_HOME"; '
+                # 'echo "HF_DATASETS_CACHE=$HF_DATASETS_CACHE"; '
+                # 'exec "$PYEXE" -u -m ' + TORCHTITAN_WORKER_MODULE + ' --cfg-json "$CFG_JSON"'
             )
         )
 
@@ -111,6 +114,7 @@ class TorchTitanSlurmLauncher:
             f'export PYTHONPATH="{sconf.work_dir}:${{PYTHONPATH:-}}"',
             f'export PYEXE="${{PYEXE:-{pyexe}}}"',
             'mapfile -t HOSTS < <(scontrol show hostnames "$SLURM_JOB_NODELIST")',
+            # 'SERVER_HOST="${HOSTS[0]}"',
             f'export CFG_JSON="{sconf.cfg_json_path}"',
             f'CHECKPOINT_ROOT="{checkpoint_root}/job_${{SLURM_JOB_ID}}"',
             'mkdir -p "$CHECKPOINT_ROOT"',
@@ -164,6 +168,11 @@ class TorchTitanSlurmLauncher:
             lines += [
                 f'CLIENT_{client_id}_NODES=$(IFS=,; echo "${{HOSTS[*]:{first_node}:{nodes_per_client}}}")',
                 f'CLIENT_{client_id}_MASTER="${{HOSTS[{first_node}]}}"',
+                #'export TORCH_NCCL_DESYNC_DEBUG=1',
+                #'export TORCH_NCCL_TRACE_BUFFER_SIZE=1048576',
+                #'export NCCL_DEBUG=INFO',
+                #'export NCCL_DEBUG_SUBSYS=INIT,COLL',
+                #"--gpus-per-task=1 --gpu-bind=closest "
                 (
                     f"srun --exclusive --nodes={nodes_per_client} "
                     f"--ntasks={world_size} --ntasks-per-node={gpus_per_node} "

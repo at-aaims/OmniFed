@@ -5,8 +5,9 @@ from __future__ import annotations
 import os
 import unittest
 
-from src.omnifed.slurm_launcher import resolve_slurm_frozen_cfg_path
-
+from src.omnifed.execution.slurm.slurm_launcher import (
+    resolve_slurm_frozen_cfg_path,
+)
 
 class TestResolveSlurmFrozenCfgPath(unittest.TestCase):
     def test_under_hydra_run_dir_not_shared_outputs_root(self) -> None:

@@ -90,6 +90,7 @@ class GrpcServer(grpc_pb2_grpc.GrpcServerServicer):
         )
 
         self.compressor = compressor
+        self.result_processors = {}
         # self.compressor = None
         self._broadcast_state = {}
         self.agg_device = torch.device(agg_device or "cpu")
@@ -321,29 +322,67 @@ class GrpcServer(grpc_pb2_grpc.GrpcServerServicer):
     #     print("Server storing the model in itself")
     #     print(get_msg_info(tensordict))
 
+    def set_next_result_processor(self, processor) -> int:
+        """
+        Register a result transformation for the next aggregation.
+
+        Called by the server's worker thread before it submits its
+        contribution. Aggregation cannot finish without that contribution.
+        """
+        with self.lock:
+            session_id = self.current_aggregation_session
+            session = self.aggregation_state[session_id]
+
+            if session["result"] is not None:
+                raise RuntimeError(
+                    f"Aggregation session {session_id} already completed"
+                )
+
+            if session_id in self.result_processors:
+                raise RuntimeError(
+                    f"Aggregation session {session_id} already has a processor"
+                )
+
+            self.result_processors[session_id] = processor
+            return session_id
+
     def perform_aggregation_if_ready(
-        self, session_state: Dict, current_session: int, is_model_communicated=False
+        self,
+        session_state: Dict,
+        current_session: int,
+        is_model_communicated=False,
     ) -> bool:
         """
         Execute aggregation when all clients have submitted data.
-
         SUM/MEAN/MAX use a running accumulator. Tests that still fill
         ``session_state["data"]`` are folded into that accumulator here.
         """
+
+        # Never reapply an outer update to an already completed session.
+        if session_state["result"] is not None:
+            return True
+
         if session_state.get("accum") is None and session_state.get("data"):
             for pid, payload in list(session_state["data"].items()):
                 self._accumulate_into_session(session_state, pid, payload)
             session_state["data"].clear()
 
         submitted_count = self._submitted_count(session_state)
-        print(f"Waiting for clients ({submitted_count}/{self.world_size} ready)")
+        print(
+            f"Waiting for clients "
+            f"({submitted_count}/{self.world_size} ready)"
+        )
 
         if submitted_count != self.world_size:
             return False
+
         if session_state.get("accum") is None:
             return False
 
-        print(f"All {self.world_size} clients ready - beginning aggregation")
+        print(
+            f"All {self.world_size} clients ready - beginning aggregation"
+        )
+
         reduction_type = session_state["reduction_type"]
         if reduction_type is None:
             raise ValueError(
@@ -351,34 +390,182 @@ class GrpcServer(grpc_pb2_grpc.GrpcServerServicer):
             )
 
         aggregated_tensors = session_state["accum"]
+
         with torch.no_grad():
             if reduction_type == AggregationOp.MEAN.value:
                 for tensor in aggregated_tensors.values():
                     if torch.is_tensor(tensor):
                         tensor /= self.world_size
+
             elif reduction_type == AggregationOp.SUM.value:
                 total_samples = int(session_state.get("total_samples", 0))
                 if total_samples >= 1:
                     for tensor in aggregated_tensors.values():
                         if torch.is_tensor(tensor):
                             tensor /= total_samples
+
             elif reduction_type not in (
                 AggregationOp.SUM.value,
                 AggregationOp.MEAN.value,
                 AggregationOp.MAX.value,
             ):
-                raise ValueError(f"Unknown reduction type: {reduction_type}")
+                raise ValueError(
+                    f"Unknown reduction type: {reduction_type}"
+                )
+
+        # For Torchtitan algorithms (Diloco, FedAvg), apply any registered result processor to the aggregated tensors.
+        processor = self.result_processors.get(current_session)
+        if processor is not None:
+            with torch.no_grad():
+                aggregated_tensors = processor(aggregated_tensors)
+            self.result_processors.pop(current_session, None)
 
         if is_model_communicated:
             self.model = aggregated_tensors
+
         session_state["result"] = aggregated_tensors
         self._release_aggregation_inputs(session_state)
         session_state["event"].set()
+
         print(
-            f"Aggregated {len(aggregated_tensors)} tensors using {reduction_type}"
+            f"Aggregated {len(aggregated_tensors)} tensors "
+            f"using {reduction_type}"
         )
+
         self.current_aggregation_session += 1
         return True
+
+#     def perform_aggregation_if_ready(
+#         self, session_state: Dict, current_session: int, is_model_communicated=False
+#     ) -> bool:
+#         """
+#         Execute aggregation when all clients have submitted data.
+
+#         SUM/MEAN/MAX use a running accumulator. Tests that still fill
+#         ``session_state["data"]`` are folded into that accumulator here.
+#         """
+
+#         # Never reapply an outer update to an already completed session.
+#         if session_state["result"] is not None:
+#             return True
+#         if session_state.get("accum") is None and session_state.get("data"):
+#             for pid, payload in list(session_state["data"].items()):
+#                 self._accumulate_into_session(session_state, pid, payload)
+#             session_state["data"].clear()
+
+#         submitted_count = self._submitted_count(session_state)
+#         print(f"Waiting for clients ({submitted_count}/{self.world_size} ready)")
+
+#         if submitted_count != self.world_size:
+#             return False
+#         if session_state.get("accum") is None:
+#             return False
+
+# <<<<<<< HEAD
+#             first_data = next(iter(session_state["data"].values()))
+#             aggregated_tensors = {}
+
+#             with torch.no_grad():
+#                 reduction_type = session_state["reduction_type"]
+#                 if reduction_type is None:
+#                     raise ValueError(
+#                         f"No reduction type set for session {current_session}"
+#                     )
+
+#                 # Initialize aggregated tensors for each key
+#                 aggregated_tensors = {}
+
+#                 if reduction_type == AggregationOp.MAX.value:
+#                     # MAX reduction: element-wise maximum
+#                     for key, tensor in first_data.items():
+#                         all_tensors = [
+#                             client_data[key]
+#                             for client_data in session_state["data"].values()
+#                         ]
+#                         aggregated_tensors[key] = torch.max(
+#                             torch.stack(all_tensors), dim=0
+#                         )[0]
+
+#                 elif reduction_type in (
+#                     AggregationOp.SUM.value,
+#                     AggregationOp.MEAN.value,
+#                 ):
+#                     # SUM/MEAN reduction: sum all contributions
+#                     for key, tensor in first_data.items():
+#                         aggregated_tensors[key] = torch.zeros_like(tensor).cpu()
+
+#                     # Sum all client contributions
+#                     for client_data in session_state["data"].values():
+#                         for key, tensor in client_data.items():
+#                             if key in aggregated_tensors:
+#                                 # Ensure tensor is on CPU
+#                                 # tensor = tensor.to("cpu")
+
+#                                 # # Ensure same dtype as accumulator
+#                                 # tensor = tensor.to(aggregated_tensors[key].dtype)
+
+#                                 aggregated_tensors[key] += tensor.cpu()
+
+#                     # Convert sum to mean if needed
+#                     if reduction_type == AggregationOp.MEAN.value:
+#                         for tensor in aggregated_tensors.values():
+#                             tensor /= self.world_size
+
+#                 else:
+#                     raise ValueError(f"Unknown reduction type: {reduction_type}")
+            
+#             # For Torchtitan algorithms (Diloco, FedAvg), apply any registered result processor to the aggregated tensors.
+#             processor = self.result_processors.get(current_session)
+#             if processor is not None:
+#                 with torch.no_grad():
+#                     aggregated_tensors = processor(aggregated_tensors)
+
+#                 self.result_processors.pop(current_session, None)
+            
+#             if is_model_communicated:
+#                 self.model = aggregated_tensors
+#             session_state["result"] = aggregated_tensors
+#             session_state["event"].set()
+#             print(
+#                 f"Aggregated {len(aggregated_tensors)} tensors using {reduction_type}"
+# =======
+#         print(f"All {self.world_size} clients ready - beginning aggregation")
+#         reduction_type = session_state["reduction_type"]
+#         if reduction_type is None:
+#             raise ValueError(
+#                 f"No reduction type set for session {current_session}"
+# >>>>>>> upstream/main
+#             )
+
+#         aggregated_tensors = session_state["accum"]
+#         with torch.no_grad():
+#             if reduction_type == AggregationOp.MEAN.value:
+#                 for tensor in aggregated_tensors.values():
+#                     if torch.is_tensor(tensor):
+#                         tensor /= self.world_size
+#             elif reduction_type == AggregationOp.SUM.value:
+#                 total_samples = int(session_state.get("total_samples", 0))
+#                 if total_samples >= 1:
+#                     for tensor in aggregated_tensors.values():
+#                         if torch.is_tensor(tensor):
+#                             tensor /= total_samples
+#             elif reduction_type not in (
+#                 AggregationOp.SUM.value,
+#                 AggregationOp.MEAN.value,
+#                 AggregationOp.MAX.value,
+#             ):
+#                 raise ValueError(f"Unknown reduction type: {reduction_type}")
+
+#         if is_model_communicated:
+#             self.model = aggregated_tensors
+#         session_state["result"] = aggregated_tensors
+#         self._release_aggregation_inputs(session_state)
+#         session_state["event"].set()
+#         print(
+#             f"Aggregated {len(aggregated_tensors)} tensors using {reduction_type}"
+#         )
+#         self.current_aggregation_session += 1
+#         return True
 
     def GetBroadcastState(self, request, context):
         """

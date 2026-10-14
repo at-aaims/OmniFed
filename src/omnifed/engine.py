@@ -30,11 +30,16 @@ from .data import DataModuleConfig
 from .engine_communication import is_hierarchical_cfg
 from .execution import uses_torchtitan, validate_execution_mode
 from .execution.ray.runtime import RayRuntime
-from .execution.slurm import SlurmConfig
+from .execution.slurm.config import SlurmConfig
 from .execution.slurm.runtime import SlurmRuntime
 from .model import ModelConfig
 from .topology import BaseTopology, BaseTopologyConfig
 from .utils import RequiredSetup, ResultsDisplay, print
+
+from dataclasses import asdict, is_dataclass
+from omegaconf import OmegaConf
+import sys
+import shlex
 
 
 @dataclass
@@ -96,7 +101,6 @@ class RayConfig:
         if self.runtime_env is None:
             self.runtime_env = {}
 
-
 @dataclass
 class EngineConfig:
     """Main configuration for OmniFed federated learning experiments."""
@@ -128,7 +132,6 @@ class EngineConfig:
 cs = ConfigStore.instance()
 cs.store(name="base_config", node=EngineConfig)
 
-
 @rich.repr.auto
 class Engine(RequiredSetup):
     """
@@ -145,8 +148,11 @@ class Engine(RequiredSetup):
         super().__init__()
         utils.print_rule()
 
-        self.cfg: EngineConfig = cfg
-        self.hydra_cfg: HydraConf = HydraConfig.get()
+        self.cfg = cfg
+        self.hydra_cfg = HydraConfig.get()
+        self.output_dir = str(self.hydra_cfg.runtime.output_dir)
+        self.engine_dir = os.path.join(self.output_dir, "engine")
+        self.results_dir = os.path.join(self.engine_dir, "node_results")
 
         self.uses_torchtitan: bool = uses_torchtitan(cfg)
         if cfg.topology is None:
@@ -160,9 +166,8 @@ class Engine(RequiredSetup):
 
         self.ray_cfg: RayConfig = cfg.ray
 
-        self.output_dir: str = self.hydra_cfg.runtime.output_dir
-        self.engine_dir: str = os.path.join(self.output_dir, "engine")
-        self.results_dir: str = os.path.join(self.engine_dir, "node_results")
+        self.global_rounds = int(cfg.global_rounds)
+        self.overwrite = bool(cfg.overwrite)
 
         self._results_display: ResultsDisplay = ResultsDisplay()
         self.execution_mode: str = validate_execution_mode(
@@ -272,8 +277,6 @@ class Engine(RequiredSetup):
             hydra_cfg=self.hydra_cfg,
             topology=self.topology,
             results_display=self._results_display,
-            engine_dir=self.engine_dir,
-            results_dir=self.results_dir,
         )
         self.ray_runtime.setup()
 

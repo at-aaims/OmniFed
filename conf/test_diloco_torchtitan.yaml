@@ -1,0 +1,116 @@
+# ==============================================================================
+# OmniFed + TorchTitan
+#
+# Launch:
+#   ./main.sh --config-name test_fedavg_torchtitan
+# ==============================================================================
+
+defaults:
+  - base
+  - algorithm_torchtitan: diloco
+  - _self_
+
+# ------------------------------------------------------------------------------
+# OmniFed backend selection
+# ------------------------------------------------------------------------------
+
+backend:
+  internal_backend: torchtitan
+
+# engine:
+#   mode: slurm
+
+# These are unused after the Engine is separated from the ordinary
+# topology/model/datamodule path.
+
+topology: null
+algorithm: null
+model: null
+datamodule: null
+
+
+
+
+global_rounds: 2
+overwrite: false
+
+
+# ------------------------------------------------------------------------------
+# TorchTitan model and training configuration
+#
+# TorchTitan is expected to be installed in the Python environment.
+# There is intentionally no torchtitan.root setting.
+# ------------------------------------------------------------------------------
+
+torchtitan:
+  module: llama3
+  config_name: llama3_8b
+  attention_backend: flex
+  # attention_backend: null
+
+  # Export these before launching:
+  #
+  # TORCHTITAN_HF_ASSETS=/path/to/Llama-3.1-8B
+  # TORCHTITAN_DATASET=/path/to/c4_test
+  # OMNIFED_TORCHTITAN_SCRATCH=/path/to/runtime/root
+
+  root: ${oc.env:TORCHTITAN_ROOT,null}
+  hf_assets_path: ${oc.env:TORCHTITAN_HF_ASSETS}
+  dataset_path: ${oc.env:TORCHTITAN_DATASET}
+
+  output_dir: ${oc.env:OMNIFED_TORCHTITAN_SCRATCH}/runtime
+  update_dir: ${oc.env:OMNIFED_TORCHTITAN_SCRATCH}/updates
+
+  overrides:
+    dataloader.dataset: c4_test
+
+    training.steps: 6
+    training.seq_len: 1024
+    training.local_batch_size: 2
+
+    checkpoint.enable: true
+    checkpoint.last_save_model_only: true
+
+    parallelism.pipeline_parallel_degree: 2
+    parallelism.tensor_parallel_degree: 8
+    parallelism.enable_sequence_parallel: false
+    parallelism.data_parallel_replicate_degree: 1
+    parallelism.data_parallel_shard_degree: 2
+
+    # Optional TorchTitan profiler:
+    # profiler.enable_profiling: true
+    # profiler.profile_freq: 6
+    # profiler.profiler_warmup: 1
+    # profiler.profiler_active: 1
+    # profiler.save_traces_folder: profiler_traces
+
+  # --------------------------------------------------------------------------
+  # Physical TorchTitan client subclusters
+  #
+  # Total nodes:
+  #   1 server + 2 clients × 4 nodes/client = 9 nodes
+  #
+  # TorchTitan ranks per client:
+  #   4 nodes × 8 GPUs/node = 32 ranks
+  # --------------------------------------------------------------------------
+
+  subclusters:
+    enabled: true
+    num_clients: 2
+    nodes_per_client: 4
+    gpus_per_node: 8
+
+    leader_rank: 0
+    master_port_base: 29600
+
+    checkpoint_root: ${oc.env:OMNIFED_TORCHTITAN_SCRATCH}
+
+  # --------------------------------------------------------------------------
+  # Federated gRPC settings
+  # --------------------------------------------------------------------------
+
+  federated:
+    local_steps: 3
+    server_port: 50051
+    grpc_chunk_size_mb: 64
+    aggregation_timeout: 3600

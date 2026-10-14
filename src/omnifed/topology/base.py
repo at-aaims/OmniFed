@@ -21,7 +21,7 @@ from .. import utils
 from ..algorithm import BaseAlgorithmConfig
 from ..data import DataModuleConfig
 from ..model import ModelConfig
-from ..node import NodeConfig
+from ..execution.config import NodeConfig
 from ..utils import RequiredSetup
 
 # ======================================================================================

@@ -17,8 +17,8 @@ defaults:
 
 # ─────────────────────────────────── Topology Overrides
 topology:
-  # num_clients: 3
-  num_clients: 27
+  num_clients: 3
+  # num_clients: 27
   local_comm:
     _target_: src.omnifed.communicator.TorchDistCommunicator
     # master_addr: 127.0.0.1 # Default

@@ -28,6 +28,9 @@ overwrite: false
 # Controls distributed compute infrastructure for federated learning
 # Docs: https://docs.ray.io/en/latest/ray-core/api/doc/ray.init.html
 
+backend:
+  internal_backend: torchdist
+
 ray:
   # ─────────────────────────────────────────
   # Cluster Connection & Resource Allocation

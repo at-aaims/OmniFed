@@ -22,7 +22,7 @@ from ..algorithm import BaseAlgorithmConfig
 from ..communicator import BaseCommunicatorConfig
 from ..data import DataModuleConfig
 from ..model import ModelConfig
-from ..node import NodeConfig
+from ..execution.config import NodeConfig
 from ..utils import print
 from . import BaseTopologyConfig
 from .base import BaseTopology
