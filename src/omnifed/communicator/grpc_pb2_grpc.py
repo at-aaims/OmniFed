@@ -5,7 +5,7 @@ import warnings
 
 from src.omnifed.communicator import grpc_pb2 as src_dot_omnifed_dot_communicator_dot_grpc__pb2
 
-GRPC_GENERATED_VERSION = '1.81.0'
+GRPC_GENERATED_VERSION = '1.71.2'
 GRPC_VERSION = grpc.__version__
 _version_not_supported = False
 
@@ -18,14 +18,14 @@ except ImportError:
 if _version_not_supported:
     raise RuntimeError(
         f'The grpc package installed is at version {GRPC_VERSION},'
-        + ' but the generated code in src/omnifed/communicator/grpc_pb2_grpc.py depends on'
+        + f' but the generated code in src/omnifed/communicator/grpc_pb2_grpc.py depends on'
         + f' grpcio>={GRPC_GENERATED_VERSION}.'
         + f' Please upgrade your grpc module to grpcio>={GRPC_GENERATED_VERSION}'
         + f' or downgrade your generated code using grpcio-tools<={GRPC_VERSION}.'
     )
 
 
-class GrpcServerStub:
+class GrpcServerStub(object):
     """Service definition for central aggregation server
     """
 
@@ -72,7 +72,7 @@ class GrpcServerStub:
                 _registered_method=True)
 
 
-class GrpcServerServicer:
+class GrpcServerServicer(object):
     """Service definition for central aggregation server
     """
 
@@ -171,7 +171,7 @@ def add_GrpcServerServicer_to_server(servicer, server):
 
 
  # This class is part of an EXPERIMENTAL API.
-class GrpcServer:
+class GrpcServer(object):
     """Service definition for central aggregation server
     """
 
