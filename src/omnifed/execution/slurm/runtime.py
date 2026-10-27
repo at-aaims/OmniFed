@@ -20,12 +20,14 @@ from .config import SlurmConfig
 from .environment import build_frontier_setup_lines
 from .torchtitan_launcher import TorchTitanSlurmLauncher
 
-_CLASSIC_ENV_TARBALL = (
-    "/lustre/orion/gen150/proj-shared/shared_titan/pytorch_rocm.tar.gz"
-)
-_TITAN_ENV_TARBALL = (
-    "/lustre/orion/gen150/proj-shared/shared_titan/omnifed.tar.gz"
-)
+
+def _required_env(name: str) -> str:
+    value = os.environ.get(name, "").strip()
+    if not value:
+        raise RuntimeError(
+            f"{name} is not set. Export it before submitting. No job was submitted."
+        )
+    return value
 
 
 class SlurmRuntime:
@@ -56,6 +58,9 @@ class SlurmRuntime:
             print(f"[Engine] Inside Slurm allocation; {worker_name} handles execution.")
             raise SystemExit(0)
 
+        tarball = _required_env("ENV_TARBALL")
+        _required_env("OMNIFED_DATA_DIR")
+
         cfg_json_path = resolve_slurm_frozen_cfg_path(self.output_dir)
         from src.omnifed.checkpoint.hybrid_round_checkpoint import (
             resolve_experiment_checkpoint_dir,
@@ -81,7 +86,6 @@ class SlurmRuntime:
         sconf.stdout = os.path.join(self.hydra_cfg.runtime.output_dir, "slurm-%j.out")
         sconf.stderr = os.path.join(self.hydra_cfg.runtime.output_dir, "slurm-%j.err")
         sconf.pyexe = "python"
-        tarball = _TITAN_ENV_TARBALL if titan else _CLASSIC_ENV_TARBALL
         sconf.setup_lines = build_frontier_setup_lines(tarball)
 
         if titan:

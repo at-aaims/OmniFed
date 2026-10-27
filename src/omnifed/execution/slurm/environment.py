@@ -12,8 +12,8 @@ def build_frontier_setup_lines(tarball: str) -> list[str]:
         # "export NCCL_DEBUG_SUBSYS=INIT,NET",
         "",
         (
-            'export OMNIFED_DATA_DIR='
-            '"${OMNIFED_DATA_DIR:-/lustre/orion/gen150/scratch/${USER}/omnifed_data}"'
+            'if [ -z "${OMNIFED_DATA_DIR:-}" ]; then '
+            'echo "[setup] ERROR: OMNIFED_DATA_DIR is not set"; exit 1; fi'
         ),
         'mkdir -p "$OMNIFED_DATA_DIR"',
         'echo "[setup] OMNIFED_DATA_DIR=$OMNIFED_DATA_DIR"',
