@@ -6,7 +6,7 @@
 # ================================================================================
 
 _target_: src.omnifed.model.hf_causal_lm.load_llama_from_pretrained_checkpoint
-pretrained_model_name_or_path: ${oc.env:OMNIFED_LLAMA_WEIGHTS,/tmp/PrimeIntellect_llama-150m-fresh}
+pretrained_model_name_or_path: ${oc.env:OMNIFED_LLAMA_WEIGHTS}
 local_files_only: true
 torch_dtype_str: float32
 attn_implementation: sdpa

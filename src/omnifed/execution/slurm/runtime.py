@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import os
-from typing import Any, Optional
+from typing import Any
 
 from omegaconf import OmegaConf
 
@@ -21,26 +21,13 @@ from .environment import build_frontier_setup_lines
 from .torchtitan_launcher import TorchTitanSlurmLauncher
 
 
-def frontier_setup_lines() -> list[str]:
-    """Site env previously hardcoded in Engine._setup (behavior freeze)."""
-    return [
-        "module load PrgEnv-gnu/8.6.0",
-        "module load rocm/6.4.1",
-        "module load rccl-net-plugin",
-        "module load craype-accel-amd-gfx90a",
-        "module load miniforge3/23.11.0-0",
-        'export OMNIFED_DATA_DIR="/lustre/orion/gen150/scratch/shruti2395/omnifed_data"',
-        'mkdir -p "$OMNIFED_DATA_DIR"',
-        'echo "[setup] OMNIFED_DATA_DIR=$OMNIFED_DATA_DIR"',
-        'export PYEXE="${PYEXE:-/ccs/home/shruti2395/.conda/envs/pytorch_rocm/bin/python}"',
-        'echo "[setup] PYEXE=$PYEXE"',
-        '"$PYEXE" -c "import torch; print(torch.__version__)"',
-        "",
-        "export MIOPEN_USER_DB_PATH=/tmp/${USER}/miopen-cache",
-        "export MIOPEN_CUSTOM_CACHE_DIR=${MIOPEN_USER_DB_PATH}",
-        "export MIOPEN_FIND_MODE=1",
-        'mkdir -p "$MIOPEN_USER_DB_PATH"',
-    ]
+def _required_env(name: str) -> str:
+    value = os.environ.get(name, "").strip()
+    if not value:
+        raise RuntimeError(
+            f"{name} is not set. Export it before submitting. No job was submitted."
+        )
+    return value
 
 
 class SlurmRuntime:
@@ -71,6 +58,9 @@ class SlurmRuntime:
             print(f"[Engine] Inside Slurm allocation; {worker_name} handles execution.")
             raise SystemExit(0)
 
+        tarball = _required_env("ENV_TARBALL")
+        _required_env("OMNIFED_DATA_DIR")
+
         cfg_json_path = resolve_slurm_frozen_cfg_path(self.output_dir)
         from src.omnifed.checkpoint.hybrid_round_checkpoint import (
             resolve_experiment_checkpoint_dir,
@@ -96,8 +86,7 @@ class SlurmRuntime:
         sconf.stdout = os.path.join(self.hydra_cfg.runtime.output_dir, "slurm-%j.out")
         sconf.stderr = os.path.join(self.hydra_cfg.runtime.output_dir, "slurm-%j.err")
         sconf.pyexe = "python"
-        # sconf.setup_lines = frontier_setup_lines()
-        sconf.setup_lines = build_frontier_setup_lines()
+        sconf.setup_lines = build_frontier_setup_lines(tarball)
 
         if titan:
             self._submit_torchtitan(sconf)

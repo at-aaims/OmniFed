@@ -139,6 +139,8 @@ class SlurmConfig:
 
         if self.exclusive:
             lines.append("#SBATCH --exclusive")
+        if self.dependency_singleton:
+            lines.append("#SBATCH -d singleton")
 
         if self.qos:
             lines.append(

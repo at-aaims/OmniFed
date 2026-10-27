@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 
-def build_frontier_setup_lines() -> list[str]:
+def build_frontier_setup_lines(tarball: str) -> list[str]:
     return [
         "module load PrgEnv-gnu/8.6.0",
         "module load rocm/6.4.1",
@@ -12,8 +12,15 @@ def build_frontier_setup_lines() -> list[str]:
         # "export NCCL_DEBUG_SUBSYS=INIT,NET",
         "",
         (
-            'export ENV_TARBALL='
-            '"/ccs/home/${USER}/omnifed.tar.gz"'
+            'if [ -z "${OMNIFED_DATA_DIR:-}" ]; then '
+            'echo "[setup] ERROR: OMNIFED_DATA_DIR is not set"; exit 1; fi'
+        ),
+        'mkdir -p "$OMNIFED_DATA_DIR"',
+        'echo "[setup] OMNIFED_DATA_DIR=$OMNIFED_DATA_DIR"',
+        "",
+        (
+            "export ENV_TARBALL="
+            f'"{tarball}"'
         ),
         (
             'export ENV_ROOT='

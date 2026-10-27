@@ -73,11 +73,16 @@ class TorchTitanBackend:
             torchtitan_cfg, "overrides", {}
         )
         output_dir = self._output_dir or self._get_nested(
-            torchtitan_cfg, "output_dir", "outputs/torchtitan_site"
+            torchtitan_cfg, "output_dir", None
         )
         update_dir = self._update_dir or self._get_nested(
-            torchtitan_cfg, "update_dir", "outputs/federated_updates"
+            torchtitan_cfg, "update_dir", None
         )
+        if not output_dir or not update_dir:
+            raise ValueError(
+                "TorchTitan output_dir and update_dir are not set. "
+                "Export OMNIFED_TORCHTITAN_SCRATCH before submitting."
+            )
         hf_assets_path = self._get_nested(
             torchtitan_cfg, "hf_assets_path", None
         )
