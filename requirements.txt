@@ -97,7 +97,7 @@ torchaudio==2.11.0
 torchdata==0.11.0
 torchmetrics==1.8.2
 # Editable install with no version control (torchtitan==0.2.2)
-# -e /autofs/nccs-svm1_home2/sabiha/torchtitan-omnifed
+-e ./third_party/torchtitan
 torchvision==0.29.0
 tqdm==4.68.3
 transformers==5.16.0
