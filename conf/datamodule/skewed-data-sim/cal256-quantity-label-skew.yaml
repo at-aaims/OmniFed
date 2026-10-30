@@ -1,0 +1,24 @@
+# ================================================================================
+# Caltech-256 + quantity-based label skew, #C=k (NIID-Bench)
+#
+# Every client owns exactly `classes_per_client` distinct classes (client i always
+# owns class i % 257); each class is split evenly among its owners. Classes owned
+# by no client are dropped (with a warning): to keep all 257 classes, use
+# num_clients * classes_per_client well above 257.
+#
+# Data, loaders, and what is returned: cal256-common.yaml
+# (train: StatefulDataLoader per trainer; eval: torch DataLoader; server: train=None).
+#
+# Usage: python main.py datamodule=skewed-data-sim/cal256-quantity-label-skew datamodule.partitioner.classes_per_client=8
+# Test:  src/omnifed/data/skewed/test/test_quantity_label_skew.py
+# ================================================================================
+
+defaults:
+  - /datamodule/skewed-data-sim/cal256-common@_here_ # absolute path, merged into this package
+  - _self_
+
+partitioner:
+  _target_: src.omnifed.data.skewed.label_distribution.QuantityLabelSkew
+  classes_per_client: 32
+  stateful_loader: true
+  # seed: 0

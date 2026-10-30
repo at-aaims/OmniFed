@@ -1,0 +1,25 @@
+# ================================================================================
+# Caltech-256 + shard label skew (McMahan et al., 2017)
+#
+# Sort samples by label, cut into num_clients * shards_per_client equal shards,
+# deal shards_per_client random shards to each client. Client sizes are equal.
+# Note: a shard holds ~N / (K * s) samples, so with few clients each shard spans
+# many of Caltech's 257 classes (roughly 257 / K classes per client); the skew
+# grows with the number of clients.
+#
+# Data, loaders, and what is returned: cal256-common.yaml
+# (train: StatefulDataLoader per trainer; eval: torch DataLoader; server: train=None).
+#
+# Usage: python main.py datamodule=skewed-data-sim/cal256-shard-label-skew datamodule.partitioner.shards_per_client=1
+# Test:  src/omnifed/data/skewed/test/test_shard_label_skew.py
+# ================================================================================
+
+defaults:
+  - /datamodule/skewed-data-sim/cal256-common@_here_ # absolute path, merged into this package
+  - _self_
+
+partitioner:
+  _target_: src.omnifed.data.skewed.label_distribution.ShardLabelSkew
+  shards_per_client: 2
+  stateful_loader: true
+  # seed: 0

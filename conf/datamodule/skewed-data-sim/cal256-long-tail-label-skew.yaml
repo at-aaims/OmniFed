@@ -1,0 +1,30 @@
+# ================================================================================
+# Caltech-256 + long-tail + Dirichlet label skew (Cao et al., 2019; CReFF)
+#
+# Subsample classes to an exponential profile: the class at position r keeps
+# n_max * imbalance_factor^(-r / 256) samples (capped at what it has), then split
+# the kept data with the inner `base` scheme. Caltech-256 is already imbalanced,
+# so head classes smaller than their target keep all their samples. Samples not
+# kept are used by no client.
+#
+# Data, loaders, and what is returned: cal256-common.yaml
+# (train: StatefulDataLoader per trainer; eval: torch DataLoader; server: train=None).
+#
+# Usage: python main.py datamodule=skewed-data-sim/cal256-long-tail-label-skew datamodule.partitioner.imbalance_factor=100
+# Test:  src/omnifed/data/skewed/test/test_long_tail_label_skew.py
+# ================================================================================
+
+defaults:
+  - /datamodule/skewed-data-sim/cal256-common@_here_ # absolute path, merged into this package
+  - _self_
+
+partitioner:
+  _target_: src.omnifed.data.skewed.label_distribution.LongTailLabelSkew
+  imbalance_factor: 10 # n_max / n_min
+  class_order: index # class 001 is the head; "random" lets the seed pick
+  stateful_loader: true
+  # seed: 0            # shared with `base`; its own seed/loader options are ignored
+  base:
+    _target_: src.omnifed.data.skewed.label_distribution.DirichletLabelSkew
+    alpha: 0.5
+    min_samples_per_client: 10

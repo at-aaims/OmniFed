@@ -1,0 +1,26 @@
+# ================================================================================
+# Caltech-256 + Dirichlet label skew (Yurochkin et al., 2019; NIID-Bench)
+#
+# For each class, p ~ Dir(alpha * 1_K) splits that class's samples over the K
+# clients. Smaller alpha = more skew (0.1 strong, 1.0 mild, 100+ ~IID).
+#
+# Data, loaders, and what is returned: cal256-common.yaml
+# (train: StatefulDataLoader per trainer; eval: torch DataLoader; server: train=None).
+#
+# Usage: python main.py datamodule=skewed-data-sim/cal256-dirichlet-label-skew datamodule.partitioner.alpha=0.1
+# Test:  src/omnifed/data/skewed/test/test_dirichlet_label_skew.py
+# ================================================================================
+
+defaults:
+  - /datamodule/skewed-data-sim/cal256-common@_here_ # absolute path, merged into this package
+  - _self_
+
+partitioner:
+  _target_: src.omnifed.data.skewed.label_distribution.DirichletLabelSkew
+  alpha: 0.5
+  balance: true # NIID-Bench: cap clients at N/K while splitting, keeps sizes closer
+  min_samples_per_client: 10 # redraw until every client has at least this many
+  max_retries: 1000
+  stateful_loader: true # torchdata StatefulDataLoader instead of torch DataLoader
+  # seed: 0             # optional; default $OMNIFED_PARTITION_SEED, else 0
+  # num_clients: 4      # optional; default $OMNIFED_NUM_FEDERATED_CLIENTS

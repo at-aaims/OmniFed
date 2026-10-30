@@ -1,0 +1,21 @@
+# ================================================================================
+# Caltech-256 + IID split (homogeneous baseline, no skew)
+#
+# Uniform random split into near-equal parts. Use it as the control run for the
+# label-skew configs in this folder.
+#
+# Data, loaders, and what is returned: cal256-common.yaml
+# (train: StatefulDataLoader per trainer; eval: torch DataLoader; server: train=None).
+#
+# Usage: python main.py datamodule=skewed-data-sim/cal256-iid
+# Test:  src/omnifed/data/skewed/test/test_iid_label_distribution.py
+# ================================================================================
+
+defaults:
+  - /datamodule/skewed-data-sim/cal256-common@_here_ # absolute path, merged into this package
+  - _self_
+
+partitioner:
+  _target_: src.omnifed.data.skewed.label_distribution.IIDLabelDistribution
+  stateful_loader: true # torchdata StatefulDataLoader instead of torch DataLoader
+  # seed: 0             # optional; default $OMNIFED_PARTITION_SEED, else 0

@@ -1,0 +1,23 @@
+# ================================================================================
+# Caltech-256 + similarity-controlled label skew (Karimireddy et al., 2020)
+#
+# A fraction `similarity` of the data is split IID; the rest is sorted by label
+# and cut into one contiguous block per client. 1.0 = IID, 0.0 = each client gets
+# ~257 / K contiguous classes.
+#
+# Data, loaders, and what is returned: cal256-common.yaml
+# (train: StatefulDataLoader per trainer; eval: torch DataLoader; server: train=None).
+#
+# Usage: python main.py datamodule=skewed-data-sim/cal256-similarity-label-skew datamodule.partitioner.similarity=0.0
+# Test:  src/omnifed/data/skewed/test/test_similarity_label_skew.py
+# ================================================================================
+
+defaults:
+  - /datamodule/skewed-data-sim/cal256-common@_here_ # absolute path, merged into this package
+  - _self_
+
+partitioner:
+  _target_: src.omnifed.data.skewed.label_distribution.SimilarityLabelSkew
+  similarity: 0.2
+  stateful_loader: true
+  # seed: 0
