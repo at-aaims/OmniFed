@@ -28,7 +28,7 @@ import unittest
 import torch
 
 from src.omnifed.data.skewed.label_distribution import DirichletLabelSkew
-from src.omnifed.data.skewed.test._common import (
+from src.omnifed.data.skewed.test_label_dist._common import (
     LabelSkewSuite,
     build_datamodule,
     describe,

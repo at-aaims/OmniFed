@@ -13,9 +13,9 @@
 # limitations under the License.
 
 """
-Similarity-controlled label skew (Karimireddy et al., 2020) on Caltech-256.
+Per-client Dirichlet label skew (Hsu et al., 2019) on Caltech-256.
 
-Pairs with ``conf/datamodule/skewed-data-sim/cal256-similarity-label-skew.yaml``. Shared checks
+Pairs with ``conf/datamodule/skewed-data-sim/cal256-client-dirichlet-label-skew.yaml``. Shared checks
 (config composes, StatefulDataLoader per trainer, server has no train loader,
 ranks agree and are disjoint, matches the Hydra-built loader) come from
 :class:`LabelSkewSuite`; see ``_common.py`` for how to run.
@@ -25,26 +25,28 @@ from __future__ import annotations
 
 import unittest
 
-from src.omnifed.data.skewed.label_distribution import SimilarityLabelSkew
-from src.omnifed.data.skewed.test._common import LabelSkewSuite, describe, needs_data
+from src.omnifed.data.skewed.label_distribution import ClientDirichletLabelSkew
+from src.omnifed.data.skewed.test_label_dist._common import LabelSkewSuite, describe, needs_data
 
 
-class TestSimilarityLabelSkew(LabelSkewSuite, unittest.TestCase):
-    CONFIG = "cal256-similarity-label-skew"
+class TestClientDirichletLabelSkew(LabelSkewSuite, unittest.TestCase):
+    CONFIG = "cal256-client-dirichlet-label-skew"
     FULL_COVERAGE = True
 
     @staticmethod
     def make_partitioner():
-        return SimilarityLabelSkew(similarity=0.2, stateful_loader=True)
+        return ClientDirichletLabelSkew(
+            alpha=0.5, prior="global", samples_per_client=None, stateful_loader=True
+        )
 
     @needs_data
-    def test_equal_sizes_and_similarity_controls_skew(self) -> None:
+    def test_equal_sizes_and_alpha_controls_skew(self) -> None:
         s = self.summary()
-        self.assertLessEqual(max(s["sizes"]) - min(s["sizes"]), 2)  # IID part + sorted part
-        hell = {v: self.summary(SimilarityLabelSkew(similarity=v))["mean_hellinger"] for v in (0.0, 0.2, 1.0)}
-        self.assertGreater(hell[0.0], hell[0.2])
-        self.assertGreater(hell[0.2], hell[1.0])
+        self.assertLessEqual(max(s["sizes"]) - min(s["sizes"]), 1)  # fixed quota N // K
+        hell = {a: self.summary(ClientDirichletLabelSkew(alpha=a))["mean_hellinger"] for a in (0.1, 0.5, 1000.0)}
+        self.assertGreater(hell[0.1], hell[0.5])
+        self.assertGreater(hell[0.5], hell[1000.0])
 
 
 if __name__ == "__main__":
-    describe(TestSimilarityLabelSkew.make_partitioner)
+    describe(TestClientDirichletLabelSkew.make_partitioner)

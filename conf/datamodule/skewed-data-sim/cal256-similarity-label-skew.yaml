@@ -9,7 +9,7 @@
 # (train: StatefulDataLoader per trainer; eval: torch DataLoader; server: train=None).
 #
 # Usage: python main.py datamodule=skewed-data-sim/cal256-similarity-label-skew datamodule.partitioner.similarity=0.0
-# Test:  src/omnifed/data/skewed/test/test_similarity_label_skew.py
+# Test:  src/omnifed/data/skewed/test_label_dist/test_similarity_label_skew.py
 # ================================================================================
 
 defaults:

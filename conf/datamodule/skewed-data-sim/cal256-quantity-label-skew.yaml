@@ -10,7 +10,7 @@
 # (train: StatefulDataLoader per trainer; eval: torch DataLoader; server: train=None).
 #
 # Usage: python main.py datamodule=skewed-data-sim/cal256-quantity-label-skew datamodule.partitioner.classes_per_client=8
-# Test:  src/omnifed/data/skewed/test/test_quantity_label_skew.py
+# Test:  src/omnifed/data/skewed/test_label_dist/test_quantity_label_skew.py
 # ================================================================================
 
 defaults:

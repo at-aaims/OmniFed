@@ -13,9 +13,9 @@
 # limitations under the License.
 
 """
-Per-client Dirichlet label skew (Hsu et al., 2019) on Caltech-256.
+Shard label skew (McMahan et al., 2017) on Caltech-256.
 
-Pairs with ``conf/datamodule/skewed-data-sim/cal256-client-dirichlet-label-skew.yaml``. Shared checks
+Pairs with ``conf/datamodule/skewed-data-sim/cal256-shard-label-skew.yaml``. Shared checks
 (config composes, StatefulDataLoader per trainer, server has no train loader,
 ranks agree and are disjoint, matches the Hydra-built loader) come from
 :class:`LabelSkewSuite`; see ``_common.py`` for how to run.
@@ -25,28 +25,26 @@ from __future__ import annotations
 
 import unittest
 
-from src.omnifed.data.skewed.label_distribution import ClientDirichletLabelSkew
-from src.omnifed.data.skewed.test._common import LabelSkewSuite, describe, needs_data
+from src.omnifed.data.skewed.label_distribution import IIDLabelDistribution, ShardLabelSkew
+from src.omnifed.data.skewed.test_label_dist._common import NUM_CLASSES, LabelSkewSuite, describe, needs_data
 
 
-class TestClientDirichletLabelSkew(LabelSkewSuite, unittest.TestCase):
-    CONFIG = "cal256-client-dirichlet-label-skew"
+class TestShardLabelSkew(LabelSkewSuite, unittest.TestCase):
+    CONFIG = "cal256-shard-label-skew"
     FULL_COVERAGE = True
 
     @staticmethod
     def make_partitioner():
-        return ClientDirichletLabelSkew(
-            alpha=0.5, prior="global", samples_per_client=None, stateful_loader=True
-        )
+        return ShardLabelSkew(shards_per_client=2, stateful_loader=True)
 
     @needs_data
-    def test_equal_sizes_and_alpha_controls_skew(self) -> None:
+    def test_equal_sizes_and_skewed(self) -> None:
         s = self.summary()
-        self.assertLessEqual(max(s["sizes"]) - min(s["sizes"]), 1)  # fixed quota N // K
-        hell = {a: self.summary(ClientDirichletLabelSkew(alpha=a))["mean_hellinger"] for a in (0.1, 0.5, 1000.0)}
-        self.assertGreater(hell[0.1], hell[0.5])
-        self.assertGreater(hell[0.5], hell[1000.0])
+        self.assertLessEqual(max(s["sizes"]) - min(s["sizes"]), 2)  # 2 shards of +/-1
+        self.assertLess(max(s["classes_per_client"]), NUM_CLASSES)  # nobody sees every class
+        iid = self.summary(IIDLabelDistribution())
+        self.assertGreater(s["mean_hellinger"], iid["mean_hellinger"])
 
 
 if __name__ == "__main__":
-    describe(TestClientDirichletLabelSkew.make_partitioner)
+    describe(TestShardLabelSkew.make_partitioner)

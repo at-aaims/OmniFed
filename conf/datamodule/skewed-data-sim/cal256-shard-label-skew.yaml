@@ -11,7 +11,7 @@
 # (train: StatefulDataLoader per trainer; eval: torch DataLoader; server: train=None).
 #
 # Usage: python main.py datamodule=skewed-data-sim/cal256-shard-label-skew datamodule.partitioner.shards_per_client=1
-# Test:  src/omnifed/data/skewed/test/test_shard_label_skew.py
+# Test:  src/omnifed/data/skewed/test_label_dist/test_shard_label_skew.py
 # ================================================================================
 
 defaults:

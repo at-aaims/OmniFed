@@ -28,7 +28,7 @@ import unittest
 import numpy as np
 
 from src.omnifed.data.skewed.label_distribution import DirichletLabelSkew, LongTailLabelSkew
-from src.omnifed.data.skewed.test._common import LabelSkewSuite, describe, needs_data
+from src.omnifed.data.skewed.test_label_dist._common import LabelSkewSuite, describe, needs_data
 
 
 class TestLongTailLabelSkew(LabelSkewSuite, unittest.TestCase):

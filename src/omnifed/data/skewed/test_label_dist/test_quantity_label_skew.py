@@ -13,9 +13,9 @@
 # limitations under the License.
 
 """
-IID baseline on Caltech-256: no label skew, near-equal client sizes.
+Quantity-based label skew, #C=k (NIID-Bench), on Caltech-256.
 
-Pairs with ``conf/datamodule/skewed-data-sim/cal256-iid.yaml``. Shared checks
+Pairs with ``conf/datamodule/skewed-data-sim/cal256-quantity-label-skew.yaml``. Shared checks
 (config composes, StatefulDataLoader per trainer, server has no train loader,
 ranks agree and are disjoint, matches the Hydra-built loader) come from
 :class:`LabelSkewSuite`; see ``_common.py`` for how to run.
@@ -25,25 +25,28 @@ from __future__ import annotations
 
 import unittest
 
-from src.omnifed.data.skewed.label_distribution import IIDLabelDistribution
-from src.omnifed.data.skewed.test._common import LabelSkewSuite, describe, needs_data
+from src.omnifed.data.skewed.label_distribution import QuantityLabelSkew
+from src.omnifed.data.skewed.test_label_dist._common import LabelSkewSuite, describe, needs_data
 
 
-class TestIIDLabelDistribution(LabelSkewSuite, unittest.TestCase):
-    CONFIG = "cal256-iid"
-    FULL_COVERAGE = True
+class TestQuantityLabelSkew(LabelSkewSuite, unittest.TestCase):
+    CONFIG = "cal256-quantity-label-skew"
+    FULL_COVERAGE = False
 
     @staticmethod
     def make_partitioner():
-        return IIDLabelDistribution(stateful_loader=True)
+        return QuantityLabelSkew(classes_per_client=K_CLASSES, stateful_loader=True)
 
     @needs_data
-    def test_clients_match_global_distribution(self) -> None:
+    def test_every_client_has_exactly_k_classes(self) -> None:
         s = self.summary()
-        self.assertLessEqual(max(s["sizes"]) - min(s["sizes"]), 1)
-        self.assertLess(s["mean_hellinger"], 0.15)  # only sampling noise
-        self.assertGreaterEqual(min(s["classes_per_client"]), 250)
+        self.assertEqual(set(s["classes_per_client"]), {K_CLASSES})
+        # 4 clients x 32 classes cannot cover 257 classes: the rest is dropped
+        self.assertLess(s["coverage"], 1.0)
+
+
+K_CLASSES = 32  # classes_per_client in the yaml
 
 
 if __name__ == "__main__":
-    describe(TestIIDLabelDistribution.make_partitioner)
+    describe(TestQuantityLabelSkew.make_partitioner)

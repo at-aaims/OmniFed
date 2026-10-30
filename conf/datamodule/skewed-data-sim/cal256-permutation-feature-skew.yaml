@@ -1,0 +1,32 @@
+# ================================================================================
+# Caltech-256 + permutation feature skew (permuted MNIST)
+#
+# Each client applies its own fixed shuffle of the image's patch_size x patch_size
+# patches (patch_size 1 = individual pixels, which destroys all spatial structure
+# on 224 x 224 images; 32 gives a 7 x 7 jigsaw). Client 0 keeps the original.
+#
+# Which samples a client gets: `split` (default IID, so only features differ).
+# What happens to them: this scheme's fixed per-client transform, applied on the
+# fly to the client's training samples. Eval stays the shared clean test set.
+# Data, loaders, and what is returned: cal256-common.yaml
+#
+# Usage: python main.py datamodule=skewed-data-sim/cal256-permutation-feature-skew datamodule.partitioner.patch_size=56
+# Test:  src/omnifed/data/skewed/test_feature_dist/test_permutation_feature_skew.py
+# ================================================================================
+
+defaults:
+  - /datamodule/skewed-data-sim/cal256-common@_here_ # absolute path, merged into this package
+  - _self_
+
+partitioner:
+  _target_: src.omnifed.data.skewed.feature_distribution.PermutationFeatureSkew
+  patch_size: 32 # must divide 224
+  include_identity: true # client 0 unshuffled
+  # Transforms run in [0, 1] pixel space; must match the Normalize in cal256-common.yaml
+  input_mean: [0.485, 0.456, 0.406]
+  input_std: [0.229, 0.224, 0.225]
+  stateful_loader: true # torchdata StatefulDataLoader (false = torch DataLoader)
+  # seed: 0             # optional; default $OMNIFED_PARTITION_SEED, else 0
+  # split:              # which samples each client gets (default: IID), e.g. add label skew:
+  #   _target_: src.omnifed.data.skewed.label_distribution.DirichletLabelSkew
+  #   alpha: 0.5

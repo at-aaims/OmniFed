@@ -8,7 +8,7 @@
 # (train: StatefulDataLoader per trainer; eval: torch DataLoader; server: train=None).
 #
 # Usage: python main.py datamodule=skewed-data-sim/cal256-dirichlet-label-skew datamodule.partitioner.alpha=0.1
-# Test:  src/omnifed/data/skewed/test/test_dirichlet_label_skew.py
+# Test:  src/omnifed/data/skewed/test_label_dist/test_dirichlet_label_skew.py
 # ================================================================================
 
 defaults:

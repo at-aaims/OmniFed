@@ -18,11 +18,12 @@ Shared helpers for the Caltech-256 label-skew tests.
 Each ``test_*.py`` here pairs with one ``conf/datamodule/skewed-data-sim/cal256-*.yaml``.
 It builds by hand what Hydra builds from that yaml (same datasets, template
 loaders, and partitioner, then the same ``build_skewed_datamodule`` call),
-runs the shared checks in :class:`LabelSkewSuite`, and adds scheme-specific ones.
+runs the shared checks in :class:`SkewSuite`, and adds scheme-specific ones.
+The feature-skew tests in ``test_feature_dist/`` reuse these helpers and checks.
 
 Run from the repo root (``OMNIFED_DATA_DIR`` holds ``Caltech256/{train,test}``)::
 
-    OMNIFED_DATA_DIR=/Users/ssq/Desktop/datasets python -m pytest src/omnifed/data/skewed/test -v
+    OMNIFED_DATA_DIR=/Users/ssq/Desktop/datasets python -m pytest src/omnifed/data/skewed/test_label_dist -v
 
 Without ``OMNIFED_DATA_DIR`` only the config-composition tests run (Hydra only,
 no images); everything else is skipped.
@@ -39,7 +40,7 @@ from typing import Any, Callable, Dict, Iterator, Tuple
 from unittest import mock
 
 import numpy as np
-from torch.utils.data import DataLoader, Subset
+from torch.utils.data import DataLoader
 from torchdata.stateful_dataloader import StatefulDataLoader
 from torchvision import datasets, transforms
 
@@ -49,7 +50,7 @@ from src.omnifed.data.skewed.base import SkewedPartitioner, build_skewed_datamod
 
 DATA_ROOT = Path(os.environ.get("OMNIFED_DATA_DIR", "")) / "Caltech256"
 HAVE_DATA = (DATA_ROOT / "train").is_dir() and (DATA_ROOT / "test").is_dir()
-CONF_DIR = Path(__file__).resolve().parents[5] / "conf"  # test/ skewed/ data/ omnifed/ src/ <repo>
+CONF_DIR = Path(__file__).resolve().parents[5] / "conf"  # test_label_dist/ skewed/ data/ omnifed/ src/ <repo>
 CONFIG_GROUP = "skewed-data-sim"
 BUILDER_TARGET = "src.omnifed.data.skewed.base.build_skewed_datamodule"
 
@@ -144,9 +145,10 @@ def describe(make_partitioner: Callable[[], SkewedPartitioner]) -> None:
           f"mean_hellinger={info['mean_hellinger']:.3f}")
 
 
-class LabelSkewSuite:
+class SkewSuite:
     """
-    Checks shared by every scheme. Mix into ``unittest.TestCase`` and set:
+    Checks shared by every skew scheme (label and feature). Mix into
+    ``unittest.TestCase`` and set:
 
     * ``CONFIG``: yaml name in ``conf/datamodule/skewed-data-sim`` (no extension)
     * ``make_partitioner()``: the partitioner that yaml describes, built in Python
@@ -201,7 +203,8 @@ class LabelSkewSuite:
             dm = build_datamodule(self.make_partitioner(), self.train_set, self.eval_set)
 
         self.assertIsInstance(dm.train, StatefulDataLoader)
-        self.assertIsInstance(dm.train.dataset, Subset)
+        # a Subset (label skew) or a Subset wrapper (feature skew): both expose these
+        self.assertTrue(hasattr(dm.train.dataset, "indices"), type(dm.train.dataset))
         self.assertIs(dm.train.dataset.dataset, self.train_set)
         self.assertEqual(dm.train.batch_size, TRAIN_BATCH)
         self.assertEqual(dm.train.num_workers, LOADER_KW["num_workers"])
@@ -262,3 +265,6 @@ class LabelSkewSuite:
         self.assertIs(type(from_yaml.eval), DataLoader)
         self.assertEqual(from_yaml.eval.batch_size, by_hand.eval.batch_size)
         self.assertEqual(len(from_yaml.eval.dataset), len(by_hand.eval.dataset))
+
+
+LabelSkewSuite = SkewSuite  # name used by the label-skew tests

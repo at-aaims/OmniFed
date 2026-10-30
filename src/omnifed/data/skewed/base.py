@@ -309,6 +309,7 @@ def partition_fingerprint(
     y: np.ndarray,
     classes: np.ndarray,
     length: int = 12,
+    extra: str = "",
 ) -> str:
     """
     Short hex ID of a global partition. Identical on two ranks iff they
@@ -316,6 +317,9 @@ def partition_fingerprint(
 
     The labels are hashed too: a pure index split (e.g. IID) would otherwise
     match across ranks whose datasets list samples in different orders.
+    ``extra`` covers anything else that defines a client's data, such as a
+    feature-skew scheme's per-client transforms. Empty by default, which
+    leaves IDs of schemes that do not use it unchanged.
     """
     h = hashlib.blake2b(digest_size=16)
     h.update(np.int64(len(parts)).astype("<i8").tobytes())
@@ -325,6 +329,8 @@ def partition_fingerprint(
         p = np.ascontiguousarray(p, dtype="<i8")
         h.update(np.int64(p.size).astype("<i8").tobytes())
         h.update(p.tobytes())
+    if extra:
+        h.update(b"|extra|" + extra.encode())
     return h.hexdigest()[:length]
 
 
@@ -488,6 +494,20 @@ class SkewedPartitioner(ABC):
         """
         return resolve_federated_client_index(num_clients, env_var=FEDERATED_CLIENT_INDEX_ENV)
 
+    # ── optional hooks for schemes that change samples, not just indices ──
+
+    def describe_client(self, client_idx: int, num_clients: int) -> str:
+        """
+        Short description of what this scheme does to one client's samples
+        (e.g. ``"rotate(90)"``). Empty for index-only schemes. Logged by the
+        builder and reported by :meth:`summary`.
+        """
+        return ""
+
+    def _fingerprint_extra(self, num_clients: int) -> str:
+        """Extra text folded into :meth:`partition_id` (see ``partition_fingerprint``)."""
+        return ""
+
     # ── public API ─────────────────────────────────────────────────────────
 
     def partition(
@@ -597,7 +617,8 @@ class SkewedPartitioner(ABC):
         with np.errstate(invalid="ignore", divide="ignore"):
             local = counts / sizes[:, None]
         hell = np.sqrt(0.5 * np.sum((np.sqrt(local) - np.sqrt(glob)) ** 2, axis=1))
-        return {
+        features = [self.describe_client(i, info.num_clients) for i in range(info.num_clients)]
+        out = {
             "scheme": repr(self),
             "partition_id": info.partition_id,
             "seed": info.seed,
@@ -610,6 +631,9 @@ class SkewedPartitioner(ABC):
             "mean_hellinger": float(np.nanmean(hell)) if np.any(~np.isnan(hell)) else float("nan"),
             "class_counts": counts.tolist(),
         }
+        if any(features):  # feature-skew schemes: per-client sample transforms
+            out["client_features"] = features
+        return out
 
     def __repr__(self) -> str:
         skip = {"loader_kwargs", "label_fn"}
@@ -664,7 +688,7 @@ class SkewedPartitioner(ABC):
         parts, y, classes = self._compute(dataset, k, labels)
         keep = None if client_idx is _STATS_ONLY else int(client_idx)
         result = PartitionResult(
-            partition_id=partition_fingerprint(parts, y, classes),
+            partition_id=partition_fingerprint(parts, y, classes, extra=self._fingerprint_extra(k)),
             seed=self.resolve_seed(),
             num_samples=int(y.size),
             classes=classes,
@@ -732,11 +756,13 @@ def build_skewed_datamodule(
                 info = partitioner.partition_info(full, num_clients=n_cli)
                 own = info.class_counts[cid]
                 present = {_scalar(info.classes[c]): int(v) for c, v in enumerate(own) if v}
+                feature = partitioner.describe_client(cid, n_cli)
                 print(
                     f"[datamodule] {type(partitioner).__name__} partition_id={info.partition_id} "
                     f"seed={info.seed} client_idx={cid}/{n_cli} "
                     f"len={int(own.sum())}/{len(full)} classes={present} "
-                    f"loader={type(train).__name__}",
+                    + (f"feature={feature} " if feature else "")
+                    + f"loader={type(train).__name__}",
                     flush=True,
                 )
 
