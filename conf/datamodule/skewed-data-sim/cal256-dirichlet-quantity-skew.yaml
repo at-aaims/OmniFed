@@ -1,0 +1,26 @@
+# ================================================================================
+# Caltech-256 + Dirichlet quantity skew (Li et al., 2022, NIID-Bench)
+#
+# Size proportions q ~ Dir(beta * 1_K), redrawn until every client has at least
+# min_samples_per_client. Smaller beta = more unequal sizes (NIID-Bench: 0.5).
+#
+# Labels stay IID: each client's label mix matches the global one; only the
+# amount of data differs. Sizes sum to the full train set (all data is used).
+# Eval stays the shared test set. Data, loaders, and what is returned:
+# cal256-common.yaml
+#
+# Usage: python main.py datamodule=skewed-data-sim/cal256-dirichlet-quantity-skew datamodule.partitioner.beta=0.1
+# Test:  src/omnifed/data/skewed/test_quantity_skew/test_dirichlet_quantity_skew.py
+# ================================================================================
+
+defaults:
+  - /datamodule/skewed-data-sim/cal256-common@_here_ # absolute path, merged into this package
+  - _self_
+
+partitioner:
+  _target_: src.omnifed.data.skewed.quantity_skew.DirichletQuantitySkew
+  beta: 0.5
+  max_retries: 1000 # redraws allowed to satisfy min_samples_per_client
+  min_samples_per_client: 10 # smallest allowed client
+  stateful_loader: true # torchdata StatefulDataLoader (false = torch DataLoader)
+  # seed: 0             # optional; default $OMNIFED_PARTITION_SEED, else 0
