@@ -19,7 +19,8 @@ Each ``test_*.py`` here pairs with one ``conf/datamodule/skewed-data-sim/cal256-
 It builds by hand what Hydra builds from that yaml (same datasets, template
 loaders, and partitioner, then the same ``build_skewed_datamodule`` call),
 runs the shared checks in :class:`SkewSuite`, and adds scheme-specific ones.
-The feature-skew tests in ``test_feature_dist/`` reuse these helpers and checks.
+The feature-skew and concept-shift tests (``test_feature_dist/``,
+``test_concept_shift/``) reuse these helpers and checks.
 
 Run from the repo root (``OMNIFED_DATA_DIR`` holds ``Caltech256/{train,test}``)::
 
@@ -170,6 +171,14 @@ class SkewSuite:
 
     # helpers ---------------------------------------------------------------
 
+    def allowed_train_labels(self, client_dataset) -> set:
+        """Labels a client's batches may contain. Default: its samples' own labels."""
+        return set(self.train_labels[client_dataset.indices].tolist())
+
+    def check_trainer_eval(self, eval_loader) -> None:
+        """Default: trainers evaluate on the shared, untouched eval set."""
+        self.assertIs(eval_loader.dataset, self.eval_set)
+
     def summary(self, partitioner: SkewedPartitioner | None = None) -> Dict[str, Any]:
         with fl_env(0):
             return (partitioner or self.make_partitioner()).summary(self.train_set)
@@ -209,13 +218,12 @@ class SkewSuite:
         self.assertEqual(dm.train.batch_size, TRAIN_BATCH)
         self.assertEqual(dm.train.num_workers, LOADER_KW["num_workers"])
 
-        self.assertIs(type(dm.eval), DataLoader)  # eval: global test set, not partitioned
-        self.assertIs(dm.eval.dataset, self.eval_set)
+        self.assertIs(type(dm.eval), DataLoader)  # eval: never partitioned
+        self.check_trainer_eval(dm.eval)
 
         x, y = next(iter(dm.train))
         self.assertEqual(tuple(x.shape[1:]), (3, 224, 224))
-        own_classes = set(self.train_labels[dm.train.dataset.indices].tolist())
-        self.assertTrue(set(y.tolist()) <= own_classes)
+        self.assertTrue(set(y.tolist()) <= self.allowed_train_labels(dm.train.dataset))
 
     @needs_data
     def test_server_gets_no_train_loader(self) -> None:

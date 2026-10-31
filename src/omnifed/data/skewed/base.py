@@ -40,6 +40,7 @@ from dataclasses import dataclass
 from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence, Tuple
 
 import numpy as np
+import torch
 from torch.utils.data import DataLoader, Dataset, RandomSampler, Subset
 
 from ..datamodule import DataModule
@@ -53,6 +54,7 @@ from ...utils import print
 __all__ = [
     "SkewedPartitioner",
     "PartitionResult",
+    "ClientTransformDataset",
     "build_skewed_datamodule",
     "PARTITION_SEED_ENV",
     "DEFAULT_PARTITION_SEED",
@@ -284,6 +286,80 @@ def validate_partition(
 
 
 # ════════════════════════════════════════════════════════════════════════════
+# Client dataset wrapper
+# ════════════════════════════════════════════════════════════════════════════
+
+
+class ClientTransformDataset(Dataset):
+    """
+    A client's ``Subset`` with per-client transforms applied on the fly: an
+    input transform (feature skew) and/or a target transform (concept shift).
+
+    Both transforms are called as ``f(value, index)``, where ``index`` is the
+    sample's index in the full dataset, so per-sample randomness can be seeded.
+    Samples must be ``(input, target, ...)`` tuples. Exposes ``dataset`` and
+    ``indices`` like ``Subset``.
+
+    Args:
+        subset: The client's ``Subset`` of the full dataset.
+        transform: Input transform on ``[C, H, W]`` tensors, or ``None``.
+        input_mean, input_std: The dataset's ``Normalize`` statistics. When
+            set, the input transform runs in ``[0, 1]`` pixel space (undo
+            Normalize, transform, clamp, redo Normalize).
+        target_transform: Label transform, or ``None``.
+    """
+
+    def __init__(
+        self,
+        subset: Subset,
+        transform: Optional[Callable[[Any, int], Any]] = None,
+        input_mean: Optional[Sequence[float]] = None,
+        input_std: Optional[Sequence[float]] = None,
+        target_transform: Optional[Callable[[Any, int], Any]] = None,
+    ) -> None:
+        self.subset = subset
+        self.transform = transform
+        self.target_transform = target_transform
+        self._mean = None if input_mean is None else torch.tensor(input_mean, dtype=torch.float32).view(-1, 1, 1)
+        self._std = None if input_std is None else torch.tensor(input_std, dtype=torch.float32).view(-1, 1, 1)
+
+    @property
+    def dataset(self) -> Dataset:
+        return self.subset.dataset
+
+    @property
+    def indices(self) -> Sequence[int]:
+        return self.subset.indices
+
+    def __len__(self) -> int:
+        return len(self.subset)
+
+    def apply(self, x: Any, index: int) -> Any:
+        """The input transform on one input, in pixel space when mean/std are set."""
+        if self.transform is None:
+            return x
+        if not torch.is_tensor(x):
+            raise TypeError(
+                f"input transforms act on tensors, got {type(x).__name__}; "
+                "include ToTensor in the dataset transform"
+            )
+        if self._mean is None:
+            return self.transform(x, index)
+        mean, std = self._mean.to(x.dtype), self._std.to(x.dtype)
+        pixels = x * std + mean
+        return (self.transform(pixels, index).clamp(0.0, 1.0) - mean) / std
+
+    def __getitem__(self, i: int):
+        sample = self.subset[i]
+        if not isinstance(sample, (tuple, list)) or len(sample) < 2:
+            raise TypeError("expected (input, target, ...) samples")
+        index = int(self.subset.indices[i])
+        x = self.apply(sample[0], index)
+        y = sample[1] if self.target_transform is None else self.target_transform(sample[1], index)
+        return (x, y, *sample[2:])
+
+
+# ════════════════════════════════════════════════════════════════════════════
 # Seeding and fingerprints
 # ════════════════════════════════════════════════════════════════════════════
 
@@ -496,17 +572,30 @@ class SkewedPartitioner(ABC):
 
     # ── optional hooks for schemes that change samples, not just indices ──
 
-    def describe_client(self, client_idx: int, num_clients: int) -> str:
+    def describe_client(
+        self, client_idx: int, num_clients: int, classes: Optional[np.ndarray] = None
+    ) -> str:
         """
         Short description of what this scheme does to one client's samples
         (e.g. ``"rotate(90)"``). Empty for index-only schemes. Logged by the
-        builder and reported by :meth:`summary`.
+        builder and reported by :meth:`summary`. ``classes`` (the dataset's
+        sorted label values) is passed when known.
         """
         return ""
 
-    def _fingerprint_extra(self, num_clients: int) -> str:
+    def _fingerprint_extra(self, num_clients: int, classes: Optional[np.ndarray] = None) -> str:
         """Extra text folded into :meth:`partition_id` (see ``partition_fingerprint``)."""
         return ""
+
+    def client_eval_dataset(
+        self, eval_dataset: Dataset, client_idx: int, num_clients: int, classes: np.ndarray
+    ) -> Dataset:
+        """
+        The eval set for one trainer. Default: the shared global eval set,
+        unchanged. Concept-shift schemes may relabel it to match the client's
+        labelling. ``classes`` are the training set's sorted label values.
+        """
+        return eval_dataset
 
     # ── public API ─────────────────────────────────────────────────────────
 
@@ -617,7 +706,7 @@ class SkewedPartitioner(ABC):
         with np.errstate(invalid="ignore", divide="ignore"):
             local = counts / sizes[:, None]
         hell = np.sqrt(0.5 * np.sum((np.sqrt(local) - np.sqrt(glob)) ** 2, axis=1))
-        features = [self.describe_client(i, info.num_clients) for i in range(info.num_clients)]
+        features = [self.describe_client(i, info.num_clients, info.classes) for i in range(info.num_clients)]
         out = {
             "scheme": repr(self),
             "partition_id": info.partition_id,
@@ -688,7 +777,7 @@ class SkewedPartitioner(ABC):
         parts, y, classes = self._compute(dataset, k, labels)
         keep = None if client_idx is _STATS_ONLY else int(client_idx)
         result = PartitionResult(
-            partition_id=partition_fingerprint(parts, y, classes, extra=self._fingerprint_extra(k)),
+            partition_id=partition_fingerprint(parts, y, classes, extra=self._fingerprint_extra(k, classes)),
             seed=self.resolve_seed(),
             num_samples=int(y.size),
             classes=classes,
@@ -724,8 +813,9 @@ def build_skewed_datamodule(
     only by ``$OMNIFED_FEDERATED_CLIENT_INDEX`` (set by the runners), so the
     yaml does not name it. The server
     (index -1) gets ``train=None``. ``eval`` is passed through unchanged (global
-    test set). Each training rank logs ``partition_id``; it must be identical
-    on every rank.
+    test set) unless the partitioner relabels it for the trainer's client
+    (``client_eval_dataset``; concept shift with ``eval_follows_concept``).
+    Each training rank logs ``partition_id``; it must be identical on every rank.
 
     Example ``conf/datamodule/cifar10_dirichlet.yaml``::
 
@@ -752,11 +842,11 @@ def build_skewed_datamodule(
         else:
             full = train.dataset
             train = partitioner.client_loader(full, template=train, num_clients=n_cli)
+            info = partitioner.partition_info(full, num_clients=n_cli)  # cached
             if verbose:
-                info = partitioner.partition_info(full, num_clients=n_cli)
                 own = info.class_counts[cid]
                 present = {_scalar(info.classes[c]): int(v) for c, v in enumerate(own) if v}
-                feature = partitioner.describe_client(cid, n_cli)
+                feature = partitioner.describe_client(cid, n_cli, info.classes)
                 print(
                     f"[datamodule] {type(partitioner).__name__} partition_id={info.partition_id} "
                     f"seed={info.seed} client_idx={cid}/{n_cli} "
@@ -765,5 +855,12 @@ def build_skewed_datamodule(
                     + f"loader={type(train).__name__}",
                     flush=True,
                 )
+            # eval stays the shared set unless the scheme relabels it (concept shift)
+            if eval is not None:
+                eval_ds = partitioner.client_eval_dataset(eval.dataset, cid, n_cli, info.classes)
+                if eval_ds is not eval.dataset:
+                    eval = build_dataloader(eval_ds, stateful=False, **loader_kwargs_from(eval))
+                    if verbose:
+                        print(f"[datamodule] eval relabelled for client_idx={cid}", flush=True)
 
     return DataModule(train=train, eval=eval)

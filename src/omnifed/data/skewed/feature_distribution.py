@@ -36,8 +36,9 @@ Design
   :mod:`.label_distribution` (default ``IIDLabelDistribution``). So feature
   skew combines with label skew, e.g. rotation on top of a Dirichlet split.
 * What happens to them is a per-client transform, applied by
-  :class:`ClientTransformDataset`, which wraps the client's ``Subset`` (the
-  ``client_dataset`` hook of :class:`~.base.SkewedPartitioner`).
+  :class:`~.base.ClientTransformDataset` (shared with concept shift), which
+  wraps the client's ``Subset`` (the ``client_dataset`` hook of
+  :class:`~.base.SkewedPartitioner`).
 * Transforms act on the tensors the dataset returns, so the dataset transform
   must include ``ToTensor``. If it also normalizes, set ``input_mean`` /
   ``input_std`` to the same values: the transform then runs in ``[0, 1]``
@@ -63,12 +64,12 @@ from typing import Any, Callable, Dict, Optional, Sequence, Tuple, Union
 import numpy as np
 import torch
 import torch.nn.functional as F
-from torch.utils.data import Dataset, Subset
+from torch.utils.data import Dataset
 from torchvision.io import decode_jpeg, encode_jpeg
 from torchvision.transforms import InterpolationMode
 from torchvision.transforms import functional as TF
 
-from .base import SkewedPartitioner
+from .base import ClientTransformDataset, SkewedPartitioner
 from .label_distribution import IIDLabelDistribution
 
 __all__ = [
@@ -306,64 +307,6 @@ class Style(ClientTransform):
 
 
 # ════════════════════════════════════════════════════════════════════════════
-# Client dataset wrapper
-# ════════════════════════════════════════════════════════════════════════════
-
-
-class ClientTransformDataset(Dataset):
-    """
-    A client's ``Subset`` with its :class:`ClientTransform` applied to the
-    input (first element of each ``(x, y, ...)`` sample).
-
-    Exposes ``dataset`` and ``indices`` like ``Subset``, so code that inspects
-    a client's data works for label and feature skew alike.
-    """
-
-    def __init__(
-        self,
-        subset: Subset,
-        transform: ClientTransform,
-        input_mean: Optional[Sequence[float]] = None,
-        input_std: Optional[Sequence[float]] = None,
-    ) -> None:
-        self.subset = subset
-        self.transform = transform
-        self._mean = None if input_mean is None else torch.tensor(input_mean, dtype=torch.float32).view(-1, 1, 1)
-        self._std = None if input_std is None else torch.tensor(input_std, dtype=torch.float32).view(-1, 1, 1)
-
-    @property
-    def dataset(self) -> Dataset:
-        return self.subset.dataset
-
-    @property
-    def indices(self) -> Sequence[int]:
-        return self.subset.indices
-
-    def __len__(self) -> int:
-        return len(self.subset)
-
-    def apply(self, x: torch.Tensor, index: int) -> torch.Tensor:
-        """The client transform on one input, in pixel space when mean/std are set."""
-        if not torch.is_tensor(x):
-            raise TypeError(
-                f"feature-skew transforms act on tensors, got {type(x).__name__}; "
-                "include ToTensor in the dataset transform"
-            )
-        if self._mean is None:
-            return self.transform(x, index)
-        mean, std = self._mean.to(x.dtype), self._std.to(x.dtype)
-        pixels = x * std + mean
-        return (self.transform(pixels, index).clamp(0.0, 1.0) - mean) / std
-
-    def __getitem__(self, i: int):
-        sample = self.subset[i]
-        if not isinstance(sample, (tuple, list)):
-            raise TypeError("expected (input, target, ...) samples")
-        x = self.apply(sample[0], int(self.subset.indices[i]))
-        return (x, *sample[1:])
-
-
-# ════════════════════════════════════════════════════════════════════════════
 # Family base class
 # ════════════════════════════════════════════════════════════════════════════
 
@@ -449,10 +392,10 @@ class FeatureDistribution(SkewedPartitioner):
         cid = self.resolve_client_idx(k)  # not None: super() already rejected the server
         return ClientTransformDataset(subset, self.client_transform(cid, k), self.input_mean, self.input_std)
 
-    def describe_client(self, client_idx: int, num_clients: int) -> str:
+    def describe_client(self, client_idx: int, num_clients: int, classes=None) -> str:
         return self.client_transform(client_idx, num_clients).describe()
 
-    def _fingerprint_extra(self, num_clients: int) -> str:
+    def _fingerprint_extra(self, num_clients: int, classes=None) -> str:
         space = "pixel" if self.input_mean is not None else "tensor"
         return f"{type(self).__name__}|{space}|" + "|".join(
             self.describe_client(i, num_clients) for i in range(num_clients)
