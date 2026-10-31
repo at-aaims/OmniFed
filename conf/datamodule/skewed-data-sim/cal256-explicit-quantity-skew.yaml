@@ -1,0 +1,26 @@
+# ================================================================================
+# Caltech-256 + explicit quantity skew
+#
+# Client i gets proportions[i] of the train set (normalized, so [2, 1, 1] works
+# too), e.g. to mirror the data volumes of specific sites. Needs exactly one
+# entry per client: this list is for 4 clients.
+#
+# Labels stay IID: each client's label mix matches the global one; only the
+# amount of data differs. Sizes sum to the full train set (all data is used).
+# Eval stays the shared test set. Data, loaders, and what is returned:
+# cal256-common.yaml
+#
+# Usage: python main.py datamodule=skewed-data-sim/cal256-explicit-quantity-skew 'datamodule.partitioner.proportions=[0.7,0.1,0.1,0.1]'
+# Test:  src/omnifed/data/skewed/test_quantity_skew/test_explicit_quantity_skew.py
+# ================================================================================
+
+defaults:
+  - /datamodule/skewed-data-sim/cal256-common@_here_ # absolute path, merged into this package
+  - _self_
+
+partitioner:
+  _target_: src.omnifed.data.skewed.quantity_skew.ExplicitQuantitySkew
+  proportions: [0.4, 0.3, 0.2, 0.1] # one per client
+  min_samples_per_client: 10 # smallest allowed client
+  stateful_loader: true # torchdata StatefulDataLoader (false = torch DataLoader)
+  # seed: 0             # optional; default $OMNIFED_PARTITION_SEED, else 0
