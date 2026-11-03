@@ -1,0 +1,18 @@
+# ================================================================================
+# FLamby partition scheme: pooled-dirichlet-label
+#
+# Ignore the centers: pool the data and give clients Dirichlet(alpha) label
+# proportions (synthetic label skew on real data). Classification datasets only
+# (Heart Disease, ISIC 2019, Camelyon16). Eval: the pooled test set.
+#
+# Used by conf/datamodule/flamby/flamby.yaml. Pick it on the command line:
+#   python main.py datamodule=flamby/flamby datamodule.dataset=fed_heart_disease \
+#       datamodule/flamby/scheme@datamodule.partitioner=pooled-dirichlet-label
+# Number of clients and this rank's client come from OMNIFED_NUM_FEDERATED_CLIENTS
+# and OMNIFED_FEDERATED_CLIENT_INDEX (set by the runners; -1 = server).
+# ================================================================================
+
+_target_: src.omnifed.data.skewed.label_distribution.DirichletLabelSkew
+alpha: 0.5 # smaller = more label skew
+min_samples_per_client: 2
+stateful_loader: true

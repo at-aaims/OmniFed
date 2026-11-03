@@ -1,0 +1,35 @@
+# ================================================================================
+# Caltech-256 + style / colour feature skew
+#
+# Each client draws one fixed set of factors for all its images: brightness,
+# contrast and saturation in [1 - x, 1 + x], a hue shift in [-hue, hue], and
+# grayscale with probability grayscale_prob (all from the partition seed).
+#
+# Which samples a client gets: `split` (default IID, so only features differ).
+# What happens to them: this scheme's fixed per-client transform, applied on the
+# fly to the client's training samples. Eval stays the shared clean test set.
+# Data, loaders, and what is returned: cal256-common.yaml
+#
+# Usage: python main.py datamodule=skewed-data-sim/cal256-style-feature-skew datamodule.partitioner.grayscale_prob=0.5
+# Test:  src/omnifed/data/skewed/test_feature_dist/test_style_feature_skew.py
+# ================================================================================
+
+defaults:
+  - /datamodule/skewed-data-sim/cal256-common@_here_ # absolute path, merged into this package
+  - _self_
+
+partitioner:
+  _target_: src.omnifed.data.skewed.feature_distribution.StyleFeatureSkew
+  brightness: 0.4
+  contrast: 0.4
+  saturation: 0.4
+  hue: 0.1
+  grayscale_prob: 0.0
+  # Transforms run in [0, 1] pixel space; must match the Normalize in cal256-common.yaml
+  input_mean: [0.485, 0.456, 0.406]
+  input_std: [0.229, 0.224, 0.225]
+  stateful_loader: true # torchdata StatefulDataLoader (false = torch DataLoader)
+  # seed: 0             # optional; default $OMNIFED_PARTITION_SEED, else 0
+  # split:              # which samples each client gets (default: IID), e.g. add label skew:
+  #   _target_: src.omnifed.data.skewed.label_distribution.DirichletLabelSkew
+  #   alpha: 0.5

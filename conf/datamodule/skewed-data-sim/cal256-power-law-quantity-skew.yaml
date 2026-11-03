@@ -1,0 +1,28 @@
+# ================================================================================
+# Caltech-256 + power-law quantity skew
+#
+# The client of rank r (0 = largest) gets a share proportional to
+# (r + 1) ** -exponent, so the largest client holds K ** exponent times the
+# smallest. exponent 0 = equal sizes, 1 = Zipf-like. Ranks are assigned to
+# clients in a seeded random order unless shuffle_order is false.
+#
+# Labels stay IID: each client's label mix matches the global one; only the
+# amount of data differs. Sizes sum to the full train set (all data is used).
+# Eval stays the shared test set. Data, loaders, and what is returned:
+# cal256-common.yaml
+#
+# Usage: python main.py datamodule=skewed-data-sim/cal256-power-law-quantity-skew datamodule.partitioner.exponent=2.0
+# Test:  src/omnifed/data/skewed/test_quantity_skew/test_power_law_quantity_skew.py
+# ================================================================================
+
+defaults:
+  - /datamodule/skewed-data-sim/cal256-common@_here_ # absolute path, merged into this package
+  - _self_
+
+partitioner:
+  _target_: src.omnifed.data.skewed.quantity_skew.PowerLawQuantitySkew
+  exponent: 1.0
+  shuffle_order: true # false: client 0 largest, client K-1 smallest
+  min_samples_per_client: 10 # smallest allowed client
+  stateful_loader: true # torchdata StatefulDataLoader (false = torch DataLoader)
+  # seed: 0             # optional; default $OMNIFED_PARTITION_SEED, else 0

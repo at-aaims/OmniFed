@@ -1,0 +1,33 @@
+# ================================================================================
+# Caltech-256 + corruption feature skew (ImageNet-C style, Hendrycks & Dietterich, 2019)
+#
+# Client i applies corruptions[i % len(corruptions)] at severity
+# severity[i % len(severity)] (1 mild .. 5 severe), with ImageNet-C's severity
+# parameters. Available: none, gaussian_noise, shot_noise, impulse_noise,
+# speckle_noise, gaussian_blur, contrast, brightness, pixelate, jpeg_compression.
+#
+# Which samples a client gets: `split` (default IID, so only features differ).
+# What happens to them: this scheme's fixed per-client transform, applied on the
+# fly to the client's training samples. Eval stays the shared clean test set.
+# Data, loaders, and what is returned: cal256-common.yaml
+#
+# Usage: python main.py datamodule=skewed-data-sim/cal256-corruption-feature-skew datamodule.partitioner.severity=5
+# Test:  src/omnifed/data/skewed/test_feature_dist/test_corruption_feature_skew.py
+# ================================================================================
+
+defaults:
+  - /datamodule/skewed-data-sim/cal256-common@_here_ # absolute path, merged into this package
+  - _self_
+
+partitioner:
+  _target_: src.omnifed.data.skewed.feature_distribution.CorruptionFeatureSkew
+  corruptions: [none, gaussian_noise, gaussian_blur, jpeg_compression, contrast, pixelate, brightness, shot_noise]
+  severity: 3 # or a list, cycled over clients like `corruptions`
+  # Transforms run in [0, 1] pixel space; must match the Normalize in cal256-common.yaml
+  input_mean: [0.485, 0.456, 0.406]
+  input_std: [0.229, 0.224, 0.225]
+  stateful_loader: true # torchdata StatefulDataLoader (false = torch DataLoader)
+  # seed: 0             # optional; default $OMNIFED_PARTITION_SEED, else 0
+  # split:              # which samples each client gets (default: IID), e.g. add label skew:
+  #   _target_: src.omnifed.data.skewed.label_distribution.DirichletLabelSkew
+  #   alpha: 0.5
