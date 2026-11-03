@@ -1,0 +1,21 @@
+# ================================================================================
+# FLamby example: fed_heart_disease with the pooled-dirichlet-label scheme
+#
+# Ignores the 4 hospitals: pools all patients and gives each client Dirichlet
+# label proportions (synthetic label skew on real data).
+#
+# Data must be downloaded first:
+#   OMNIFED_FLAMBY_ACCEPT_LICENSE=1 python -m src.omnifed.data.skewed.flamby_download fed_heart_disease
+# Usage: python main.py datamodule=flamby/heart-disease-pooled-dirichlet-label
+# Copy this file to combine any dataset with any scheme in conf/datamodule/flamby/scheme/.
+# ================================================================================
+
+defaults:
+  - /datamodule/flamby/flamby@_here_
+  - override /datamodule/flamby/scheme@partitioner: pooled-dirichlet-label
+  - _self_
+
+dataset: fed_heart_disease
+
+partitioner:
+  alpha: 0.3 # scheme parameters can be changed here too

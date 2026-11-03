@@ -1,3 +1,7 @@
 [submodule "third_party/torchtitan"]
 	path = third_party/torchtitan
 	url = https://github.com/pytorch/torchtitan.git
+[submodule "third_party/FLamby"]
+	path = third_party/FLamby
+	url = https://github.com/owkin/FLamby.git
+	ignore = untracked

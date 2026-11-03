@@ -78,6 +78,8 @@ class LabelDistribution(SkewedPartitioner):
     implement ``_partition(y, num_classes, num_clients, rng)``.
     """
 
+    NEEDS_LABELS = True
+
 
 # ════════════════════════════════════════════════════════════════════════════
 # Schemes
@@ -86,6 +88,8 @@ class LabelDistribution(SkewedPartitioner):
 
 class IIDLabelDistribution(LabelDistribution):
     """Homogeneous baseline: uniform random split into near-equal parts."""
+
+    NEEDS_LABELS = False  # ignores labels: valid for any dataset
 
     def _partition(self, y, num_classes, num_clients, rng):
         return np.array_split(rng.permutation(y.size), num_clients)

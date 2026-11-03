@@ -200,6 +200,8 @@ class ConceptShift(SkewedPartitioner):
             ``seed``, ``min_samples_per_client``, ``stateful_loader``, ...).
     """
 
+    NEEDS_LABELS = True  # relabels class targets
+
     def __init__(
         self,
         split: Optional[SkewedPartitioner] = None,

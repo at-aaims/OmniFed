@@ -64,6 +64,7 @@ __all__ = [
     "extract_labels",
     "load_labels",
     "validate_partition",
+    "require_class_labels",
     "build_dataloader",
     "loader_kwargs_from",
 ]
@@ -192,6 +193,16 @@ def build_dataloader(dataset: Dataset, *, stateful: bool = False, **kwargs: Any)
             ) from e
         return StatefulDataLoader(dataset, **kwargs)
     return DataLoader(dataset, **kwargs)
+
+
+def require_class_labels(scheme: Any, dataset: Dataset) -> None:
+    """Raise if ``scheme`` needs class labels and ``dataset`` says it has none."""
+    if getattr(scheme, "NEEDS_LABELS", False) and getattr(dataset, "has_class_labels", True) is False:
+        raise ValueError(
+            f"{type(scheme).__name__} splits by class label, but {dataset!r} has no class "
+            "labels (e.g. segmentation or survival). Use an IID, quantity-skew or "
+            "natural (FlambyPartition) scheme instead."
+        )
 
 
 def loader_kwargs_from(loader: DataLoader) -> Dict[str, Any]:
@@ -499,6 +510,12 @@ class SkewedPartitioner(ABC):
             label attribute.
     """
 
+    #: True for schemes whose result depends on class labels (label skew,
+    #: concept shift). They refuse datasets that declare
+    #: ``has_class_labels = False`` (segmentation, survival, ...), where the
+    #: placeholder labels would make the split silently meaningless.
+    NEEDS_LABELS: bool = False
+
     def __init__(
         self,
         num_clients: Optional[int] = None,
@@ -569,6 +586,20 @@ class SkewedPartitioner(ABC):
         is unset with ``num_clients > 1`` or out of range.
         """
         return resolve_federated_client_index(num_clients, env_var=FEDERATED_CLIENT_INDEX_ENV)
+
+    def _partition_dataset(
+        self,
+        dataset: Dataset,
+        y: np.ndarray,
+        num_classes: int,
+        num_clients: int,
+        rng: np.random.Generator,
+    ) -> List[np.ndarray]:
+        """
+        Like :meth:`_partition`, with access to the dataset itself (e.g. its
+        per-sample center or group ids). Default: :meth:`_partition`.
+        """
+        return self._partition(y, num_classes, num_clients, rng)
 
     # ── optional hooks for schemes that change samples, not just indices ──
 
@@ -740,10 +771,12 @@ class SkewedPartitioner(ABC):
         labels: Optional[Sequence[Any]],
     ) -> Tuple[List[np.ndarray], np.ndarray, np.ndarray]:
         """Full partition: (per-client indices, contiguous labels, classes)."""
+        if labels is None:
+            require_class_labels(self, dataset)
         y, classes = load_labels(dataset, labels, self.label_fn)
         rng = np.random.default_rng(self.resolve_seed())
         parts = validate_partition(
-            self._partition(y, int(classes.size), num_clients, rng),
+            self._partition_dataset(dataset, y, int(classes.size), num_clients, rng),
             num_samples=y.size,
             num_clients=num_clients,
             min_samples_per_client=self.min_samples_per_client,
@@ -855,12 +888,14 @@ def build_skewed_datamodule(
                     + f"loader={type(train).__name__}",
                     flush=True,
                 )
-            # eval stays the shared set unless the scheme relabels it (concept shift)
+            # eval stays the shared set unless the scheme adapts it (concept shift relabels
+            # it; FlambyPartition keeps the client's own centers)
             if eval is not None:
                 eval_ds = partitioner.client_eval_dataset(eval.dataset, cid, n_cli, info.classes)
                 if eval_ds is not eval.dataset:
                     eval = build_dataloader(eval_ds, stateful=False, **loader_kwargs_from(eval))
                     if verbose:
-                        print(f"[datamodule] eval relabelled for client_idx={cid}", flush=True)
+                        print(f"[datamodule] eval: client-specific set for client_idx={cid} "
+                              f"(len={len(eval_ds)})", flush=True)
 
     return DataModule(train=train, eval=eval)
