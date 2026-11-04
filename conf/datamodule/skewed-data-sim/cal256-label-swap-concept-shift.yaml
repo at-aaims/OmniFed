@@ -1,0 +1,34 @@
+# ================================================================================
+# Caltech-256 + label-swap concept shift (clustered FL, e.g. CFL, Sattler et al., 2020)
+#
+# Client i belongs to group i % num_groups. Each group swaps its own `swap_pairs`
+# random, disjoint class pairs (a <-> b); group 0 keeps the true labels when
+# include_identity. With 4 clients and 2 groups: clients 0 and 2 are clean,
+# clients 1 and 3 share 32 swaps (64 of 257 classes relabelled).
+#
+# Which samples a client gets: `split` (default IID). What its labels become:
+# this scheme's fixed per-client label transform, applied on the fly. Inputs
+# are untouched.
+# Eval: with eval_follows_concept: true each trainer's eval loader is relabelled
+# with its group's mapping (the server keeps the clean test set).
+# Data, loaders, and what is returned: cal256-common.yaml
+#
+# Usage: python main.py datamodule=skewed-data-sim/cal256-label-swap-concept-shift datamodule.partitioner.swap_pairs=8
+# Test:  src/omnifed/data/skewed/test_concept_shift/test_label_swap_concept_shift.py
+# ================================================================================
+
+defaults:
+  - /datamodule/skewed-data-sim/cal256-common@_here_ # absolute path, merged into this package
+  - _self_
+
+partitioner:
+  _target_: src.omnifed.data.skewed.concept_shift.LabelSwapConceptShift
+  num_groups: 2
+  swap_pairs: 32 # needs 2 * swap_pairs <= 257
+  include_identity: true # group 0 keeps the true labels
+  eval_follows_concept: true
+  stateful_loader: true # torchdata StatefulDataLoader (false = torch DataLoader)
+  # seed: 0             # optional; default $OMNIFED_PARTITION_SEED, else 0
+  # split:              # which samples each client gets (default: IID), e.g. add label skew:
+  #   _target_: src.omnifed.data.skewed.label_distribution.DirichletLabelSkew
+  #   alpha: 0.5

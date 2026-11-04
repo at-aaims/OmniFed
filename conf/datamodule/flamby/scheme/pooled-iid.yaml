@@ -1,0 +1,17 @@
+# ================================================================================
+# FLamby partition scheme: pooled-iid
+#
+# Ignore the centers: pool all centers' data and deal it uniformly at random to
+# the clients (FLamby's 'pooled' baseline, federated). Any dataset.
+# Eval: every trainer gets the pooled test set.
+#
+# Used by conf/datamodule/flamby/flamby.yaml. Pick it on the command line:
+#   python main.py datamodule=flamby/flamby datamodule.dataset=fed_heart_disease \
+#       datamodule/flamby/scheme@datamodule.partitioner=pooled-iid
+# Number of clients and this rank's client come from OMNIFED_NUM_FEDERATED_CLIENTS
+# and OMNIFED_FEDERATED_CLIENT_INDEX (set by the runners; -1 = server).
+# ================================================================================
+
+_target_: src.omnifed.data.skewed.label_distribution.IIDLabelDistribution
+stateful_loader: true
+# seed: 0

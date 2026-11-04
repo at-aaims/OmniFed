@@ -1,0 +1,18 @@
+# ================================================================================
+# FLamby example: fed_ixi with the natural-dirichlet-quantity scheme
+#
+# Each client gets a real hospital; with more clients than the 3 hospitals, a
+# hospital shared by several clients is split among them with Dirichlet sizes.
+#
+# Data must be downloaded first:
+#   OMNIFED_FLAMBY_ACCEPT_LICENSE=1 python -m src.omnifed.data.skewed.flamby_download fed_ixi
+# Usage: python main.py datamodule=flamby/ixi-natural-dirichlet-quantity
+# Copy this file to combine any dataset with any scheme in conf/datamodule/flamby/scheme/.
+# ================================================================================
+
+defaults:
+  - /datamodule/flamby/flamby@_here_
+  - override /datamodule/flamby/scheme@partitioner: natural-dirichlet-quantity
+  - _self_
+
+dataset: fed_ixi

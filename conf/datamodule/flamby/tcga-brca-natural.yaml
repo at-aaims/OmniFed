@@ -1,0 +1,28 @@
+# ================================================================================
+# FLamby Fed-TCGA-BRCA with the natural scheme (real regions -> clients)
+#
+# 6 regions; 39 clinical features per patient; survival target (event, time).
+# Ships with FLamby (third_party/FLamby/.../fed_tcga_brca/brca.csv): nothing to
+# download, only the licence to record once:
+#   OMNIFED_FLAMBY_ACCEPT_LICENSE=1 python -m src.omnifed.data.skewed.flamby_download fed_tcga_brca
+#
+# Clients: OMNIFED_FEDERATED_CLIENT_INDEX (-1 = server) of OMNIFED_NUM_FEDERATED_CLIENTS.
+#   6 clients: client i = region i (FLamby benchmark); fewer: regions merged;
+#   more: regions split (IID within a region).
+# Returns: train = StatefulDataLoader over this client's regions (server: None);
+#          eval  = the client's own regions' test patients (server: all).
+# No class labels: label schemes (natural-dirichlet-label, pooled-dirichlet-label)
+# refuse this dataset; natural*, pooled-iid and pooled-dirichlet-quantity work.
+#
+# Usage: python main.py datamodule=flamby/tcga-brca-natural
+# ================================================================================
+
+defaults:
+  - /datamodule/flamby/flamby@_here_
+  - override /datamodule/flamby/scheme@partitioner: natural
+  - _self_
+
+dataset: fed_tcga_brca
+
+batch_size: 8 # FLamby's benchmark batch size for TCGA-BRCA
+num_workers: 0 # tabular and small: load in the main process

@@ -1,0 +1,108 @@
+# ================================================================================
+# Caltech-256 + similarity label skew, fully self-contained
+#
+# Everything is inline: no `defaults:` list, no other yaml is read. Equivalent to
+# cal256-similarity-label-skew.yaml after Hydra merges dataloader.yaml, base.yaml
+# and cal256-common.yaml into it, with implicit defaults written out.
+#
+# Usage:
+#   python main.py datamodule=skewed-data-sim/full-skew-loader
+#   python main.py datamodule=skewed-data-sim/full-skew-loader datamodule.partitioner.similarity=0.0
+#
+# Data: ${OMNIFED_DATA_DIR}/Caltech256/{train,test}/<NNN.class-name>/*.jpg (ImageFolder, 257 classes)
+#
+# instantiate(cfg.datamodule) builds, innermost first:
+#   transforms -> ImageFolder datasets -> train/eval torch DataLoaders -> partitioner
+#   -> build_skewed_datamodule(train, eval, partitioner), which returns a DataModule:
+#      train  trainer ranks: StatefulDataLoader over this client's partition
+#             (batch size / workers / etc. copied from `train:` below)
+#             server rank (OMNIFED_FEDERATED_CLIENT_INDEX=-1): None
+#      eval   every rank: the `eval:` DataLoader below, unchanged (full test set)
+#
+# Read from the environment at instantiation time (set by the runners):
+#   OMNIFED_NUM_FEDERATED_CLIENTS   number of trainers  (if partitioner.num_clients is null)
+#   OMNIFED_FEDERATED_CLIENT_INDEX  this rank's trainer, -1 = server
+#   OMNIFED_PARTITION_SEED          partition seed      (if partitioner.seed is null; else 0)
+# ================================================================================
+
+# Builder: wraps the loaders below into a DataModule, partitioning `train` per client.
+_target_: src.omnifed.data.skewed.base.build_skewed_datamodule
+num_federated_clients: null # null = partitioner.num_clients, else $OMNIFED_NUM_FEDERATED_CLIENTS
+verbose: true # log partition_id, client_idx, size and classes on each rank
+
+# ─────────────────────────────────────────
+# Training data: full-dataset loader used as a template. Its settings are copied
+# onto this client's StatefulDataLoader; its dataset is the one being partitioned.
+# ─────────────────────────────────────────
+train:
+  _target_: torch.utils.data.DataLoader
+  batch_size: 32
+  shuffle: true
+  num_workers: 2
+  pin_memory: true # no effect on Apple MPS; used on CUDA
+  persistent_workers: true # requires num_workers > 0 (dropped automatically if 0)
+  drop_last: false
+  dataset:
+    _target_: torchvision.datasets.ImageFolder # default loader converts images to RGB
+    root: ${oc.env:OMNIFED_DATA_DIR}/Caltech256/train
+    transform:
+      _target_: torchvision.transforms.Compose
+      transforms:
+        - _target_: torchvision.transforms.RandomResizedCrop
+          size: 224
+        - _target_: torchvision.transforms.RandomHorizontalFlip
+          p: 0.5
+        - _target_: torchvision.transforms.RandomRotation
+          degrees: 15
+        - _target_: torchvision.transforms.ColorJitter
+          brightness: 0.2
+          contrast: 0.2
+          saturation: 0.2
+          hue: 0.1
+        - _target_: torchvision.transforms.ToTensor
+        - _target_: torchvision.transforms.Normalize
+          mean: [0.485, 0.456, 0.406] # ImageNet statistics
+          std: [0.229, 0.224, 0.225]
+
+# ─────────────────────────────────────────
+# Evaluation data: global test set, identical on every rank, not partitioned.
+# ─────────────────────────────────────────
+eval:
+  _target_: torch.utils.data.DataLoader
+  batch_size: 64
+  shuffle: false
+  num_workers: 2
+  pin_memory: true
+  persistent_workers: true
+  drop_last: false
+  dataset:
+    _target_: torchvision.datasets.ImageFolder
+    root: ${oc.env:OMNIFED_DATA_DIR}/Caltech256/test
+    transform:
+      _target_: torchvision.transforms.Compose
+      transforms:
+        - _target_: torchvision.transforms.Resize
+          size: 256
+        - _target_: torchvision.transforms.CenterCrop
+          size: 224
+        - _target_: torchvision.transforms.ToTensor
+        - _target_: torchvision.transforms.Normalize
+          mean: [0.485, 0.456, 0.406]
+          std: [0.229, 0.224, 0.225]
+
+# ─────────────────────────────────────────
+# Partitioner: similarity label skew (Karimireddy et al., 2020, SCAFFOLD).
+# A fraction `similarity` of the train set is split IID; the rest is sorted by
+# label and cut into one contiguous block per client.
+#   1.0 = IID, 0.0 = each client gets ~257 / num_clients contiguous classes.
+# ─────────────────────────────────────────
+partitioner:
+  _target_: src.omnifed.data.skewed.label_distribution.SimilarityLabelSkew
+  similarity: 0.2
+  # options shared by every scheme (SkewedPartitioner):
+  num_clients: null # null = $OMNIFED_NUM_FEDERATED_CLIENTS
+  seed: null # null = $OMNIFED_PARTITION_SEED, else 0; must match on every rank
+  min_samples_per_client: 1 # raise if any client gets fewer samples
+  stateful_loader: true # torchdata StatefulDataLoader (false = torch DataLoader)
+  loader_kwargs: null # extra DataLoader kwargs; override the `train:` settings above
+  label_fn: null # only for datasets without a label attribute (ImageFolder has .targets)

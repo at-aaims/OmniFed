@@ -1,0 +1,79 @@
+# ================================================================================
+# Caltech-256: shared data/loader settings for the cal256-* skew configs here.
+#
+# NOT selectable on its own (no `partitioner`; build_skewed_datamodule raises).
+# Select a scheme instead, e.g.
+#   python main.py datamodule=skewed-data-sim/cal256-dirichlet-label-skew
+#
+# Local Caltech-256 in ImageFolder layout (257 classes):
+#   ${OMNIFED_DATA_DIR}/Caltech256/{train,test}/<NNN.class-name>/*.jpg
+# ImageFolder's default loader converts every image to RGB, so the few grayscale /
+# CMYK Caltech images need no special handling.
+#
+# What a scheme config built on this returns (DataModule):
+#   train  trainer ranks: torchdata StatefulDataLoader over that client's partition
+#          (when the scheme sets stateful_loader: true; torch DataLoader otherwise)
+#          server rank (OMNIFED_FEDERATED_CLIENT_INDEX=-1): None
+#   eval   every rank: torch DataLoader over the full test/ set (not partitioned)
+#
+# Nothing names a client. At instantiation time the partitioner reads
+#   OMNIFED_NUM_FEDERATED_CLIENTS   number of trainers  (set by the runners)
+#   OMNIFED_FEDERATED_CLIENT_INDEX  this rank's trainer (set by the runners)
+#   OMNIFED_PARTITION_SEED          seed when `partitioner.seed` is unset (else 0)
+# Every trainer logs the same `partition_id=...` when the partitions agree.
+# ================================================================================
+
+defaults:
+  # Absolute path + @_here_: load conf/datamodule/base.yaml and merge it into this
+  # config's package (datamodule), independent of where this file is included from.
+  - /datamodule/base@_here_ # loader templates: shuffle, num_workers=2, pin_memory, persistent_workers
+  - _self_
+
+_target_: src.omnifed.data.skewed.base.build_skewed_datamodule
+
+# ─────────────────────────────────────────
+# Training Data (template; rebuilt over this client's partition)
+# ─────────────────────────────────────────
+train:
+  batch_size: 32
+  dataset:
+    _target_: torchvision.datasets.ImageFolder
+    root: ${oc.env:OMNIFED_DATA_DIR}/Caltech256/train
+    transform:
+      _target_: torchvision.transforms.Compose
+      transforms:
+        - _target_: torchvision.transforms.RandomResizedCrop
+          size: 224
+        - _target_: torchvision.transforms.RandomHorizontalFlip
+          p: 0.5
+        - _target_: torchvision.transforms.RandomRotation
+          degrees: 15
+        - _target_: torchvision.transforms.ColorJitter
+          brightness: 0.2
+          contrast: 0.2
+          saturation: 0.2
+          hue: 0.1
+        - _target_: torchvision.transforms.ToTensor
+        - _target_: torchvision.transforms.Normalize
+          mean: [0.485, 0.456, 0.406] # ImageNet statistics
+          std: [0.229, 0.224, 0.225]
+
+# ─────────────────────────────────────────
+# Evaluation Data (global test set, not partitioned)
+# ─────────────────────────────────────────
+eval:
+  batch_size: 64
+  dataset:
+    _target_: torchvision.datasets.ImageFolder
+    root: ${oc.env:OMNIFED_DATA_DIR}/Caltech256/test
+    transform:
+      _target_: torchvision.transforms.Compose
+      transforms:
+        - _target_: torchvision.transforms.Resize
+          size: 256
+        - _target_: torchvision.transforms.CenterCrop
+          size: 224
+        - _target_: torchvision.transforms.ToTensor
+        - _target_: torchvision.transforms.Normalize
+          mean: [0.485, 0.456, 0.406]
+          std: [0.229, 0.224, 0.225]

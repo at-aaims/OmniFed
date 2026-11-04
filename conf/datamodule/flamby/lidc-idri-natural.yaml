@@ -1,0 +1,35 @@
+# ================================================================================
+# FLamby Fed-LIDC-IDRI with the natural scheme (real centers -> clients)
+#
+# 4 centers = CT scanner manufacturers (GE, Philips, Siemens, Toshiba); 1,009 chest
+# CT scans with radiologists' lung-nodule masks (FLamby's fixed train/test split).
+# Each scan is resampled to 1 mm and cropped/padded to 384^3; FLamby samples
+# 128^3 patches from it (train: 2 per scan; test: all), and FLamby's collate_fn
+# stacks them, so a batch of 1 scan is (patches, 1, 128, 128, 128). Segmentation:
+# no class labels, so the label schemes refuse this dataset.
+#
+# Download once (hours; ~133 GB of DICOM, deleted as scans are converted):
+#   pip install nibabel pydicom dicom-numpy networkx scipy scikit-image idc-index
+#   OMNIFED_FLAMBY_ACCEPT_LICENSE=1 python -m src.omnifed.data.skewed.flamby_download fed_lidc_idri
+# Quick try with 16 scans spread over the 4 centers and both splits:
+#   OMNIFED_FLAMBY_LIDC_LIMIT=16 OMNIFED_FLAMBY_ACCEPT_LICENSE=1 \
+#       python -m src.omnifed.data.skewed.flamby_download fed_lidc_idri
+#
+# Clients: OMNIFED_FEDERATED_CLIENT_INDEX (-1 = server) of OMNIFED_NUM_FEDERATED_CLIENTS.
+#   4 clients: client i = manufacturer i (FLamby benchmark); fewer: merged;
+#   more: split (IID within a manufacturer).
+# Returns: train = StatefulDataLoader over this client's scans (server: None);
+#          eval  = the client's own centers' test scans (server: all).
+#
+# Usage: python main.py datamodule=flamby/lidc-idri-natural
+# ================================================================================
+
+defaults:
+  - /datamodule/flamby/flamby@_here_
+  - override /datamodule/flamby/scheme@partitioner: natural
+  - _self_
+
+dataset: fed_lidc_idri
+
+batch_size: 1 # FLamby's benchmark: 1 scan per batch (several patches each)
+num_workers: 2 # NIfTI loading + patch sampling; 0 to debug in the main process
