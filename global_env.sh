@@ -14,6 +14,18 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+# error and log traces
+# =========================================
+
+export OMNIFED_DEBUG=1 # NOTE: currently unused
+
+export PYTHONUNBUFFERED=1 # Immediate Python output
+export HYDRA_FULL_ERROR=1 # Full Hydra error traces
+export RAY_DEDUP_LOGS=0   # Show all FL node logs
+
+# for data loading, partitioning, and storing training/test/eval datasets
+# =========================================
+
 # for skewed and unbalanced data partitioning schemes in src/omnifed/data/skewed
 export OMNIFED_PARTITION_SEED=123
 
