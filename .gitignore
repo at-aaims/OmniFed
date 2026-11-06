@@ -196,3 +196,5 @@ ignored*/
 outputs*/
 
 datasets/
+
+huggingface/

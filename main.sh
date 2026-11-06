@@ -28,6 +28,9 @@ export RAY_DEDUP_LOGS=0   # Show all FL node logs
 python -m grpc_tools.protoc -I. --python_out=. --grpc_python_out=. ./src/omnifed/communicator/grpc.proto
 python -m grpc_tools.protoc -I. --python_out=. --grpc_python_out=. ./src/omnifed/hierarchical/communicator/global_grpc.proto
 
+# export environment variables
+source ./global_env.sh
+
 # Run the main script
 # NOTE: additional arguments passed to the `main.sh` script are forwarded to the Python script
 # https://hydra.cc/docs/advanced/hydra-command-line-flags/

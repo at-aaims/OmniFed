@@ -180,5 +180,7 @@ class SlurmConfig:
         if self.gpus_per_task is not None:
             lines.append(f"#SBATCH --gpus-per-task={int(self.gpus_per_task)}")
 
+        lines.append(f"#SBATCH --export=ALL")
+
         return lines
 
