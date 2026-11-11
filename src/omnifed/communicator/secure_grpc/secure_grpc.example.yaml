@@ -1,0 +1,48 @@
+# Secure (mTLS) variant of conf/communicator/grpc.yaml.
+#
+# Copy to conf/communicator/secure_grpc.yaml, then attach it like the plain gRPC one:
+#   - /communicator@topology.local_comm: secure_grpc
+# or inline in an experiment file:
+#   topology:
+#     local_comm:
+#       _target_: src.omnifed.communicator.secure_grpc.secure_grpc_communicator.SecureGrpcCommunicator
+#       ...
+#
+# One shared config serves every rank: `tls_dir` points at a directory laid out like
+# gen_certs.sh output, and each rank reads only its own files from it:
+#   rank 0   -> <tls_dir>/ca.crt  <tls_dir>/server/server.crt|key
+#   rank N   -> <tls_dir>/ca.crt  <tls_dir>/clients/client-N.crt|key
+# Keep the directory outside the repository (or in a git-ignored folder) and export
+#   OMNIFED_TLS_DIR=/path/to/certs
+# on every node; no path or secret ends up in this file.
+
+_target_: src.omnifed.communicator.secure_grpc.secure_grpc_communicator.SecureGrpcCommunicator
+
+# Must appear in the SERVER certificate's SAN (gen_certs.sh -s <name>); the clients verify it.
+master_addr: 127.0.0.1
+master_port: 50443
+
+# Same meaning as in grpc.yaml
+normalize_by_total_samples: false
+max_retries: 36
+retry_delay: 5.0
+
+# --- security -------------------------------------------------------------------------
+tls_dir: ${oc.env:OMNIFED_TLS_DIR}
+
+# Which certificate names may call (default: CN "client-<rank>" is rank <rank>).
+# client_cn_prefix: client-
+# client_identities: {alice: 1, bob: 2}      # arbitrary CNs -> ranks instead
+
+# Deadlines. rpc_timeout bounds every data RPC; long_poll_sec is how long the server holds
+# one "is the aggregate ready?" request before answering "not yet" (the client re-asks).
+# rpc_timeout: 5000.0
+# connect_timeout: 30.0
+# long_poll_sec: 30.0
+
+# Server limits. Default cap = max(max_workers, clients + 4) in-flight RPCs.
+# max_concurrent_rpcs: 16
+# max_concurrent_streams: 16
+# keepalive_sec: 60
+# handshake_timeout_sec: 20
+# bind_addr: "[::]"
