@@ -18,8 +18,10 @@
 #   source ./global_env.sh                         # included in main.sh; exports the variables below into current shell
 #   ./global_env.sh --create-conda-env             # optional: create the conda env at $ENV_ROOT if missing, and make sure all of
 #                                                  # requirements.txt is installed in it (pip install only if something is missing)
+#   ./global_env.sh --create-conda-env --frontier-install
+#                                                  # same, but with requirements-frontier.txt (ROCm torch) instead of requirements.txt
 # Without --create-conda-env no environment is created, checked or activated: use whatever env you already have
-# and pip install requirements.txt yourself.
+# and pip install requirements.txt (requirements-frontier.txt on Frontier) yourself.
 # NOTE: variables only reach your shell when this file is *sourced*; running it as ./global_env.sh only does the
 # env creation / install (a child process cannot change the environment of the shell that launched it).
 
@@ -51,7 +53,7 @@ unset _p
 echo "[setup] PYTHONPATH=$PYTHONPATH"
 
 
-# check that every package listed in requirements.txt is installed with an accepted version:
+# check that every package listed in a requirements file (requirements.txt / requirements-frontier.txt) is installed with an accepted version:
 #   _omnifed_check_requirements <python of the env> <requirements file>
 # prints what is missing / has the wrong version. Exit status: 0 = all satisfied, 1 = something is missing, 2 = could not check.
 # Runs the env's python in isolated mode (-I), so PYTHONPATH (repo, third_party/...) cannot make a package look installed.
@@ -68,7 +70,7 @@ except ImportError:  # a brand-new env has no 'packaging' yet; pip ships a priva
     try:
         from pip._vendor.packaging.requirements import InvalidRequirement, Requirement
     except ImportError:
-        print("[setup] could not check requirements.txt: neither 'packaging' nor pip can be imported by this python")
+        print("[setup] could not check the requirements file: neither 'packaging' nor pip can be imported by this python")
         sys.exit(2)
 
 
@@ -141,8 +143,8 @@ def check(req_file):
         if have is None:
             bad.append(f"{req.name} (not installed)")
         elif not req.specifier.contains(have, prereleases=True):
-            bad.append(f"{req.name} (installed {have}, requirements.txt wants {req.specifier})")
-    print(f"[setup] requirements.txt: {total - len(bad)} of {total} packages are installed with an accepted version")
+            bad.append(f"{req.name} (installed {have}, {req_file.name} wants {req.specifier})")
+    print(f"[setup] {req_file.name}: {total - len(bad)} of {total} packages are installed with an accepted version")
     for item in bad[:20]:
         print(f"[setup]   - {item}")
     if len(bad) > 20:
@@ -157,19 +159,23 @@ try:
 except SystemExit:
     raise
 except Exception as exc:
-    print(f"[setup] could not check requirements.txt: {type(exc).__name__}: {exc}")
+    print(f"[setup] could not check {sys.argv[1]}: {type(exc).__name__}: {exc}")
     sys.exit(2)
 PY_CHECK
 }
 
 # create conda env and install python dependencies (only when asked to):
-#   ./global_env.sh --create-conda-env
-# - $ENV_ROOT does not exist: create the conda env, then pip install -r requirements.txt
-# - $ENV_ROOT exists: check that every package in requirements.txt is installed with an accepted version.
-#   If all of them are, nothing is installed. If any is missing or has the wrong version, requirements.txt is installed again.
+#   ./global_env.sh --create-conda-env                     # installs requirements.txt
+#   ./global_env.sh --create-conda-env --frontier-install  # installs requirements-frontier.txt instead (ROCm torch, for Frontier)
+# - $ENV_ROOT does not exist: create the conda env, then pip install -r <requirements file>
+# - $ENV_ROOT exists: check that every package in <requirements file> is installed with an accepted version.
+#   If all of them are, nothing is installed. If any is missing or has the wrong version, the file is installed again.
+# The env does not remember which file it was built from: the check uses the file selected by the flags of THIS run, so use
+# the same flags every time (an env built from requirements-frontier.txt does not satisfy requirements.txt, and vice versa).
 # After an install the check is repeated; if anything is still missing the script stops right there (the variables further
 # down are then not exported) instead of carrying on with a broken env.
 _create_conda=0
+_frontier=0
 # NOTE: when this file is sourced from another script (main.sh does), "$@" are *that* script's own arguments
 # (--config-name ..., hydra overrides), so only our flag is acted on and everything else is ignored.
 # A near-miss of our own flag is still an error, to catch typos.
@@ -180,16 +186,30 @@ for _arg in "$@"; do
             echo "[setup] ERROR: unknown option '$_arg' (did you mean --create-conda-env?)" >&2
             return 1 2>/dev/null || exit 1
             ;;
+        --frontier-install) _frontier=1 ;;
+        --frontier*)
+            echo "[setup] ERROR: unknown option '$_arg' (did you mean --frontier-install?)" >&2
+            return 1 2>/dev/null || exit 1
+            ;;
     esac
 done
+
+# the requirements file that is checked / installed
+_req_file=requirements.txt
+if [ "$_frontier" = 1 ]; then
+    _req_file=requirements-frontier.txt
+    if [ "$_create_conda" != 1 ]; then
+        echo "[setup] NOTE: --frontier-install only has an effect together with --create-conda-env; nothing is installed"
+    fi
+fi
 
 if [ "$_create_conda" = 1 ]; then
     # the env's own python (not $PYEXE, which may have been overridden): works when executed as ./global_env.sh too,
     # where 'conda activate' is not available
     _env_python="${ENV_ROOT%/}/bin/python"
     _install=0
-    if [ ! -f requirements.txt ]; then
-        echo "[setup] ERROR: requirements.txt not found in $(pwd); run this from the OmniFed repo root" >&2
+    if [ ! -f "$_req_file" ]; then
+        echo "[setup] ERROR: $_req_file not found in $(pwd); run this from the OmniFed repo root" >&2
         return 1 2>/dev/null || exit 1
     fi
 
@@ -198,13 +218,13 @@ if [ "$_create_conda" = 1 ]; then
             echo "[setup] ERROR: $ENV_ROOT exists but $_env_python does not: not a conda env? Remove it, or point ENV_ROOT / CONDA_ENV_NAME elsewhere." >&2
             return 1 2>/dev/null || exit 1
         fi
-        echo "[setup] $ENV_ROOT already exists: checking that everything in requirements.txt is installed"
+        echo "[setup] $ENV_ROOT already exists: checking that everything in $_req_file is installed"
         _rc=0
-        _omnifed_check_requirements "$_env_python" requirements.txt || _rc=$?
+        _omnifed_check_requirements "$_env_python" "$_req_file" || _rc=$?
         if [ "$_rc" = 0 ]; then
             echo "[setup] all requirements are satisfied: nothing to install"
         elif [ "$_rc" = 1 ]; then
-            echo "[setup] requirements are missing: installing requirements.txt"
+            echo "[setup] requirements are missing: installing $_req_file"
             _install=1
         else
             echo "[setup] ERROR: could not check the requirements in $ENV_ROOT" >&2
@@ -223,14 +243,33 @@ if [ "$_create_conda" = 1 ]; then
     fi
 
     if [ "$_install" = 1 ]; then
+        # --frontier-install: requirements-frontier.txt pins ROCm nightly wheels (torch==...dev...+rocm7.2, triton-rocm==...+git...),
+        # which are not on PyPI. Unless PIP_INDEX_URL / PIP_EXTRA_INDEX_URL is already set, the PyTorch nightly index of the ROCm
+        # version found in the torch pin is added for this one pip call (it is not exported into your shell).
+        _pip_index=""
+        if [ "$_frontier" = 1 ] && [ -z "${PIP_INDEX_URL:-}" ] && [ -z "${PIP_EXTRA_INDEX_URL:-}" ]; then
+            _rocm=$(sed -n 's/^torch==.*+rocm\([0-9][0-9.]*\).*/\1/p' "$_req_file" | head -n 1)
+            if [ -n "$_rocm" ]; then
+                _pip_index="https://download.pytorch.org/whl/nightly/rocm$_rocm"
+                echo "[setup] --frontier-install: using $_pip_index as extra pip index (set PIP_EXTRA_INDEX_URL to use another one)"
+            else
+                echo "[setup] NOTE: no 'torch==...+rocmX.Y' pin found in $_req_file, so no extra pip index is added"
+            fi
+        fi
+        _rerun="./global_env.sh --create-conda-env"
+        if [ "$_frontier" = 1 ]; then _rerun="$_rerun --frontier-install"; fi
         # -I: pip must only see this env's own packages. PYTHONPATH (repo, third_party/*) contains
         # torchtitan.egg-info, which otherwise makes pip report "Found existing installation: torchtitan".
-        "$_env_python" -I -m pip install -r requirements.txt || {
-            echo "[setup] ERROR: pip install failed. Fix the error and re-run ./global_env.sh --create-conda-env: it installs again." >&2
+        if [ -n "$_pip_index" ]; then
+            PIP_EXTRA_INDEX_URL="$_pip_index" "$_env_python" -I -m pip install -r "$_req_file"
+        else
+            "$_env_python" -I -m pip install -r "$_req_file"
+        fi || {
+            echo "[setup] ERROR: pip install failed. Fix the error and re-run $_rerun: it installs again." >&2
             return 1 2>/dev/null || exit 1
         }
-        _omnifed_check_requirements "$_env_python" requirements.txt || {
-            echo "[setup] ERROR: requirements.txt is still not satisfied in $ENV_ROOT after pip install" >&2
+        _omnifed_check_requirements "$_env_python" "$_req_file" || {
+            echo "[setup] ERROR: $_req_file is still not satisfied in $ENV_ROOT after pip install" >&2
             return 1 2>/dev/null || exit 1
         }
     fi
@@ -242,7 +281,7 @@ if [ "$_create_conda" = 1 ]; then
         *) export PATH="${ENV_ROOT%/}/bin:$PATH" ;;
     esac
 fi
-unset _create_conda _arg _env_python _install _rc
+unset _create_conda _frontier _req_file _arg _env_python _install _rc _pip_index _rocm _rerun
 unset -f _omnifed_check_requirements
 
 
