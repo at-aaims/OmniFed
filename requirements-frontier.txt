@@ -1,3 +1,5 @@
+# /lustre/orion/gen150/proj-shared/shared_titan/omnifed_env
+# /lustre/orion/gen150/proj-shared/shared_titan/omnifed_env.tar.gz
 absl-py==2.4.0
 aiohappyeyeballs==2.6.2
 aiohttp==3.14.1
