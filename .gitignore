@@ -198,3 +198,5 @@ outputs*/
 datasets/
 
 huggingface/
+
+src/omnifed/communicator/secure_grpc/secure_grpc_certs*/
