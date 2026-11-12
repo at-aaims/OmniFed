@@ -1,4 +1,4 @@
-"""Hierarchical Slurm two-hop training (inner TorchDist, outer Flora-style gRPC)."""
+"""Hierarchical Slurm two-hop training (inner TorchMPI, outer classic gRPC)."""
 from __future__ import annotations
 
 import json
@@ -11,12 +11,13 @@ from typing import Optional
 
 import torch
 from hydra.utils import instantiate
-from omegaconf import OmegaConf
+from omegaconf import OmegaConf, open_dict
 
-from src.omnifed.hierarchical.communicator import global_grpc as HybridGrpcComm
-from src.omnifed.hierarchical.communicator import torch_mpi
-from src.omnifed.hierarchical.communicator.global_grpc_compression import hierarchical_global_compressor_from_cfg
 from src.omnifed.communicator import AggregationOp
+from src.omnifed.communicator.base import BaseCommunicator
+from src.omnifed.communicator.grpc import GrpcCommunicator
+from src.omnifed.communicator.torch_mpi import TorchMPICommunicator
+from src.omnifed.communicator.torch_mpi_adapter import TorchMPIAdapter
 from src.omnifed.engine_communication import (
     hierarchical_topology_config_for_slurm,
     validate_hierarchical_slurm_topology_alignment,
@@ -26,29 +27,23 @@ from src.omnifed.hierarchical.aggregate_config import (
     hierarchical_communicate_params_from_cfg,
 )
 from src.omnifed.hierarchical.addr_env import apply_hierarchical_addr_env_overrides
-
 from src.omnifed.hierarchical.comm_bridge import HierarchicalCommBridge
-from src.omnifed.summary.startup import (
-    emit_model_startup,
-    instantiate_model_timed,
-    move_model_to_device_timed,
-)
-from src.omnifed.hierarchical.grpc_leader_comm import GrpcLeaderCommunicator
-from src.omnifed.hierarchical.slurm_sync import install_slurm_sync
 from src.omnifed.hierarchical.hydra_loader import (
     engine_has_facility_topology,
     load_hierarchical_cfg_for_engine,
 )
+from src.omnifed.hierarchical.outer_grpc import outer_grpc_rank, outer_grpc_world_size
+from src.omnifed.hierarchical.run_summary import write_hybrid_slurm_per_round_summary
 from src.omnifed.hierarchical.slurm_hostlist import (
     apply_hosts_to_hybrid_topology,
     slurm_job_hosts_ordered,
 )
+from src.omnifed.hierarchical.slurm_sync import install_slurm_sync
 from src.omnifed.hierarchical.topology_roles import (
     facility_local_rank,
     find_facility_for_global_rank,
     hybrid_rank_to_centralized_node_index,
 )
-from src.omnifed.hierarchical.torch_mpi_adapter import TorchMPIAdapter
 from src.omnifed.checkpoint.hybrid_round_checkpoint import (
     load_manifest,
     load_round_model_state,
@@ -56,9 +51,33 @@ from src.omnifed.checkpoint.hybrid_round_checkpoint import (
     save_round_checkpoint,
     should_resume,
 )
+from src.omnifed.summary.startup import (
+    emit_model_startup,
+    instantiate_model_timed,
+    move_model_to_device_timed,
+)
 from src.omnifed.utils import print
 
 __all__ = ["run_hierarchical_training"]
+
+
+class _SoloCommunicator(BaseCommunicator):
+    """1-rank no-op local hop so the dedicated server can keep grpc as global_comm."""
+
+    def __init__(self) -> None:
+        super().__init__(rank=0, world_size=1, master_addr="127.0.0.1", master_port=0)
+
+    def _setup(self) -> None:
+        return None
+
+    def broadcast(self, msg, src: int = 0):
+        return msg
+
+    def aggregate(self, msg, reduction):
+        return msg
+
+    def close(self) -> None:
+        return None
 
 
 def _worker_device(backend: str, local_rank_fallback: int) -> torch.device:
@@ -106,14 +125,46 @@ def _write_leader_done_marker(hydra_out_dir: str, rank: int) -> None:
         f.write("ok\n")
 
 
-def _leader_markers_all_present(hydra_out_dir: str, grpc_client_ranks: set[int]) -> bool:
-    if not grpc_client_ranks:
-        return True
-    d = _leader_done_dir(hydra_out_dir)
-    for r in grpc_client_ranks:
-        if not os.path.isfile(os.path.join(d, f"rank_{int(r)}.done")):
-            return False
-    return True
+def _instantiate_server_datamodule(cfg):
+    raw = OmegaConf.to_container(cfg.datamodule, resolve=False)
+    dm_cfg = OmegaConf.create(raw)
+    with open_dict(dm_cfg):
+        dm_cfg.train = None
+    return instantiate(dm_cfg)
+
+
+def _make_outer_grpc(
+    *,
+    grpc_rank: int,
+    world_size: int,
+    master_addr: str,
+    master_port: int,
+    communicate_params: bool,
+) -> GrpcCommunicator:
+    comm = GrpcCommunicator(
+        rank=grpc_rank,
+        world_size=world_size,
+        master_addr=master_addr,
+        master_port=int(master_port),
+        communicate_params=communicate_params,
+        compressor=None,
+    )
+    comm.setup()
+    return comm
+
+
+def _write_node_results(hydra_out_dir: str, rank: int, payload) -> None:
+    node_results_dir = os.path.join(hydra_out_dir, "engine", "node_results")
+    os.makedirs(node_results_dir, exist_ok=True)
+    out_pkl = os.path.join(node_results_dir, f"node_{rank:03d}_results.pkl")
+    with open(out_pkl, "wb") as f:
+        pickle.dump(payload, f)
+    from src.omnifed.execution.slurm.slurm_worker import _to_jsonable
+
+    out_json = os.path.join(node_results_dir, f"node_{rank:03d}_results.json")
+    with open(out_json, "w", encoding="utf-8") as f:
+        json.dump(_to_jsonable(payload), f, ensure_ascii=False, indent=2)
+    print(f"[hybrid] rank={rank} wrote {out_json}", flush=True)
 
 
 def run_hierarchical_training(cfg, hydra_out_dir: str, ckpt_dir: str) -> None:
@@ -143,11 +194,11 @@ def run_hierarchical_training(cfg, hydra_out_dir: str, ckpt_dir: str) -> None:
     rpc_addr = str(topo.rpc.addr)
     rpc_port = int(topo.rpc.port)
     client_ranks = {int(x) for x in topo.rpc.client_ranks}
-    rpc_total_clients = 1 + len(client_ranks)
+    grpc_world = outer_grpc_world_size(client_ranks)
 
     print(
         f"[hybrid] rank={rank}/{world} rpc_server={rpc_server_rank} "
-        f"rpc_addr={rpc_addr}:{rpc_port} hosts_patched=1 "
+        f"rpc_addr={rpc_addr}:{rpc_port} grpc_world={grpc_world} hosts_patched=1 "
         f"aggregate_payload={hierarchical_aggregate_payload_from_cfg(cfg)!r}",
         flush=True,
     )
@@ -157,9 +208,11 @@ def run_hierarchical_training(cfg, hydra_out_dir: str, ckpt_dir: str) -> None:
             cfg,
             rank,
             hydra_out_dir,
-            rpc_port,
-            rpc_total_clients,
-            grpc_client_ranks=client_ranks,
+            rpc_addr=rpc_addr,
+            rpc_port=rpc_port,
+            rpc_server_rank=rpc_server_rank,
+            client_ranks=client_ranks,
+            grpc_world=grpc_world,
         )
         return
 
@@ -215,7 +268,6 @@ def run_hierarchical_training(cfg, hydra_out_dir: str, ckpt_dir: str) -> None:
     node_log_dir = os.path.join(hydra_out_dir, node_name)
     os.makedirs(node_log_dir, exist_ok=True)
 
-    # Federated shards: server cen_idx=0 → index -1; trainers 1..N → 0..N-1.
     os.environ["OMNIFED_NUM_FEDERATED_CLIENTS"] = str(int(nc))
     os.environ["OMNIFED_FEDERATED_CLIENT_INDEX"] = str(int(cen_idx) - 1)
     os.environ["OMNIFED_CENTRALIZED_NODE_INDEX"] = str(int(cen_idx))
@@ -251,7 +303,7 @@ def run_hierarchical_training(cfg, hydra_out_dir: str, ckpt_dir: str) -> None:
         flush=True,
     )
 
-    mpi = torch_mpi.TorchMPICommunicator(
+    mpi = TorchMPICommunicator(
         id=local_rank,
         total_clients=mpi_ws,
         backend=backend,
@@ -269,26 +321,24 @@ def run_hierarchical_training(cfg, hydra_out_dir: str, ckpt_dir: str) -> None:
         communicate_params=communicate_params,
     )
 
-    global_comm: Optional[GrpcLeaderCommunicator] = None
+    global_comm: Optional[GrpcCommunicator] = None
     if rank in client_ranks:
-        global_comm = GrpcLeaderCommunicator(
-            bridge=bridge,
-            global_rank=rank,
-            world_size=rpc_total_clients,
+        global_comm = _make_outer_grpc(
+            grpc_rank=outer_grpc_rank(
+                rank, client_ranks, server_rank=rpc_server_rank
+            ),
+            world_size=grpc_world,
             master_addr=rpc_addr,
             master_port=rpc_port,
-            rpc_total_clients=rpc_total_clients,
-            cfg=cfg,
+            communicate_params=communicate_params,
         )
-        global_comm.attach_model(model)
 
     local_comm.setup()
-    if global_comm is not None:
-        global_comm.setup()
-
     if getattr(center, "global_comm", None) is not None:
         warnings.warn("Hybrid Slurm ignores topology.global_comm on workers.", UserWarning)
 
+    if global_comm is not None:
+        model = global_comm.broadcast(model)
     model = local_comm.broadcast(model, src=0)
 
     local_iters = _safe_len_train(datamodule)
@@ -316,11 +366,15 @@ def run_hierarchical_training(cfg, hydra_out_dir: str, ckpt_dir: str) -> None:
         epochs_per_round,
         total_rounds,
     )
+    if global_comm is not None:
+        global_comm.set_logger(algorithm)
     install_slurm_sync(
         algorithm,
         bridge,
         communicate_params=communicate_params,
     )
+    payload = hierarchical_aggregate_payload_from_cfg(cfg)
+    algorithm.set_aggregate_payload(payload)
     algorithm.local_model = algorithm.local_model.to(device, non_blocking=True)
 
     start_round = resume_start_round(cfg, ckpt_dir)
@@ -392,18 +446,7 @@ def run_hierarchical_training(cfg, hydra_out_dir: str, ckpt_dir: str) -> None:
         local_comm.close()
 
     results = algorithm.get_experiment_data()
-    node_results_dir = os.path.join(hydra_out_dir, "engine", "node_results")
-    os.makedirs(node_results_dir, exist_ok=True)
-    out_pkl = os.path.join(node_results_dir, f"node_{rank:03d}_results.pkl")
-    with open(out_pkl, "wb") as f:
-        pickle.dump(results, f)
-
-    from src.omnifed.execution.slurm.slurm_worker import _to_jsonable
-
-    out_json = os.path.join(node_results_dir, f"node_{rank:03d}_results.json")
-    with open(out_json, "w", encoding="utf-8") as f:
-        json.dump(_to_jsonable(results), f, ensure_ascii=False, indent=2)
-    print(f"[hybrid] rank={rank} wrote {out_json}", flush=True)
+    _write_node_results(hydra_out_dir, rank, results)
 
     if client_ranks and rank == min(client_ranks):
         write_hybrid_slurm_per_round_summary(
@@ -421,16 +464,38 @@ def _run_grpc_server_only(
     cfg,
     rank: int,
     hydra_out_dir: str,
-    rpc_port: int,
-    rpc_total_clients: int,
     *,
-    grpc_client_ranks: set[int],
+    rpc_addr: str,
+    rpc_port: int,
+    rpc_server_rank: int,
+    client_ranks: set[int],
+    grpc_world: int,
 ) -> None:
+    """Dedicated server: dummy local hop + classic GrpcCommunicator as global_comm."""
+    communicate_params = hierarchical_communicate_params_from_cfg(cfg)
     print(
-        f"[hybrid] rank={rank} gRPC server aggregate_payload="
-        f"{hierarchical_aggregate_payload_from_cfg(cfg)!r}",
+        f"[hybrid] rank={rank} outer GrpcCommunicator server "
+        f"world_size={grpc_world} port={rpc_port} "
+        f"aggregate_payload={hierarchical_aggregate_payload_from_cfg(cfg)!r}",
         flush=True,
     )
+
+    _reset_leader_done_dir(hydra_out_dir)
+
+    # Listen before trainers finish MPI init / data load.
+    global_comm = _make_outer_grpc(
+        grpc_rank=outer_grpc_rank(rank, client_ranks, server_rank=rpc_server_rank),
+        world_size=grpc_world,
+        master_addr=rpc_addr,
+        master_port=rpc_port,
+        communicate_params=communicate_params,
+    )
+    local_comm = _SoloCommunicator()
+    local_comm.setup()
+
+    node_log_dir = os.path.join(hydra_out_dir, "server")
+    os.makedirs(node_log_dir, exist_ok=True)
+
     model, model_load_s = instantiate_model_timed(cfg.model)
     model, model_to_device_s = move_model_to_device_timed(model, torch.device("cpu"))
     emit_model_startup(
@@ -439,71 +504,47 @@ def _run_grpc_server_only(
         model_load_s=model_load_s,
         model_to_device_s=model_to_device_s,
     )
-
-    extra = float(
-        OmegaConf.select(cfg, "engine.hierarchical.server_run_extra_sec", default=120.0)
+    datamodule = _instantiate_server_datamodule(cfg)
+    algorithm = instantiate(cfg.algorithm, log_dir=node_log_dir)
+    emit_model_startup(
+        rank=rank,
+        log_dir=os.path.join(hydra_out_dir, "engine"),
+        model_load_s=model_load_s,
+        model_to_device_s=model_to_device_s,
+        algorithm=algorithm,
+        write_csv=False,
     )
-    per_round = float(
-        OmegaConf.select(cfg, "engine.hierarchical.server_sec_per_round", default=180.0)
-    )
-    shutdown_mode = str(
-        OmegaConf.select(cfg, "engine.hierarchical.server_shutdown", default="leader_done")
-    ).lower()
-    poll_sec = float(
-        OmegaConf.select(cfg, "engine.hierarchical.leader_done_poll_sec", default=5.0)
-    )
-    rounds = int(cfg.global_rounds)
-    nap = extra + rounds * per_round
-    nap = max(30.0, nap)
+    if hasattr(datamodule, "setup"):
+        datamodule.setup()
 
-    # Fresh marker dir so a previous run cannot satisfy leader_done prematurely.
-    _reset_leader_done_dir(hydra_out_dir)
+    model = global_comm.broadcast(model)
+    model = local_comm.broadcast(model)
 
-    # Flora daemon path requires id==0 (parameter-server role bit), independent of rpc.server_rank /
-    # this process's SLURM_PROCID. See grpc_communicator.py and docs/archive/hybrid-engine-pipeline/HYBRID_SLURM_REFERENCE.md §6.
-    comm = HybridGrpcComm.GrpcCommunicator(
-        model=model,
-        id=0,
-        total_clients=rpc_total_clients,
-        master_addr="0.0.0.0",
-        master_port=int(rpc_port),
-        accumulate_updates=True,
-        daemon_server=True,
-        compressor=hierarchical_global_compressor_from_cfg(cfg, device="cpu"),
-        communicate_params=hierarchical_communicate_params_from_cfg(cfg),
+    epochs_per_round = int(getattr(algorithm, "max_epochs_per_round", 1))
+    total_rounds = int(cfg.global_rounds)
+    algorithm.setup(
+        local_comm,
+        global_comm,
+        model,
+        datamodule,
+        1,
+        epochs_per_round,
+        total_rounds,
     )
-    print(
-        f"[hybrid] rank={rank} gRPC daemon (Flora id=0 PS) shutdown_mode={shutdown_mode!r}; "
-        f"max_wall={nap:.0f}s (extra={extra}, per_round={per_round}, rounds={rounds})",
-        flush=True,
+    global_comm.set_logger(algorithm)
+    install_slurm_sync(
+        algorithm,
+        HierarchicalCommBridge(),
+        communicate_params=communicate_params,
     )
-    deadline = time.monotonic() + nap
-    if shutdown_mode == "sleep":
-        time.sleep(nap)
-    else:
-        if shutdown_mode != "leader_done":
-            warnings.warn(
-                f"Unknown engine.hierarchical.server_shutdown={shutdown_mode!r}; using leader_done",
-                UserWarning,
-            )
-        while time.monotonic() < deadline:
-            if _leader_markers_all_present(hydra_out_dir, grpc_client_ranks):
-                print("[hybrid] all gRPC leader markers present; shutting down server.", flush=True)
-                break
-            time.sleep(max(1.0, poll_sec))
-        else:
-            print(
-                f"[hybrid] leader-done wait timed out after {nap:.0f}s; shutting down anyway.",
-                flush=True,
-            )
-    comm.grpc_shutdown()
-    print(f"[hybrid] rank={rank} gRPC server shut down.", flush=True)
+    algorithm.set_aggregate_payload(hierarchical_aggregate_payload_from_cfg(cfg))
 
-    node_results_dir = os.path.join(hydra_out_dir, "engine", "node_results")
-    os.makedirs(node_results_dir, exist_ok=True)
-    stub = {"role": "hybrid_grpc_server", "rank": rank}
-    from src.omnifed.execution.slurm.slurm_worker import _to_jsonable
+    try:
+        for r in range(algorithm.max_rounds):
+            algorithm.round_exec(r, algorithm.max_rounds)
+    finally:
+        global_comm.close()
+        local_comm.close()
 
-    out_json = os.path.join(node_results_dir, f"node_{rank:03d}_results.json")
-    with open(out_json, "w", encoding="utf-8") as f:
-        json.dump(_to_jsonable(stub), f, indent=2)
+    _write_node_results(hydra_out_dir, rank, algorithm.get_experiment_data())
+    print(f"[hybrid] rank={rank} outer gRPC server finished.", flush=True)

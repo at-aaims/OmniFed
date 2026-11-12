@@ -1,4 +1,4 @@
-"""Patch FedAvg sync for hybrid Slurm (gRPC global step skips torch scalar reduce)."""
+"""Patch FedAvg sync for hybrid Slurm (inner TorchMPI, outer classic gRPC)."""
 
 from __future__ import annotations
 
@@ -10,7 +10,6 @@ import torch
 from src.omnifed.algorithm import utils
 from src.omnifed.communicator.base import AggregationOp
 from src.omnifed.hierarchical.comm_bridge import HierarchicalCommBridge
-from src.omnifed.hierarchical.grpc_leader_comm import GrpcLeaderCommunicator
 from src.omnifed.hierarchical.grad_training import (
     apply_optimizer_grads,
     clear_model_grads,
@@ -26,8 +25,9 @@ def install_slurm_sync(
     communicate_params: bool = True,
 ) -> None:
     """
-    Replace ``_BaseAlgorithm__sync_comm`` and optionally ``_aggregate_across_groups``
-    when ``global_comm`` is :class:`GrpcLeaderCommunicator`.
+    Replace ``_BaseAlgorithm__sync_comm`` so the inner hop stays on the facility
+    communicator (TorchMPI) and the outer hop uses classic ``GrpcCommunicator``
+    (sample count, then model), including the dedicated server rank.
 
     ``communicate_params=False`` switches facility-local aggregation to sample-weighted
     gradient all-reduce (both hops use gradients) and defers ``optimizer.step`` until
@@ -68,19 +68,6 @@ def install_slurm_sync(
         algorithm._aggregate_within_group = types.MethodType(
             _aggregate_within_group_grads, algorithm
         )
-
-    if getattr(algorithm, "global_comm", None) is not None and isinstance(
-        algorithm.global_comm, GrpcLeaderCommunicator
-    ):
-
-        def _aggregate_across_grpc_slurm(self, comm, weight):
-            del weight
-            return comm.aggregate(self.local_model, AggregationOp.SUM)
-
-        algorithm._aggregate_across_groups = types.MethodType(
-            _aggregate_across_grpc_slurm, algorithm
-        )
-    elif not communicate_params:
 
         def _aggregate_across_groups_grads(self, comm, weight):
             utils.scale_grads(self.local_model, weight)
@@ -139,28 +126,23 @@ def _hybrid_slurm__sync_comm(self) -> None:
 
     if self.global_comm is not None:
         with self.track_model_operation("global_agg"):
-            if isinstance(self.global_comm, GrpcLeaderCommunicator):
-                self.local_model = self._aggregate_across_groups(
-                    self.global_comm, 0.0
+            global_total_samples = self.global_comm.aggregate(
+                torch.tensor([group_total_samples], dtype=torch.float32, device=dev),
+                reduction=AggregationOp.SUM,
+            ).item()
+
+            if global_total_samples == 0:
+                warnings.warn(
+                    f"Zero samples trained across all groups globally ({self.progress_info_str}). "
+                    "Check data availability or cross-group coordination. Using uniform weights for cross-group aggregation.",
+                    UserWarning,
                 )
-            else:
-                global_total_samples = self.global_comm.aggregate(
-                    torch.tensor([group_total_samples], dtype=torch.float32, device=dev),
-                    reduction=AggregationOp.SUM,
-                ).item()
 
-                if global_total_samples == 0:
-                    warnings.warn(
-                        f"Zero samples trained across all groups globally ({self.progress_info_str}). "
-                        "Check data availability or cross-group coordination. Using uniform weights for cross-group aggregation.",
-                        UserWarning,
-                    )
+            across_group_weight = group_total_samples / max(global_total_samples, 1)
 
-                across_group_weight = group_total_samples / max(global_total_samples, 1)
-
-                self.local_model = self._aggregate_across_groups(
-                    self.global_comm, across_group_weight
-                )
+            self.local_model = self._aggregate_across_groups(
+                self.global_comm, across_group_weight
+            )
 
     needs_final_bcast = (
         self.local_comm.aggregate(
