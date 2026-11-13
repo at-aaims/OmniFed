@@ -6,6 +6,7 @@ import os
 import pickle
 import shutil
 import time
+import types
 import warnings
 from typing import Optional
 
@@ -536,6 +537,16 @@ def _run_grpc_server_only(
         algorithm,
         HierarchicalCommBridge(),
         communicate_params=communicate_params,
+    )
+    # Dedicated server does not train (n_i=0). FedAvg inner hop would scale
+    # every parameter by 0, then track_model_operation("local_agg") aborts.
+    # Keep the model on the inner hop; outer gRPC is the real wait (server
+    # still submits with facility weight 0 as per FedAvg).
+    def _keep_server_model_on_inner_hop(self, comm, weight):
+        return self.local_model
+
+    algorithm._aggregate_within_group = types.MethodType(
+        _keep_server_model_on_inner_hop, algorithm
     )
     algorithm.set_aggregate_payload(hierarchical_aggregate_payload_from_cfg(cfg))
 
