@@ -567,6 +567,15 @@ def run_torchtitan_client(
 
         log_client_event(role, "cleanup_exit")
 
+        import faulthandler
+
+        faulthandler.dump_traceback_later(
+            120,
+            repeat=True,
+            file=sys.stderr,
+            exit=False,
+        )
+
 
 def run_torchtitan_federated_server(
     cfg: Any,
@@ -758,6 +767,8 @@ def main() -> None:
             cfg=cfg,
             role=role,
         )
+
+        log_client_event(role, "client_function_returned")
 
 
 
