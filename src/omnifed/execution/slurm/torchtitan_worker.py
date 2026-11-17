@@ -768,6 +768,17 @@ def main() -> None:
             role=role,
         )
 
+        import threading
+
+        log_client_event(
+            role,
+            "remaining_threads",
+            threads=[
+                {"name": thread.name, "daemon": thread.daemon}
+                for thread in threading.enumerate()
+            ],
+        )
+
         log_client_event(role, "client_function_returned")
 
 
