@@ -7,6 +7,8 @@ def build_frontier_setup_lines() -> list[str]:
         "module load rocm/6.4.1",
         "module load rccl-net-plugin",
         "module load craype-accel-amd-gfx90a",
+        "module unload xalt",
+        "export XALT_EXECUTABLE_TRACKING=no",
         "module list",
         # "export NCCL_DEBUG=INFO",
         # "export NCCL_DEBUG_SUBSYS=INIT,NET",
