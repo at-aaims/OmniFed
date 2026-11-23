@@ -26,11 +26,11 @@ torchtitan:
   module: llama3
   config_name: llama3_8b
   attention_backend: flex
-  root: ${oc.env:TORCHTITAN_ROOT,null}
-  hf_assets_path: ${oc.env:TORCHTITAN_HF_ASSETS,null}
-  dataset_path: ${oc.env:TORCHTITAN_DATASET,null}
-  output_dir: ${oc.env:OMNIFED_TORCHTITAN_SCRATCH,outputs/torchtitan}/runtime
-  update_dir: ${oc.env:OMNIFED_TORCHTITAN_SCRATCH,outputs/torchtitan}/updates
+  root: ${oc.env:TORCHTITAN_ROOT}
+  hf_assets_path: ${oc.env:TORCHTITAN_HF_ASSETS}
+  dataset_path: ${oc.env:TORCHTITAN_DATASET}
+  output_dir: ${oc.env:OMNIFED_TORCHTITAN_SCRATCH}/runtime
+  update_dir: ${oc.env:OMNIFED_TORCHTITAN_SCRATCH}/updates
   overrides:
     dataloader.dataset: c4_test
     training.steps: 6
@@ -50,7 +50,7 @@ torchtitan:
     gpus_per_node: 8
     leader_rank: 0
     master_port_base: 29600
-    checkpoint_root: ${oc.env:OMNIFED_TORCHTITAN_SCRATCH,outputs/torchtitan}
+    checkpoint_root: ${oc.env:OMNIFED_TORCHTITAN_SCRATCH}
   federated:
     local_steps: 3
     server_port: 50051

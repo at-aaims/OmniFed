@@ -16,8 +16,8 @@
 # ================================================================================
 
 _target_: src.omnifed.data.lm_datamodule.build_c4_lm_datamodule
-dataset_path: ${oc.env:OMNIFED_C4_DISK,/tmp/allenai_c4}
-tokenizer_path: ${oc.env:OMNIFED_TOKENIZER_DIR,/tmp/mistralai_Mistral-7B-v0.1}
+dataset_path: ${oc.env:OMNIFED_C4_DISK}
+tokenizer_path: ${oc.env:OMNIFED_TOKENIZER_DIR}
 num_federated_clients: ???
 train_split: train
 eval_split: validation

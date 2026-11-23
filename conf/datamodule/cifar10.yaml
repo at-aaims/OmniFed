@@ -25,7 +25,7 @@ _target_: src.omnifed.data.federated_vision.build_federated_vision_datamodule
 train:
   dataset:
     _target_: torchvision.datasets.CIFAR10
-    root: ${oc.env:OMNIFED_DATA_DIR,/tmp}/cifar10
+    root: ${oc.env:OMNIFED_DATA_DIR}/cifar10
     train: true # Use training set
     # target_transform: null  # Optional transform for targets
     download: true
@@ -48,7 +48,7 @@ train:
 eval:
   dataset:
     _target_: torchvision.datasets.CIFAR10
-    root: ${oc.env:OMNIFED_DATA_DIR,/tmp}/cifar10
+    root: ${oc.env:OMNIFED_DATA_DIR}/cifar10
     train: false # Use test set
     # target_transform: null  # Optional transform for targets
     download: true

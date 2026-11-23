@@ -1,0 +1,24 @@
+# ================================================================================
+# FLamby partition scheme: natural-dirichlet-quantity
+#
+# Natural partition; when there are more clients than centers, a shared center is
+# split among its clients with Dirichlet(beta) sizes instead of equally.
+# Works for every dataset (needs no labels). Same as natural when clients <= centers.
+#
+# Used by conf/datamodule/flamby/flamby.yaml. Pick it on the command line:
+#   python main.py datamodule=flamby/flamby datamodule.dataset=fed_heart_disease \
+#       datamodule/flamby/scheme@datamodule.partitioner=natural-dirichlet-quantity
+# Number of clients and this rank's client come from OMNIFED_NUM_FEDERATED_CLIENTS
+# and OMNIFED_FEDERATED_CLIENT_INDEX (set by the runners; -1 = server).
+# ================================================================================
+
+_target_: src.omnifed.data.skewed.flamby_partition.FlambyPartition
+merge: balanced
+allocation: proportional
+on_mismatch: adapt
+eval_scope: client
+stateful_loader: true
+within_center:
+  _target_: src.omnifed.data.skewed.quantity_skew.DirichletQuantitySkew
+  beta: 0.5 # smaller = more unequal sizes
+  min_samples_per_client: 2

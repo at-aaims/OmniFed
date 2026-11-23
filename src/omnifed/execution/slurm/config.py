@@ -139,6 +139,8 @@ class SlurmConfig:
 
         if self.exclusive:
             lines.append("#SBATCH --exclusive")
+        if self.dependency_singleton:
+            lines.append("#SBATCH -d singleton")
 
         if self.qos:
             lines.append(
@@ -177,6 +179,8 @@ class SlurmConfig:
 
         if self.gpus_per_task is not None:
             lines.append(f"#SBATCH --gpus-per-task={int(self.gpus_per_task)}")
+
+        lines.append(f"#SBATCH --export=ALL")
 
         return lines
 

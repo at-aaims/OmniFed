@@ -8,7 +8,7 @@
 # ================================================================================
 
 _target_: src.omnifed.model.hf_causal_lm.load_llama_from_pretrained_checkpoint
-pretrained_model_name_or_path: ${oc.env:OMNIFED_LLAMA400_WEIGHTS,/tmp/llama-400m-hf-disk}
+pretrained_model_name_or_path: ${oc.env:OMNIFED_LLAMA400_WEIGHTS}
 local_files_only: true
 torch_dtype_str: float32
 attn_implementation: sdpa

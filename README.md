@@ -73,7 +73,8 @@ Optional knobs (see **`conf/base.yaml`** **`engine.hierarchical`**): **`server_s
 
 ```bash
 # Clone and install
-git clone <repository-url>
+git clone --recurse-submodules https://github.com/at-aaims/OmniFed.git
+# if already cloned, run: git submodule update --init --recursive
 cd OmniFed
 pip install -r requirements.txt
 

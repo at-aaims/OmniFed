@@ -1,0 +1,33 @@
+# ================================================================================
+# Caltech-256 + Gaussian-noise feature skew (Li et al., 2022, NIID-Bench)
+#
+# Client i of K adds N(0, sigma_i^2) noise with sigma_i = sigma * i / (K - 1):
+# client 0 is clean, the last client gets `sigma`. Here sigma is in pixel units
+# (images in [0, 1]); NIID-Bench instead adds it after Normalize (drop
+# input_mean/input_std to do the same).
+#
+# Which samples a client gets: `split` (default IID, so only features differ).
+# What happens to them: this scheme's fixed per-client transform, applied on the
+# fly to the client's training samples. Eval stays the shared clean test set.
+# Data, loaders, and what is returned: cal256-common.yaml
+#
+# Usage: python main.py datamodule=skewed-data-sim/cal256-gaussian-noise-feature-skew datamodule.partitioner.sigma=0.3
+# Test:  src/omnifed/data/skewed/test_feature_dist/test_gaussian_noise_feature_skew.py
+# ================================================================================
+
+defaults:
+  - /datamodule/skewed-data-sim/cal256-common@_here_ # absolute path, merged into this package
+  - _self_
+
+partitioner:
+  _target_: src.omnifed.data.skewed.feature_distribution.GaussianNoiseFeatureSkew
+  sigma: 0.1
+  fixed_per_sample: true # noise fixed by (seed, client, sample); false = fresh each read
+  # Transforms run in [0, 1] pixel space; must match the Normalize in cal256-common.yaml
+  input_mean: [0.485, 0.456, 0.406]
+  input_std: [0.229, 0.224, 0.225]
+  stateful_loader: true # torchdata StatefulDataLoader (false = torch DataLoader)
+  # seed: 0             # optional; default $OMNIFED_PARTITION_SEED, else 0
+  # split:              # which samples each client gets (default: IID), e.g. add label skew:
+  #   _target_: src.omnifed.data.skewed.label_distribution.DirichletLabelSkew
+  #   alpha: 0.5

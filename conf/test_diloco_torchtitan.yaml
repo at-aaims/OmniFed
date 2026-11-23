@@ -54,7 +54,7 @@ torchtitan:
   # TORCHTITAN_DATASET=/path/to/c4_test
   # OMNIFED_TORCHTITAN_SCRATCH=/path/to/runtime/root
 
-  root: ${oc.env:TORCHTITAN_ROOT,null}
+  root: ${oc.env:TORCHTITAN_ROOT}
   hf_assets_path: ${oc.env:TORCHTITAN_HF_ASSETS}
   dataset_path: ${oc.env:TORCHTITAN_DATASET}
 

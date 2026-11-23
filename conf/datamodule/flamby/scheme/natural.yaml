@@ -1,0 +1,26 @@
+# ================================================================================
+# FLamby partition scheme: natural
+#
+# Real data-holding centers become clients (FlambyPartition).
+#   clients == centers: client i gets center i (the FLamby benchmark setting)
+#   fewer clients:      whole centers merged (merge: balanced | round_robin)
+#   more clients:       centers split (allocation: proportional | equal); a center
+#                       shared by several clients is split IID among them
+#   client_centers:     explicit mapping, one list per client, overrides the rules
+# Eval: each trainer gets its own centers' test data (eval_scope: client).
+#
+# Used by conf/datamodule/flamby/flamby.yaml. Pick it on the command line:
+#   python main.py datamodule=flamby/flamby datamodule.dataset=fed_heart_disease \
+#       datamodule/flamby/scheme@datamodule.partitioner=natural
+# Number of clients and this rank's client come from OMNIFED_NUM_FEDERATED_CLIENTS
+# and OMNIFED_FEDERATED_CLIENT_INDEX (set by the runners; -1 = server).
+# ================================================================================
+
+_target_: src.omnifed.data.skewed.flamby_partition.FlambyPartition
+merge: balanced # clients < centers: balanced | round_robin
+allocation: proportional # clients > centers: proportional | equal
+on_mismatch: adapt # or error: require clients == centers
+eval_scope: client # client: own centers' test data | pooled: all centers
+stateful_loader: true # torchdata StatefulDataLoader (false = torch DataLoader)
+# client_centers: [[0], [1], [2, 3]]   # explicit, one list per client
+# seed: 0                              # default $OMNIFED_PARTITION_SEED, else 0

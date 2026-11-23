@@ -92,7 +92,6 @@ class DecentralizedTopology(BaseTopology):
                 algorithm=default_algorithm_cfg,
                 model=default_model_cfg,
                 datamodule=default_datamodule_cfg,
-                has_server=False,
             )
 
             node_cfg = OmegaConf.merge(

@@ -1,0 +1,24 @@
+# ================================================================================
+# FLamby partition scheme: natural-dirichlet-label
+#
+# Natural partition; when there are more clients than centers, a shared center's
+# samples are split among its clients by Dirichlet(alpha) label proportions.
+# Classification datasets only (Heart Disease, ISIC 2019, Camelyon16).
+#
+# Used by conf/datamodule/flamby/flamby.yaml. Pick it on the command line:
+#   python main.py datamodule=flamby/flamby datamodule.dataset=fed_heart_disease \
+#       datamodule/flamby/scheme@datamodule.partitioner=natural-dirichlet-label
+# Number of clients and this rank's client come from OMNIFED_NUM_FEDERATED_CLIENTS
+# and OMNIFED_FEDERATED_CLIENT_INDEX (set by the runners; -1 = server).
+# ================================================================================
+
+_target_: src.omnifed.data.skewed.flamby_partition.FlambyPartition
+merge: balanced
+allocation: proportional
+on_mismatch: adapt
+eval_scope: client
+stateful_loader: true
+within_center:
+  _target_: src.omnifed.data.skewed.label_distribution.DirichletLabelSkew
+  alpha: 0.5 # smaller = more label skew
+  min_samples_per_client: 2

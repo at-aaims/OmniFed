@@ -1,0 +1,30 @@
+# ================================================================================
+# Caltech-256 + rotation feature skew (rotated MNIST/CIFAR, e.g. IFCA)
+#
+# Client i rotates every image counter-clockwise by angles[i % len(angles)]
+# degrees (multiples of 90 are exact; other angles keep the size, black corners).
+#
+# Which samples a client gets: `split` (default IID, so only features differ).
+# What happens to them: this scheme's fixed per-client transform, applied on the
+# fly to the client's training samples. Eval stays the shared clean test set.
+# Data, loaders, and what is returned: cal256-common.yaml
+#
+# Usage: python main.py datamodule=skewed-data-sim/cal256-rotation-feature-skew 'datamodule.partitioner.angles=[0,45]'
+# Test:  src/omnifed/data/skewed/test_feature_dist/test_rotation_feature_skew.py
+# ================================================================================
+
+defaults:
+  - /datamodule/skewed-data-sim/cal256-common@_here_ # absolute path, merged into this package
+  - _self_
+
+partitioner:
+  _target_: src.omnifed.data.skewed.feature_distribution.RotationFeatureSkew
+  angles: [0, 90, 180, 270]
+  # Transforms run in [0, 1] pixel space; must match the Normalize in cal256-common.yaml
+  input_mean: [0.485, 0.456, 0.406]
+  input_std: [0.229, 0.224, 0.225]
+  stateful_loader: true # torchdata StatefulDataLoader (false = torch DataLoader)
+  # seed: 0             # optional; default $OMNIFED_PARTITION_SEED, else 0
+  # split:              # which samples each client gets (default: IID), e.g. add label skew:
+  #   _target_: src.omnifed.data.skewed.label_distribution.DirichletLabelSkew
+  #   alpha: 0.5

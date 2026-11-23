@@ -1,0 +1,26 @@
+# ================================================================================
+# Caltech-256 + per-client Dirichlet label skew (Hsu et al., 2019)
+#
+# Each client draws its own class mix q_i ~ Dir(alpha * C * prior) and fills a
+# fixed quota (N // K by default) from it, without replacement. Client sizes are
+# equal; only the label mix varies. alpha is on the same scale as the Dirichlet
+# scheme (Hsu et al. report alpha * C).
+#
+# Data, loaders, and what is returned: cal256-common.yaml
+# (train: StatefulDataLoader per trainer; eval: torch DataLoader; server: train=None).
+#
+# Usage: python main.py datamodule=skewed-data-sim/cal256-client-dirichlet-label-skew datamodule.partitioner.alpha=0.1
+# Test:  src/omnifed/data/skewed/test_label_dist/test_client_dirichlet_label_skew.py
+# ================================================================================
+
+defaults:
+  - /datamodule/skewed-data-sim/cal256-common@_here_ # absolute path, merged into this package
+  - _self_
+
+partitioner:
+  _target_: src.omnifed.data.skewed.label_distribution.ClientDirichletLabelSkew
+  alpha: 0.5
+  prior: global # center q_i on dataset class frequencies (Caltech is imbalanced)
+  samples_per_client: null # null = use all data (N // K each)
+  stateful_loader: true
+  # seed: 0

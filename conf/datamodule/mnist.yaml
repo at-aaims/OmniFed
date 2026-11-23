@@ -18,7 +18,7 @@ defaults:
 train:
   dataset:
     _target_: torchvision.datasets.MNIST
-    root: ${oc.env:OMNIFED_DATA_DIR,/tmp}/torchvision-mnist
+    root: ${oc.env:OMNIFED_DATA_DIR}/torchvision-mnist
     train: true
     download: true
     transform:
@@ -35,7 +35,7 @@ train:
 eval:
   dataset:
     _target_: torchvision.datasets.MNIST
-    root: ${oc.env:OMNIFED_DATA_DIR,/tmp}/torchvision-mnist
+    root: ${oc.env:OMNIFED_DATA_DIR}/torchvision-mnist
     train: false
     download: true
     transform:

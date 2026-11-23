@@ -1,0 +1,17 @@
+# ================================================================================
+# FLamby partition scheme: pooled-dirichlet-quantity
+#
+# Ignore the centers: pool the data and give clients Dirichlet(beta) sizes with
+# IID labels. Any dataset. Eval: the pooled test set.
+#
+# Used by conf/datamodule/flamby/flamby.yaml. Pick it on the command line:
+#   python main.py datamodule=flamby/flamby datamodule.dataset=fed_heart_disease \
+#       datamodule/flamby/scheme@datamodule.partitioner=pooled-dirichlet-quantity
+# Number of clients and this rank's client come from OMNIFED_NUM_FEDERATED_CLIENTS
+# and OMNIFED_FEDERATED_CLIENT_INDEX (set by the runners; -1 = server).
+# ================================================================================
+
+_target_: src.omnifed.data.skewed.quantity_skew.DirichletQuantitySkew
+beta: 0.5 # smaller = more unequal sizes
+min_samples_per_client: 2
+stateful_loader: true

@@ -1,0 +1,46 @@
+# ================================================================================
+# FLamby: real cross-silo healthcare datasets, partitioned for this rank
+#
+# 1. Download once (only if missing; the datamodule never downloads):
+#      export OMNIFED_DATA_DIR=/path/to/datasets
+#      python -m src.omnifed.data.skewed.flamby_download --list     # licences, sizes, status
+#      OMNIFED_FLAMBY_ACCEPT_LICENSE=1 python -m src.omnifed.data.skewed.flamby_download fed_ixi
+# 2. Pick the dataset here (or datamodule.dataset=...) and a partitioning scheme
+#    from conf/datamodule/flamby/scheme/ (default natural):
+#      fed_heart_disease  4 hospitals, tabular, binary label
+#      fed_tcga_brca      6 regions, tabular survival (no class labels)
+#      fed_ixi            3 hospitals, 3D brain MRI segmentation
+#      fed_isic2019       6 centers, dermoscopy images, 8 classes
+#      fed_lidc_idri      4 scanners, 3D CT nodule segmentation
+#      fed_camelyon16     2 hospitals, slide features, binary label
+#      fed_kits19         6 centers, 3D CT kidney segmentation
+#
+# Clients: this rank's client is OMNIFED_FEDERATED_CLIENT_INDEX (-1 = server) out
+# of OMNIFED_NUM_FEDERATED_CLIENTS, both set by the runners.
+# Returns: train = StatefulDataLoader over this client's data (server: None);
+#          eval  = the client's own centers' test data (natural schemes) or all.
+#
+# Usage:
+#   python main.py datamodule=flamby/flamby datamodule.dataset=fed_ixi
+#   python main.py datamodule=flamby/flamby datamodule.dataset=fed_heart_disease \
+#       datamodule/flamby/scheme@datamodule.partitioner=pooled-dirichlet-label
+#   or a config naming both, e.g. datamodule=flamby/ixi-natural-dirichlet-quantity
+# ================================================================================
+
+defaults:
+  - /datamodule/flamby/scheme@partitioner: natural
+  - _self_
+
+_target_: src.omnifed.data.skewed.flamby_partition.build_flamby_datamodule
+
+dataset: fed_heart_disease
+
+# Loader settings; null = the dataset's FLamby benchmark defaults
+batch_size: null
+eval_batch_size: null # null = batch_size
+num_workers: null
+pin_memory: false
+
+# data_dir: /path       # default: $OMNIFED_DATA_DIR
+# centers: [0, 2]       # load only some centers
+# debug: false          # FLamby's small debug subset, where supported

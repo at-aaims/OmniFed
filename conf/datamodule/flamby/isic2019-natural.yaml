@@ -1,0 +1,31 @@
+# ================================================================================
+# FLamby Fed-ISIC2019 with the natural scheme (real centers -> clients)
+#
+# 6 centers; dermoscopy images, 8 classes (FLamby's fixed train/test split of the
+# ISIC 2019 challenge: 23,247 images). Items are 3x200x200 float tensors from
+# FLamby's own augmentations (train: random scale/rotate/flip/crop/dropout;
+# test: center crop), ImageNet-normalised; labels are int64 in 0..7.
+#
+# Download once (~9 GB; resumes if interrupted; keeps ~1 GB of resized images):
+#   OMNIFED_FLAMBY_ACCEPT_LICENSE=1 python -m src.omnifed.data.skewed.flamby_download fed_isic2019
+# Extra package: pip install albumentations (efficientnet-pytorch only for FLamby's model)
+#
+# Clients: OMNIFED_FEDERATED_CLIENT_INDEX (-1 = server) of OMNIFED_NUM_FEDERATED_CLIENTS.
+#   6 clients: client i = center i (FLamby benchmark); fewer: centers merged;
+#   more: centers split (IID within a center).
+# Returns: train = StatefulDataLoader over this client's centers (server: None);
+#          eval  = the client's own centers' test images (server: all).
+# Has class labels, so every scheme in conf/datamodule/flamby/scheme/ works.
+#
+# Usage: python main.py datamodule=flamby/isic2019-natural
+# ================================================================================
+
+defaults:
+  - /datamodule/flamby/flamby@_here_
+  - override /datamodule/flamby/scheme@partitioner: natural
+  - _self_
+
+dataset: fed_isic2019
+
+batch_size: 64 # FLamby's benchmark batch size for ISIC 2019
+num_workers: 4 # JPEG decoding + augmentation; 0 to debug in the main process

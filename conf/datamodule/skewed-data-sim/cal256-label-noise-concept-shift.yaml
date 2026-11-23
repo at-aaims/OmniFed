@@ -1,0 +1,34 @@
+# ================================================================================
+# Caltech-256 + label-noise concept shift (noisy-label FL, e.g. FedCorr, Xu et al., 2022)
+#
+# round(noisy_client_fraction * K) clients, chosen by the seed, are noisy. Each
+# noisy client flips its labels with its own rate, drawn uniformly from
+# noise_rate [low, high] (or a fixed number). symmetric: to a random other class;
+# pairflip: class k -> k + 1. Flips are fixed per sample.
+#
+# Which samples a client gets: `split` (default IID). What its labels become:
+# this scheme's fixed per-client label transform, applied on the fly. Inputs
+# are untouched.
+# Eval: eval_follows_concept: false keeps the clean test set for every rank
+# (the noisy-label protocol).
+# Data, loaders, and what is returned: cal256-common.yaml
+#
+# Usage: python main.py datamodule=skewed-data-sim/cal256-label-noise-concept-shift datamodule.partitioner.noise_type=pairflip
+# Test:  src/omnifed/data/skewed/test_concept_shift/test_label_noise_concept_shift.py
+# ================================================================================
+
+defaults:
+  - /datamodule/skewed-data-sim/cal256-common@_here_ # absolute path, merged into this package
+  - _self_
+
+partitioner:
+  _target_: src.omnifed.data.skewed.concept_shift.LabelNoiseConceptShift
+  noise_type: symmetric # or pairflip
+  noisy_client_fraction: 0.5
+  noise_rate: [0.3, 0.5] # per noisy client, uniform in [low, high]; or a single number
+  eval_follows_concept: false
+  stateful_loader: true # torchdata StatefulDataLoader (false = torch DataLoader)
+  # seed: 0             # optional; default $OMNIFED_PARTITION_SEED, else 0
+  # split:              # which samples each client gets (default: IID), e.g. add label skew:
+  #   _target_: src.omnifed.data.skewed.label_distribution.DirichletLabelSkew
+  #   alpha: 0.5
