@@ -66,7 +66,12 @@ class TorchDistCommunicatorConfig(BaseCommunicatorConfig):
 class GrpcCommunicatorConfig(BaseCommunicatorConfig):
     """Configuration for GrpcCommunicator."""
 
-    _target_: str = "src.omnifed.communicator.GrpcCommunicator"
+    # _target_: str = "src.omnifed.communicator.GrpcCommunicator"
+    _target_: str = (
+        "src.omnifed.communicator.grpc_factory."
+        "create_grpc_communicator"
+    )
+    transport_mode: str = "legacy" # "legacy" or "optimized"
 
     # gRPC server configuration (INT32_MAX ~2 GiB; not model-specific)
     max_workers: int = 10

@@ -15,9 +15,9 @@ from src.omnifed.algorithm_torchtitan import (
 from src.omnifed.communicator import (
     AggregationOp,
 )
-from src.omnifed.communicator.grpc import (
-    GrpcCommunicator,
-)
+# from src.omnifed.communicator.grpc import (
+#     GrpcCommunicator,
+# )
 
 from src.omnifed.data.federated_shards import topology_has_server
 from src.omnifed.execution.slurm.frozen_config import (
@@ -38,6 +38,17 @@ from src.omnifed.torchtitan.file_sync import (
 )
 from src.omnifed.utils import print
 
+from omegaconf import OmegaConf
+from src.omnifed.communicator.grpc_factory import (
+    create_grpc_communicator,
+    create_model_exchange,
+)
+
+import json
+import socket
+import sys
+import traceback
+from datetime import datetime, timezone
 
 def create_torchtitan_algorithm(
     cfg,
@@ -77,7 +88,29 @@ def create_torchtitan_algorithm(
 
 
 def create_federated_communicator(cfg, federated_rank: int, server_addr: str):
-    communicator = GrpcCommunicator(
+    # communicator = GrpcCommunicator(
+    #     rank=federated_rank,
+    #     world_size=int(cfg.topology.num_clients) + 1,
+    #     master_addr=server_addr,
+    #     master_port=int(cfg.torchtitan.federated.server_port),
+    #     max_send_message_length=128 * 1024 * 1024,
+    #     max_receive_message_length=128 * 1024 * 1024,
+    #     aggregation_timeout=float(
+    #         cfg.torchtitan.federated.aggregation_timeout
+    #     ),
+    #     client_timeout=float(
+    #         cfg.torchtitan.federated.aggregation_timeout
+    #     ),
+    #     max_retries=120,
+    #     retry_delay=5.0,
+    # )
+
+    communicator = create_grpc_communicator(
+        transport_mode=OmegaConf.select(
+            cfg,
+            "topology.local_comm.transport_mode",
+            default="legacy",
+        ),
         rank=federated_rank,
         world_size=int(cfg.topology.num_clients) + 1,
         master_addr=server_addr,
@@ -93,6 +126,7 @@ def create_federated_communicator(cfg, federated_rank: int, server_addr: str):
         max_retries=120,
         retry_delay=5.0,
     )
+
     communicator.setup()
     return communicator
 
@@ -106,6 +140,79 @@ def create_federated_communicator(cfg, federated_rank: int, server_addr: str):
 #         dist.barrier()
 
 
+# def exchange_model_with_federated_server(
+#     cfg,
+#     communicator,
+#     result,
+#     federated_algorithm: BaseTorchTitanAlgorithm,
+#     timer=None,
+#     round_id=None,
+#     global_step=None,
+# ):
+
+#     with timer.measure("client_load_consolidated_tensor_checkpoint", round_id) if timer else nullcontext():
+#         payload = torch.load(
+#             result["checkpoint_path"],
+#             map_location="cpu",
+#         )
+
+#     local_state = payload["model"]
+#     local_tokens = float(payload["num_tokens"])
+
+#     with timer.measure(
+#         phase="grpc_client_token_count_aggregation", 
+#         round_id=round_id,
+#         iteration="",
+#         global_step=global_step,
+#     ) if timer else nullcontext():
+#         total_tokens = communicator.aggregate(
+#             torch.tensor([local_tokens], dtype=torch.float64),
+#             AggregationOp.SUM,
+#         ).item()
+
+#     weight = federated_algorithm.client_weight(
+#         local_units=local_tokens,
+#         total_units=total_tokens,
+#         round_id=round_id,
+#     )
+#     # aggregated_state = {}
+#     assembler = ModelStateChunkAssembler(local_state)
+
+#     chunk_size = int(cfg.torchtitan.federated.grpc_chunk_size_mb)
+
+#     for chunk_id, chunk in enumerate(iter_model_state_chunks(local_state, chunk_size)):
+#         prepared_chunk = (
+#             federated_algorithm.prepare_client_chunk(
+#                 chunk=chunk,
+#                 weight=weight,
+#                 round_id=round_id,
+#             )
+#         )
+
+#         with timer.measure(
+#             phase="grpc_client_send_wait_receive_model_chunk",
+#             round_id=round_id,
+#             iteration="",
+#             global_step=global_step,
+#             extra=(
+#                 f"chunk_id={chunk_id},"
+#                 f"num_tensors={len(prepared_chunk)}"
+#             ),
+#         ) if timer else nullcontext():
+#             result_chunk = communicator.aggregate(
+#                 prepared_chunk,
+#                 AggregationOp.SUM,
+#             )
+#         # aggregated_state.update(result_chunk)
+#         assembler.add_chunk(result_chunk)
+
+#     # return aggregated_state
+#     return assembler.finish()
+
+"""
+Checkpoint reading stays in the worker; communication scheduling moves into the exchange implementation.
+"""
+
 def exchange_model_with_federated_server(
     cfg,
     communicator,
@@ -115,65 +222,64 @@ def exchange_model_with_federated_server(
     round_id=None,
     global_step=None,
 ):
+    context = (
+        timer.measure(
+            "client_load_consolidated_tensor_checkpoint",
+            round_id,
+        )
+        if timer is not None
+        else nullcontext()
+    )
 
-    with timer.measure("client_load_consolidated_tensor_checkpoint", round_id) if timer else nullcontext():
+    with context:
         payload = torch.load(
             result["checkpoint_path"],
             map_location="cpu",
         )
 
-    local_state = payload["model"]
-    local_tokens = float(payload["num_tokens"])
-
-    with timer.measure(
-        phase="grpc_client_token_count_aggregation", 
-        round_id=round_id,
-        iteration="",
-        global_step=global_step,
-    ) if timer else nullcontext():
-        total_tokens = communicator.aggregate(
-            torch.tensor([local_tokens], dtype=torch.float64),
-            AggregationOp.SUM,
-        ).item()
-
-    weight = federated_algorithm.client_weight(
-        local_units=local_tokens,
-        total_units=total_tokens,
-        round_id=round_id,
+    exchange = create_model_exchange(
+        communicator,
+        chunk_size_mb=int(
+            cfg.torchtitan.federated.grpc_chunk_size_mb
+        ),
     )
-    # aggregated_state = {}
-    assembler = ModelStateChunkAssembler(local_state)
 
-    chunk_size = int(cfg.torchtitan.federated.grpc_chunk_size_mb)
+    return exchange.exchange_client_model(
+        local_state=payload["model"],
+        local_units=float(payload["num_tokens"]),
+        algorithm=federated_algorithm,
+        round_id=round_id,
+        global_step=global_step,
+        timer=timer,
+    )
 
-    for chunk_id, chunk in enumerate(iter_model_state_chunks(local_state, chunk_size)):
-        prepared_chunk = (
-            federated_algorithm.prepare_client_chunk(
-                chunk=chunk,
-                weight=weight,
-                round_id=round_id,
-            )
-        )
 
-        with timer.measure(
-            phase="grpc_client_send_wait_receive_model_chunk",
-            round_id=round_id,
-            iteration="",
-            global_step=global_step,
-            extra=(
-                f"chunk_id={chunk_id},"
-                f"num_tensors={len(prepared_chunk)}"
-            ),
-        ) if timer else nullcontext():
-            result_chunk = communicator.aggregate(
-                prepared_chunk,
-                AggregationOp.SUM,
-            )
-        # aggregated_state.update(result_chunk)
-        assembler.add_chunk(result_chunk)
+def log_client_event(role, event, **details):
+    record = {
+        "time_utc": datetime.now(timezone.utc).isoformat(
+            timespec="milliseconds"
+        ),
+        "event": event,
+        "host": socket.gethostname(),
+        "pid": os.getpid(),
+        "job_id": os.environ.get("SLURM_JOB_ID"),
+        "slurm_step": os.environ.get("SLURM_STEP_ID"),
+        "slurm_rank": os.environ.get("SLURM_PROCID"),
+        "client": role.client_id,
+        "rank": role.torchtitan_rank,
+        "local_rank": os.environ.get("LOCAL_RANK"),
+        **details,
+    }
 
-    # return aggregated_state
-    return assembler.finish()
+    # Use built-in print to avoid rich formatting/wrapping.
+    import builtins
+
+    builtins.print(
+        "[CLIENT EVENT] " + json.dumps(record, default=str),
+        file=sys.stderr,
+        flush=True,
+    )
+
 
 def run_torchtitan_client(
     cfg: Any,
@@ -226,6 +332,9 @@ def run_torchtitan_client(
 
     initial_path, initial_ready_path = get_initial_model_paths(cfg)
 
+    phase = "initialization"
+    round_id = -1
+
     try:
 
         # The federated server owns initialization.  Every client, including
@@ -248,6 +357,8 @@ def run_torchtitan_client(
             os.replace(temporary_path, initial_path)
             initial_ready_path.touch()
 
+        phase = "wait_initial_model"
+        log_client_event(role, "phase_start", phase=phase)
         wait_for_file(initial_ready_path)
 
         print(
@@ -258,6 +369,8 @@ def run_torchtitan_client(
 
         # Load initial ordinary tensors into this client's PP/TP model.
 
+        phase = "load_initial_model"
+        log_client_event(role, "phase_start", phase=phase)
         backend.load_global_model(
             model_path=str(initial_path),
             round_id=-1,
@@ -268,6 +381,8 @@ def run_torchtitan_client(
             "finished initial load",
             flush=True,
         )
+
+        log_client_event(role, "phase_end", phase=phase)
 
         # dist.barrier()
         # maybe_dist_barrier()
@@ -282,6 +397,11 @@ def run_torchtitan_client(
             with timer.measure("torchtitan_local_training_total", round_id):
                 local_steps = int(
                     cfg.torchtitan.federated.local_steps
+                )
+
+                phase = "local_training"
+                log_client_event(
+                    role, "phase_start", phase=phase, round_id=round_id
                 )
 
                 federated_algorithm.before_local_training(
@@ -301,8 +421,16 @@ def run_torchtitan_client(
                     train_result=train_result,
                     round_id=round_id,
                 )
-                
 
+                log_client_event(
+                    role,
+                    "phase_end",
+                    phase=phase,
+                    round_id=round_id,
+                    step=train_result["step"],
+                )
+                
+            phase = "save_and_consolidate"
             with timer.measure("save_sharded_checkpoint_and_consolidate", round_id):
                 local_result = backend.save_and_consolidate(
                     round_id=round_id,
@@ -319,6 +447,7 @@ def run_torchtitan_client(
 
             if role.is_client_leader:
                 if federated:
+                    phase = "grpc_exchange"
                     assert communicator is not None
                     with timer.measure(
                         phase="grpc_round_communication_total",
@@ -343,6 +472,7 @@ def run_torchtitan_client(
                     )
                     aggregated_state = payload["model"]
 
+                phase = "write_global_model"
                 with timer.measure("client_write_global_tensor_model", round_id):
                     global_path.parent.mkdir(
                         parents=True,
@@ -363,6 +493,7 @@ def run_torchtitan_client(
                     global_ready_path.touch()
 
             # Non-leader ranks wait through Lustre, not raw dist.barrier().
+            phase = "wait_global_model"
             with timer.measure("client_wait_for_global_model_file", round_id):
                 wait_for_file(global_ready_path)
 
@@ -371,6 +502,7 @@ def run_torchtitan_client(
             # maybe_dist_barrier()
 
             # Convert global tensors back into PP/TP DTensors.
+            phase = "load_global_model"
             with timer.measure("convert_global_tensor_to_dtensor", round_id):
                 print(
                     f"[client {role.client_id} rank {role.torchtitan_rank}] "
@@ -395,6 +527,25 @@ def run_torchtitan_client(
             # dist.barrier()
             # maybe_dist_barrier()
 
+    except Exception as exc:
+        log_client_event(
+            role,
+            "failure",
+            phase=phase,
+            round_id=round_id,
+            exception_type=type(exc).__name__,
+            exception_message=str(exc),
+            training_iteration=getattr(
+                backend, "debug_iteration", None
+            ),
+            training_step=getattr(
+                backend, "debug_global_step", None
+            ),
+        )
+        traceback.print_exc(file=sys.stderr)
+        sys.stderr.flush()
+        raise
+
     finally:
 
         # try:
@@ -405,7 +556,25 @@ def run_torchtitan_client(
         if communicator is not None:
             communicator.close()
 
+        log_client_event(
+            role,
+            "cleanup_enter",
+            phase=phase,
+            round_id=round_id,
+        )
+
         backend.close()
+
+        log_client_event(role, "cleanup_exit")
+
+        import faulthandler
+
+        faulthandler.dump_traceback_later(
+            120,
+            repeat=True,
+            file=sys.stderr,
+            exit=False,
+        )
 
 
 def run_torchtitan_federated_server(
@@ -468,6 +637,11 @@ def run_torchtitan_federated_server(
 
     chunk_size = int(cfg.torchtitan.federated.grpc_chunk_size_mb)
 
+    exchange = create_model_exchange(
+        communicator,
+        chunk_size_mb=chunk_size,
+    )
+
     for round_id in range(int(cfg.global_rounds)):
         # Existing collective: clients contribute their training token counts.
         # No algorithm result processor is installed for this collective.
@@ -475,64 +649,71 @@ def run_torchtitan_federated_server(
         # communicator.broadcast(global_state)
 
         # Server participates with zero samples and zero-valued tensors.
-        with timer.measure("server_collect_token_counts", round_id):
-            communicator.aggregate(
-                torch.tensor([0.0], dtype=torch.float64),
-                AggregationOp.SUM,
-            )
+        # with timer.measure("server_collect_token_counts", round_id):
+        #     communicator.aggregate(
+        #         torch.tensor([0.0], dtype=torch.float64),
+        #         AggregationOp.SUM,
+        #     )
 
-        assembler = ModelStateChunkAssembler(global_state)
+        # assembler = ModelStateChunkAssembler(global_state)
 
-        for chunk_id, chunk in enumerate(
-            iter_model_state_chunks(global_state, chunk_size)
-        ):
-            previous_chunk = {
-                name: tensor.detach().clone()
-                for name, tensor in chunk.items()
-            }
+        # for chunk_id, chunk in enumerate(
+        #     iter_model_state_chunks(global_state, chunk_size)
+        # ):
+        #     previous_chunk = {
+        #         name: tensor.detach().clone()
+        #         for name, tensor in chunk.items()
+        #     }
 
-            # Bind the current chunk and round explicitly.
-            def process_averaged_chunk(
-                averaged_parameters,
-                previous_parameters=previous_chunk,
-                current_round=round_id,
-            ):
-                return federated_algorithm.server_step(
-                    averaged_parameters=averaged_parameters,
-                    previous_global_parameters=previous_parameters,
-                    round_id=current_round,
-                )
+        #     # Bind the current chunk and round explicitly.
+        #     def process_averaged_chunk(
+        #         averaged_parameters,
+        #         previous_parameters=previous_chunk,
+        #         current_round=round_id,
+        #     ):
+        #         return federated_algorithm.server_step(
+        #             averaged_parameters=averaged_parameters,
+        #             previous_global_parameters=previous_parameters,
+        #             round_id=current_round,
+        #         )
 
-            # Register before rank 0 contributes, so the aggregation
-            # cannot publish an unprocessed result.
-            communicator.servicer.set_next_result_processor(
-                process_averaged_chunk
-            )
+        #     # Register before rank 0 contributes, so the aggregation
+        #     # cannot publish an unprocessed result.
+        #     communicator.servicer.set_next_result_processor(
+        #         process_averaged_chunk
+        #     )
 
-            server_chunk = federated_algorithm.prepare_server_chunk(
-                chunk=chunk,
-                round_id=round_id,
+        #     server_chunk = federated_algorithm.prepare_server_chunk(
+        #         chunk=chunk,
+        #         round_id=round_id,
 
-            )
+        #     )
 
-            with timer.measure(
-                "server_collect_algorithm_and_return_chunk",
-                round_id,
-                extra=(
-                    f"chunk_id={chunk_id},"
-                    f"num_tensors={len(server_chunk)}"
-                ),
-            ):
+        #     with timer.measure(
+        #         "server_collect_algorithm_and_return_chunk",
+        #         round_id,
+        #         extra=(
+        #             f"chunk_id={chunk_id},"
+        #             f"num_tensors={len(server_chunk)}"
+        #         ),
+        #     ):
 
-                updated_chunk = communicator.aggregate(
-                    server_chunk,
-                    AggregationOp.SUM,
-                )
+        #         updated_chunk = communicator.aggregate(
+        #             server_chunk,
+        #             AggregationOp.SUM,
+        #         )
 
-            # The gRPC clients received this same updated chunk.
-            assembler.add_chunk(updated_chunk)
+        #     # The gRPC clients received this same updated chunk.
+        #     assembler.add_chunk(updated_chunk)
 
-        global_state = assembler.finish()
+        # global_state = assembler.finish()
+
+        global_state = exchange.aggregate_server_round(
+            global_state=global_state,
+            algorithm=federated_algorithm,
+            round_id=round_id,
+            timer=timer,
+        )
 
         # Do not call finalize_global_state() here.
         # Every server update has already happened before its response.
@@ -586,6 +767,19 @@ def main() -> None:
             cfg=cfg,
             role=role,
         )
+
+        import threading
+
+        log_client_event(
+            role,
+            "remaining_threads",
+            threads=[
+                {"name": thread.name, "daemon": thread.daemon}
+                for thread in threading.enumerate()
+            ],
+        )
+
+        log_client_event(role, "client_function_returned")
 
 
 

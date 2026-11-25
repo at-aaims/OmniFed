@@ -4,7 +4,9 @@
 # Sample weight: n_i is sent on the payload RPC (not a separate hop).
 # normalize_by_total_samples is ignored (Hydra constructor compat).
 
-_target_: src.omnifed.communicator.GrpcCommunicator
+# _target_: src.omnifed.communicator.GrpcCommunicator
+_target_: src.omnifed.communicator.grpc_factory.create_grpc_communicator
+transport_mode: legacy # "legacy" or "optimized"
 master_addr: 127.0.0.1
 master_port: 50051
 normalize_by_total_samples: false

@@ -25,6 +25,8 @@ engine:
 
 topology:
   num_clients: 2
+  local_comm:
+    transport_mode: legacy # "legacy" or "optimized"
 
 algorithm: null
 model: null

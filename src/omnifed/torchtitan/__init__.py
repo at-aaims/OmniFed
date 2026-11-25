@@ -7,7 +7,8 @@ from .roles import (
     TorchTitanRole,
     resolve_torchtitan_role,
 )
-from .state_chunks import (
+
+from ..communicator.tensor_chunks import (
     ModelStateChunkAssembler,
     iter_model_state_chunks,
 )

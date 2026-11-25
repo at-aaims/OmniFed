@@ -446,6 +446,33 @@ class TorchTitanBackend:
             trainer.step += 1
             global_step = int(trainer.step)
 
+            self.debug_iteration = iteration
+            self.debug_global_step = global_step
+
+            import builtins
+            import os
+            import socket
+            import sys
+            from datetime import datetime, timezone
+
+            def log_step(event):
+                builtins.print(
+                    f"[TRAIN STEP] "
+                    f"time_utc={datetime.now(timezone.utc).isoformat()} "
+                    f"event={event} "
+                    f"host={socket.gethostname()} "
+                    f"pid={os.getpid()} "
+                    f"client={os.environ.get('CLIENT_ID')} "
+                    f"rank={os.environ.get('RANK')} "
+                    f"round={round_id} "
+                    f"iteration={iteration} "
+                    f"step={global_step}",
+                    file=sys.stderr,
+                    flush=True,
+                )
+
+            log_step("start")
+
             if self.timer is not None:
                 with profile_torchtitan_communication(
                     timer=self.timer,
@@ -464,6 +491,7 @@ class TorchTitanBackend:
             else:
                 trainer.train_step(data_iterator)
 
+            log_step("end")
             steps_run += 1
 
         tokens_this_round = (
@@ -686,12 +714,29 @@ class TorchTitanBackend:
 
 
     def close(self) -> None:
+        trainer = self._trainer
+
         try:
-            if dist.is_available() and dist.is_initialized():
-                dist.barrier()
-                dist.destroy_process_group()
-        except Exception as exc:
-            print(f"[TorchTitanBackend.close] distributed cleanup warning: {exc}", flush=True)
+            if trainer is not None:
+                print("[cleanup] trainer.close() starting", flush=True)
+                trainer.close()
+                print("[cleanup] trainer.close() finished", flush=True)
         finally:
-            self._trainer = None
-            self._config = None
+            try:
+                if dist.is_available() and dist.is_initialized():
+                    print("[cleanup] distributed barrier starting", flush=True)
+                    dist.barrier()
+
+                    print("[cleanup] destroy_process_group starting", flush=True)
+                    dist.destroy_process_group()
+
+                    print("[cleanup] distributed cleanup finished", flush=True)
+            except Exception as exc:
+                print(
+                    f"[TorchTitanBackend.close] "
+                    f"distributed cleanup warning: {exc}",
+                    flush=True,
+                )
+            finally:
+                self._trainer = None
+                self._config = None
